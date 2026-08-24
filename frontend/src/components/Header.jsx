@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download, HardDrive } from 'lucide-react';
+import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download, HardDrive, Sparkles, Layers, Users, BarChart3, MessageSquare } from 'lucide-react';
 import { getDownloadTemplateUrl, getDataSummary } from '../services/api';
 
 export default function Header({ scheduleStatus, onStatusToggle, activeTab, setActiveTab, onUploadClick, onScheduleClick, loading }) {
@@ -21,31 +21,36 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
   };
 
   return (
-    <header className="glass-panel" style={{ padding: '16px 28px', marginBottom: '24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-        {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: '12px',
-            background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 14px rgba(245, 158, 11, 0.4)'
-          }}>
-            <span style={{ fontSize: '24px' }}>♞</span>
+    <header className="glass-panel" style={{ padding: '20px 32px', marginBottom: '28px', border: '1px solid var(--border-gold)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '20px' }}>
+        {/* Brand Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div
+            className="knight-logo"
+            style={{
+              width: '52px',
+              height: '52px',
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: 'var(--shadow-gold)',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}
+          >
+            <span style={{ fontSize: '30px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>♞</span>
           </div>
+
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '12px' }}>
               MIGHTY KNIGHT
-              <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.1)', color: '#9ca3af', fontWeight: 600 }}>
-                v1.0 Rules Engine
+              <span className="badge badge-gold" style={{ fontSize: '0.7rem', padding: '3px 10px' }}>
+                <Sparkles size={12} style={{ marginRight: '4px' }} /> Rules Engine v1.0
               </span>
             </h1>
-            <p style={{ fontSize: '0.825rem', color: '#9ca3af' }}>
-              Dynamic Academy Scheduling Engine for Chess Academies
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Intelligent Chess Academy Scheduling, Capacity Optimization & Multi-Channel Dispatch
             </p>
           </div>
         </div>
@@ -54,18 +59,19 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           {activeFileInfo && (
             <div style={{
-              background: 'rgba(245, 158, 11, 0.15)',
-              border: '1px solid rgba(245, 158, 11, 0.4)',
+              background: 'rgba(251, 191, 36, 0.12)',
+              border: '1px solid rgba(251, 191, 36, 0.35)',
               borderRadius: 'var(--radius-md)',
-              padding: '6px 12px',
-              fontSize: '0.775rem',
+              padding: '8px 14px',
+              fontSize: '0.8rem',
               color: '#fff',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px'
+              gap: '8px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
             }}>
-              <HardDrive size={14} style={{ color: 'var(--accent-gold)' }} />
-              <span>Active File: <strong>{activeFileInfo.filename}</strong> ({activeFileInfo.students_count} students, {activeFileInfo.coaches_count} coaches)</span>
+              <HardDrive size={16} style={{ color: 'var(--accent-gold)' }} />
+              <span>Active Dataset: <strong>{activeFileInfo.filename}</strong> ({activeFileInfo.students_count} Students · {activeFileInfo.coaches_count} Coaches)</span>
             </div>
           )}
 
@@ -73,10 +79,10 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
             <button
               onClick={onStatusToggle}
               className={`badge ${scheduleStatus === 'Finalized' ? 'badge-success' : 'badge-gold'}`}
-              style={{ padding: '8px 14px', cursor: 'pointer', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ padding: '9px 16px', cursor: 'pointer', border: 'none', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}
             >
-              {scheduleStatus === 'Finalized' ? <CheckCircle size={14} /> : <Clock size={14} />}
-              Status: {scheduleStatus} (Click to toggle)
+              {scheduleStatus === 'Finalized' ? <CheckCircle size={16} /> : <Clock size={16} />}
+              Status: {scheduleStatus}
             </button>
           )}
 
@@ -84,41 +90,43 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
             href={getDownloadTemplateUrl()}
             download="mighty_knight_template.xlsx"
             className="btn btn-secondary"
-            style={{ textDecoration: 'none', color: '#fff' }}
+            style={{ textDecoration: 'none', color: '#fff', padding: '10px 16px' }}
           >
-            <Download size={16} /> Excel Format
+            <Download size={16} /> Template
           </a>
 
-          <button onClick={onUploadClick} className="btn btn-secondary">
-            <FileSpreadsheet size={16} /> Upload Excel Data
+          <button onClick={onUploadClick} className="btn btn-secondary" style={{ padding: '10px 16px' }}>
+            <FileSpreadsheet size={16} /> Upload Excel
           </button>
 
-          <button onClick={onScheduleClick} disabled={loading} className="btn btn-primary">
+          <button onClick={onScheduleClick} disabled={loading} className="btn btn-primary" style={{ padding: '10px 20px' }}>
             <Play size={16} /> {loading ? 'Scheduling...' : 'Run Engine'}
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+      {/* Futuristic Navigation Tabs Bar */}
+      <div style={{ display: 'flex', gap: '10px', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '18px', overflowX: 'auto' }}>
         <button
           onClick={() => setActiveTab('output1')}
           className={`btn ${activeTab === 'output1' ? 'btn-primary' : 'btn-secondary'}`}
+          style={activeTab === 'output1' ? { background: 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)', color: '#fff', border: 'none' } : {}}
         >
-          📱 Output 1 — Coach Schedule (WhatsApp)
+          <MessageSquare size={16} /> Output 1 — Coach Schedule (WhatsApp)
         </button>
 
         <button
           onClick={() => setActiveTab('output2')}
           className={`btn ${activeTab === 'output2' ? 'btn-primary' : 'btn-secondary'}`}
+          style={activeTab === 'output2' ? { background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)', color: '#000', border: 'none' } : {}}
         >
-          📋 Output 2 — Detailed Admin Schedule
+          <Layers size={16} /> Output 2 — Detailed Admin Schedule
         </button>
 
         <button
           onClick={() => setActiveTab('output3')}
           className={`btn ${activeTab === 'output3' ? 'btn-danger' : 'btn-secondary'}`}
-          style={activeTab === 'output3' ? { background: '#ef4444', color: '#fff' } : {}}
+          style={activeTab === 'output3' ? { background: 'linear-gradient(135deg, #f43f5e 0%, #be123c 100%)', color: '#fff', border: 'none', boxShadow: '0 4px 18px rgba(244,63,94,0.4)' } : {}}
         >
           <ShieldAlert size={16} className="pulse-icon" /> Output 3 — Unscheduled Attention
         </button>
@@ -126,16 +134,17 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
         <button
           onClick={() => setActiveTab('coachWorkload')}
           className={`btn ${activeTab === 'coachWorkload' ? 'btn-primary' : 'btn-secondary'}`}
+          style={activeTab === 'coachWorkload' ? { background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)', color: '#fff', border: 'none' } : {}}
         >
-          📊 Coach Workload & Hours
+          <BarChart3 size={16} /> Output 4 — Coach Workload & Hours
         </button>
 
         <button
           onClick={() => setActiveTab('masterData')}
           className={`btn ${activeTab === 'masterData' ? 'btn-primary' : 'btn-secondary'}`}
-          style={activeTab === 'masterData' ? { background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#000', fontWeight: 800 } : {}}
+          style={activeTab === 'masterData' ? { background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)', color: '#fff', border: 'none' } : {}}
         >
-          👥 Master Data (Students & Coaches)
+          <Users size={16} /> Master Data (Students & Coaches)
         </button>
       </div>
     </header>
