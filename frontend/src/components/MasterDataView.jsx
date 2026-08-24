@@ -46,9 +46,10 @@ export default function MasterDataView({ onReRunScheduler }) {
   const handleSaveStudent = async (studentData) => {
     try {
       await saveMasterStudent(studentData);
-      showNotification(`Saved student ${studentData.student_name} (${studentData.student_id})`);
+      showNotification(`Saved student ${studentData.student_name} (${studentData.student_id}) & updated active schedule!`);
       setEditingStudent(null);
       await fetchMasterData();
+      if (onReRunScheduler) await onReRunScheduler();
     } catch (err) {
       alert('Failed to save student: ' + err.message);
     }
@@ -58,8 +59,9 @@ export default function MasterDataView({ onReRunScheduler }) {
     if (!window.confirm(`Are you sure you want to delete student "${studentName}" (${studentId})?`)) return;
     try {
       await deleteMasterStudent(studentId);
-      showNotification(`Deleted student ${studentName}`);
+      showNotification(`Deleted student ${studentName} & updated active schedule!`);
       await fetchMasterData();
+      if (onReRunScheduler) await onReRunScheduler();
     } catch (err) {
       alert('Failed to delete student: ' + err.message);
     }
@@ -69,9 +71,10 @@ export default function MasterDataView({ onReRunScheduler }) {
   const handleSaveCoach = async (coachData) => {
     try {
       await saveMasterCoach(coachData);
-      showNotification(`Saved coach ${coachData.coach_name}`);
+      showNotification(`Saved coach ${coachData.coach_name} & updated active schedule!`);
       setEditingCoach(null);
       await fetchMasterData();
+      if (onReRunScheduler) await onReRunScheduler();
     } catch (err) {
       alert('Failed to save coach: ' + err.message);
     }
@@ -81,8 +84,9 @@ export default function MasterDataView({ onReRunScheduler }) {
     if (!window.confirm(`Are you sure you want to delete coach "${coachName}"?`)) return;
     try {
       await deleteMasterCoach(coachName);
-      showNotification(`Deleted coach ${coachName}`);
+      showNotification(`Deleted coach ${coachName} & updated active schedule!`);
       await fetchMasterData();
+      if (onReRunScheduler) await onReRunScheduler();
     } catch (err) {
       alert('Failed to delete coach: ' + err.message);
     }
