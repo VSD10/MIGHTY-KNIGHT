@@ -150,7 +150,7 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
 
           // Find all classes assigned to this coach
           const coachClasses = (detailedClasses || []).filter(
-            cls => cls.coach_name.strip().toLowerCase() === coach.coach_name.strip().lower()
+            cls => (cls.coach_name || '').trim().toLowerCase() === (coach.coach_name || '').trim().toLowerCase()
           );
 
           // Sort classes by date & time
