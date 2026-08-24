@@ -217,13 +217,15 @@ class ManualOverrideRequest(BaseModel):
     coach_name: str
     date: str
     time_slot: str
-    student_ids: List[str]
+    student_level: Optional[str] = None
+    batch_type: Optional[str] = None
+    student_ids: Optional[List[str]] = None
 
 @app.post("/api/schedule/{schedule_id}/validate-override")
 def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
     """
     Validates manual administrative edit (Section 37) and checks for rule violations before saving.
-    Checks coach overlap, capacity breach, student availability conflict.
+    Checks coach overlap, capacity breach, coach capability, Sunday restrictions.
     """
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
@@ -234,16 +236,29 @@ def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
     # Check 1: Coach Overlap at same time
     for cls in res_dict["scheduled_classes"]:
         if cls["class_id"] != req.class_id and cls["date"] == req.date and cls["time_slot"] == req.time_slot:
-            if cls["coach_name"] == req.coach_name:
+            if cls["coach_name"].strip().lower() == req.coach_name.strip().lower():
                 violations.append(f"COACH OVERLAP WARNING: Coach '{req.coach_name}' already has a class assigned at {req.time_slot} on {req.date}.")
 
     # Check 2: Coach capability check
     coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
-    target_coach = next((c for c in coaches if c.coach_name.strip() == req.coach_name.strip()), None)
+    target_coach = next((c for c in coaches if c.coach_name.strip().lower() == req.coach_name.strip().lower()), None)
     if not target_coach:
         violations.append(f"UNKNOWN COACH: '{req.coach_name}' is not in master coach list.")
+    elif req.student_level:
+        if not target_coach.can_handle_level(req.student_level):
+            violations.append(f"COACH CAPABILITY WARNING: Coach '{req.coach_name}' is not listed as qualified to teach '{req.student_level}'.")
 
-    # Check 3: Sunday 3 PM limit
+    # Check 3: Batch capacity limits
+    if req.batch_type and req.student_ids:
+        cnt = len(req.student_ids)
+        if req.batch_type == "G" and cnt > 10:
+            violations.append(f"BATCH CAPACITY BREACH: Group Batch has {cnt} students (max 10 allowed).")
+        elif req.batch_type == "L" and cnt > 3:
+            violations.append(f"BATCH CAPACITY BREACH: Limited Batch has {cnt} students (max 3 allowed).")
+        elif req.batch_type == "I" and cnt > 1:
+            violations.append(f"BATCH CAPACITY BREACH: Individual Batch has {cnt} students (max 1 allowed).")
+
+    # Check 4: Sunday 3 PM limit
     try:
         d_obj = datetime.strptime(req.date, "%Y-%m-%d")
         if d_obj.strftime("%A") == "Sunday":
@@ -256,3 +271,61 @@ def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
         "valid": len(violations) == 0,
         "warnings": violations
     }
+
+@app.post("/api/schedule/{schedule_id}/manual-edit")
+def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
+    """
+    Applies and persists manual administrative edit (Section 37) to the schedule.
+    Updates Output 1 and Output 2 automatically.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    target_cls = None
+    for cls in res_dict["scheduled_classes"]:
+        if cls["class_id"] == req.class_id:
+            target_cls = cls
+            break
+
+    if not target_cls:
+        raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found in schedule")
+
+    # Update class fields
+    target_cls["coach_name"] = req.coach_name.strip()
+    target_cls["date"] = req.date
+    try:
+        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+        target_cls["day"] = d_obj.strftime("%A")
+    except Exception:
+        pass
+    target_cls["time_slot"] = req.time_slot
+    if req.student_level:
+        target_cls["student_level"] = req.student_level
+    if req.batch_type:
+        target_cls["batch_type"] = req.batch_type
+    target_cls["is_manual_override"] = True
+
+    # Re-calculate Coach Communication Schedule (Output 1)
+    coach_schedule_map = {}
+    for s_cls in res_dict["scheduled_classes"]:
+        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
+        if key not in coach_schedule_map:
+            coach_schedule_map[key] = []
+        if s_cls["coach_name"] not in coach_schedule_map[key]:
+            coach_schedule_map[key].append(s_cls["coach_name"])
+
+    updated_coach_slots = []
+    for k, coaches_list in sorted(coach_schedule_map.items()):
+        dt, dy, ts = k.split("||")
+        updated_coach_slots.append({
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coaches": coaches_list
+        })
+
+    res_dict["coach_schedule"] = updated_coach_slots
+
+    save_schedule_db(res_dict)
+    return {"status": "success", "schedule": res_dict}

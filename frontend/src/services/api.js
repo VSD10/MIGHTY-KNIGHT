@@ -65,6 +65,11 @@ export const validateManualOverride = async (scheduleId, overrideData) => {
   return res.data;
 };
 
+export const applyManualEdit = async (scheduleId, editData) => {
+  const res = await api.post(`/schedule/${scheduleId}/manual-edit`, editData);
+  return res.data;
+};
+
 export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };

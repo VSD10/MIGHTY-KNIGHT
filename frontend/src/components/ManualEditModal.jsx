@@ -1,16 +1,42 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, X, ShieldAlert } from 'lucide-react';
-import { validateManualOverride } from '../services/api';
+import { validateManualOverride, applyManualEdit } from '../services/api';
 
 export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess }) {
   if (!isOpen || !targetClass) return null;
 
   const [coachName, setCoachName] = useState(targetClass.coach_name || '');
+  const [studentLevel, setStudentLevel] = useState(targetClass.student_level || 'Basic 1');
+  const [batchType, setBatchType] = useState(targetClass.batch_type || 'G');
   const [timeSlot, setTimeSlot] = useState(targetClass.time_slot || '');
   const [dateStr, setDateStr] = useState(targetClass.date || '');
   const [warnings, setWarnings] = useState([]);
   const [validating, setValidating] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [validated, setValidated] = useState(false);
+
+  useEffect(() => {
+    if (targetClass) {
+      setCoachName(targetClass.coach_name || '');
+      setStudentLevel(targetClass.student_level || 'Basic 1');
+      setBatchType(targetClass.batch_type || 'G');
+      setTimeSlot(targetClass.time_slot || '');
+      setDateStr(targetClass.date || '');
+      setValidated(false);
+      setWarnings([]);
+    }
+  }, [targetClass]);
+
+  const levels = [
+    'Basic 1',
+    'Basic 2',
+    'Beginner 1',
+    'Beginner 2',
+    'Beginner 3',
+    'Early Intermediate 1',
+    'Early Intermediate 2',
+    'Intermediate'
+  ];
 
   const handleValidate = async () => {
     setValidating(true);
@@ -19,6 +45,8 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       const res = await validateManualOverride(scheduleId, {
         class_id: targetClass.class_id,
         coach_name: coachName,
+        student_level: studentLevel,
+        batch_type: batchType,
         date: dateStr,
         time_slot: timeSlot,
         student_ids: targetClass.student_ids
@@ -32,10 +60,25 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     }
   };
 
-  const handleSave = () => {
-    alert(`Manual edit applied for class ${targetClass.class_id}. Warnings acknowledged: ${warnings.length}`);
-    if (onSaveSuccess) onSaveSuccess();
-    onClose();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await applyManualEdit(scheduleId, {
+        class_id: targetClass.class_id,
+        coach_name: coachName,
+        student_level: studentLevel,
+        batch_type: batchType,
+        date: dateStr,
+        time_slot: timeSlot,
+        student_ids: targetClass.student_ids
+      });
+      if (onSaveSuccess) onSaveSuccess();
+      onClose();
+    } catch (err) {
+      alert('Failed to save manual edit: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -50,7 +93,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       zIndex: 1000,
       padding: '20px'
     }}>
-      <div className="glass-panel" style={{ width: '100%', maxWidth: '550px', padding: '28px', position: 'relative' }}>
+      <div className="glass-panel" style={{ width: '100%', maxWidth: '600px', padding: '28px', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
         <button
           onClick={onClose}
           style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
@@ -62,10 +105,11 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
           <ShieldAlert style={{ color: 'var(--accent-gold)' }} /> Manual Administrative Override (Section 37)
         </h2>
         <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-          Manually edit class coach or slot. The engine will warn on rule violations (coach overlap, daily caps, Sunday restrictions) before saving.
+          Manually modify class coach, student level, batch type, date, or time slot. The engine checks for rule violations before saving.
         </p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+        {/* Form Controls */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
           <div>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>ASSIGNED COACH</label>
             <input
@@ -77,6 +121,38 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
                 background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 600
               }}
             />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>STUDENT LEVEL</label>
+            <select
+              value={studentLevel}
+              onChange={e => { setStudentLevel(e.target.value); setValidated(false); }}
+              style={{
+                width: '100%', padding: '10px', borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 600
+              }}
+            >
+              {levels.map(lvl => (
+                <option key={lvl} value={lvl}>{lvl}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>BATCH TYPE</label>
+            <select
+              value={batchType}
+              onChange={e => { setBatchType(e.target.value); setValidated(false); }}
+              style={{
+                width: '100%', padding: '10px', borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 600
+              }}
+            >
+              <option value="G">G — Group Batch (8–10 students)</option>
+              <option value="L">L — Limited Students Batch (1–3 students)</option>
+              <option value="I">I — Individual Batch (1 student)</option>
+            </select>
           </div>
 
           <div>
@@ -92,7 +168,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
             />
           </div>
 
-          <div>
+          <div style={{ gridColumn: 'span 2' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>TIME SLOT</label>
             <input
               type="text"
@@ -104,6 +180,16 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
               }}
             />
           </div>
+        </div>
+
+        {/* Current Students in Batch info */}
+        <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: 'var(--radius-md)', marginBottom: '20px' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
+            STUDENTS IN THIS CLASS ({targetClass.student_names ? targetClass.student_names.length : 0}):
+          </span>
+          <p style={{ fontSize: '0.8rem', color: '#fff', marginTop: '4px' }}>
+            {targetClass.students_formatted}
+          </p>
         </div>
 
         {/* Live Rule Violations Warning Panel */}
@@ -133,8 +219,8 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
               {validating ? 'Checking Rules...' : 'Validate Rules'}
             </button>
           ) : (
-            <button onClick={handleSave} className="btn btn-primary">
-              Acknowledge & Save Override
+            <button onClick={handleSave} disabled={saving} className="btn btn-primary">
+              {saving ? 'Saving...' : 'Acknowledge & Save Override'}
             </button>
           )}
         </div>
