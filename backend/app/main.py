@@ -126,13 +126,21 @@ async def upload_excel_data(file: UploadFile = File(...)):
     # Permanently store in local SQLite database (data/chess_scheduler.db)
     save_master_data_db(s_dicts, c_dicts, errors, filename=file.filename, upload_timestamp=now_str)
 
+    # Immediately generate schedule for this new uploaded dataset & persist as active schedule in SQLite
+    s_date = date.today()
+    e_date = s_date + timedelta(days=6)
+    result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
+    res_dict = result.model_dump()
+    save_schedule_db(res_dict)
+
     return {
         "filename": file.filename,
         "upload_timestamp": now_str,
         "total_students_parsed": len(students),
         "total_coaches_parsed": len(coaches),
         "parsing_errors_count": len(errors),
-        "parsing_errors": errors
+        "parsing_errors": errors,
+        "schedule_id": res_dict["schedule_id"]
     }
 
 @app.get("/api/data/summary")

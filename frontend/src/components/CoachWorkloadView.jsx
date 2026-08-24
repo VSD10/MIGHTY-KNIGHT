@@ -82,8 +82,16 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
           </p>
         </div>
 
-        {/* Global Metric Cards */}
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        {/* Global Metric Cards & Bulk Dispatch */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={() => setDispatchCoachName(filteredSummaries[0]?.coach_name || 'BATHRINATH')}
+            className="btn btn-primary"
+            style={{ padding: '10px 16px', background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#000', fontWeight: 800, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            🚀 Dispatch Schedules (Excel + .ics + WhatsApp)
+          </button>
+
           <div style={{ background: 'var(--bg-secondary)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
             <span style={{ fontSize: '0.7rem', color: '#d1d5db', display: 'block' }}>TOTAL COACHES</span>
             <strong style={{ fontSize: '1.2rem', color: '#fff' }}>{totalCoaches}</strong>

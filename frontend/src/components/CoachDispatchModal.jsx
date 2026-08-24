@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { X, MessageSquare, Calendar, Download, Printer, Copy, Check, ExternalLink, Sparkles } from 'lucide-react';
+import { X, MessageSquare, Calendar, Download, Printer, Copy, Check, ExternalLink, Sparkles, CheckSquare, Square, Zap } from 'lucide-react';
 import { getCoachExcelUrl, getCoachIcsUrl, getCoachWhatsAppMsg } from '../services/api';
 
 export default function CoachDispatchModal({ isOpen, onClose, coachName, scheduleId }) {
   const [whatsappText, setWhatsappText] = useState('');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState('whatsapp');
+  
+  // Multi-select format checkboxes
+  const [selectExcel, setSelectExcel] = useState(true);
+  const [selectIcs, setSelectIcs] = useState(true);
+  const [selectWhatsApp, setSelectWhatsApp] = useState(true);
+  const [dispatching, setDispatching] = useState(false);
 
   useEffect(() => {
     if (isOpen && coachName && scheduleId) {
@@ -43,9 +48,47 @@ export default function CoachDispatchModal({ isOpen, onClose, coachName, schedul
     }
   };
 
-  const handleOpenWhatsAppWeb = () => {
-    const encoded = encodeURIComponent(whatsappText);
-    window.open(`https://wa.me/?text=${encoded}`, '_blank');
+  const triggerDownload = (url, filename) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleDispatchAllSelected = async () => {
+    setDispatching(true);
+    try {
+      // 1. Download Excel if selected
+      if (selectExcel) {
+        triggerDownload(excelUrl, `mighty_knight_${coachName}_schedule.xlsx`);
+      }
+
+      // 2. Download .ics if selected (short delay to prevent browser block)
+      if (selectIcs) {
+        setTimeout(() => {
+          triggerDownload(icsUrl, `mighty_knight_${coachName}_calendar.ics`);
+        }, 400);
+      }
+
+      // 3. Open WhatsApp Web if selected
+      if (selectWhatsApp) {
+        await navigator.clipboard.writeText(whatsappText);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+
+        const appendNote = whatsappText + "\n\n📎 *Note:* Attached your Excel timetable (.xlsx) and Calendar Sync file (.ics) for automatic Google/Apple Calendar import!";
+        const encoded = encodeURIComponent(appendNote);
+        setTimeout(() => {
+          window.open(`https://wa.me/?text=${encoded}`, '_blank');
+        }, 800);
+      }
+    } catch (err) {
+      alert('Dispatch failed: ' + err.message);
+    } finally {
+      setDispatching(false);
+    }
   };
 
   const handlePrintPDF = () => {
@@ -95,7 +138,7 @@ export default function CoachDispatchModal({ isOpen, onClose, coachName, schedul
         className="glass-panel"
         style={{
           width: '100%',
-          maxWidth: '680px',
+          maxWidth: '720px',
           background: 'var(--bg-secondary)',
           borderRadius: 'var(--radius-lg)',
           border: '1px solid var(--accent-gold)',
@@ -117,12 +160,13 @@ export default function CoachDispatchModal({ isOpen, onClose, coachName, schedul
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div
               style={{
-                width: '40px',
-                height: '40px',
+                width: '44px',
+                height: '44px',
                 borderRadius: '50%',
                 background: 'var(--accent-gold)',
                 color: '#000',
                 fontWeight: 800,
+                fontSize: '1.2rem',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center'
@@ -131,11 +175,11 @@ export default function CoachDispatchModal({ isOpen, onClose, coachName, schedul
               {coachName.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>
-                📲 Dispatch Schedule — Coach {coachName}
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#fff' }}>
+                📲 Multi-Format Dispatch — Coach {coachName}
               </h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                Choose export format, send via WhatsApp, or generate .ics calendar file.
+                Select formats to include (Excel + .ics Calendar Sync + WhatsApp) & dispatch simultaneously!
               </p>
             </div>
           </div>
@@ -148,175 +192,163 @@ export default function CoachDispatchModal({ isOpen, onClose, coachName, schedul
           </button>
         </div>
 
-        {/* Modal Navigation Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.2)' }}>
-          <button
-            onClick={() => setActiveTab('whatsapp')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              border: 'none',
-              background: activeTab === 'whatsapp' ? 'var(--bg-secondary)' : 'transparent',
-              color: activeTab === 'whatsapp' ? '#25D366' : 'var(--text-secondary)',
-              fontWeight: 700,
-              fontSize: '0.825rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'whatsapp' ? '2px solid #25D366' : 'none'
-            }}
-          >
-            <MessageSquare size={16} /> WhatsApp Message
-          </button>
+        {/* Multi-Select Formats Chooser Panel */}
+        <div style={{ padding: '20px 24px', background: 'rgba(0,0,0,0.2)', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-gold)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Zap size={16} /> SELECT ALL FORMATS TO DISPATCH:
+          </div>
 
-          <button
-            onClick={() => setActiveTab('ics')}
-            style={{
-              flex: 1,
-              padding: '12px',
-              border: 'none',
-              background: activeTab === 'ics' ? 'var(--bg-secondary)' : 'transparent',
-              color: activeTab === 'ics' ? 'var(--accent-blue)' : 'var(--text-secondary)',
-              fontWeight: 700,
-              fontSize: '0.825rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'ics' ? '2px solid var(--accent-blue)' : 'none'
-            }}
-          >
-            <Calendar size={16} /> .ics Calendar Sync
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            {/* Checkbox 1: Excel Sheet */}
+            <div
+              onClick={() => setSelectExcel(!selectExcel)}
+              style={{
+                background: selectExcel ? 'rgba(234, 179, 8, 0.15)' : 'var(--bg-card)',
+                border: selectExcel ? '1px solid var(--accent-gold)' : '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectExcel}
+                onChange={() => {}}
+                style={{ cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontSize: '0.825rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Download size={14} style={{ color: 'var(--accent-gold)' }} /> Excel Sheet (.xlsx)
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Timetable & Student Rosters</div>
+              </div>
+            </div>
 
+            {/* Checkbox 2: iCalendar Sync */}
+            <div
+              onClick={() => setSelectIcs(!selectIcs)}
+              style={{
+                background: selectIcs ? 'rgba(59, 130, 246, 0.15)' : 'var(--bg-card)',
+                border: selectIcs ? '1px solid var(--accent-blue)' : '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectIcs}
+                onChange={() => {}}
+                style={{ cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontSize: '0.825rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Calendar size={14} style={{ color: 'var(--accent-blue)' }} /> Calendar Sync (.ics)
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Google/Apple Calendar File</div>
+              </div>
+            </div>
+
+            {/* Checkbox 3: WhatsApp Text */}
+            <div
+              onClick={() => setSelectWhatsApp(!selectWhatsApp)}
+              style={{
+                background: selectWhatsApp ? 'rgba(37, 211, 102, 0.15)' : 'var(--bg-card)',
+                border: selectWhatsApp ? '1px solid #25D366' : '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectWhatsApp}
+                onChange={() => {}}
+                style={{ cursor: 'pointer' }}
+              />
+              <div>
+                <div style={{ fontSize: '0.825rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <MessageSquare size={14} style={{ color: '#25D366' }} /> WhatsApp Message
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Tailored WhatsApp Text</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Combined Dispatch Action Button */}
           <button
-            onClick={() => setActiveTab('excel')}
+            onClick={handleDispatchAllSelected}
+            disabled={dispatching || (!selectExcel && !selectIcs && !selectWhatsApp)}
+            className="btn btn-primary"
             style={{
-              flex: 1,
+              width: '100%',
+              marginTop: '16px',
               padding: '12px',
-              border: 'none',
-              background: activeTab === 'excel' ? 'var(--bg-secondary)' : 'transparent',
-              color: activeTab === 'excel' ? 'var(--accent-gold)' : 'var(--text-secondary)',
-              fontWeight: 700,
-              fontSize: '0.825rem',
-              cursor: 'pointer',
+              fontSize: '0.95rem',
+              fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px',
-              borderBottom: activeTab === 'excel' ? '2px solid var(--accent-gold)' : 'none'
+              gap: '8px'
             }}
           >
-            <Download size={16} /> Excel Sheet
+            <Zap size={18} />
+            {dispatching
+              ? 'Dispatching Files...'
+              : `🚀 Dispatch Selected Formats (${[selectExcel && 'Excel', selectIcs && '.ics Calendar', selectWhatsApp && 'WhatsApp'].filter(Boolean).join(' + ')})`}
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div style={{ padding: '24px' }}>
-          {/* TAB 1: WHATSAPP MESSAGE */}
-          {activeTab === 'whatsapp' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Formatted WhatsApp Schedule Broadcast Text:
-                </span>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={handleCopyText}
-                    className="btn btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                  >
-                    {copied ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
-                    {copied ? 'Copied!' : 'Copy Text'}
-                  </button>
-                  <button
-                    onClick={handlePrintPDF}
-                    className="btn btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                  >
-                    <Printer size={14} /> Print PDF
-                  </button>
-                </div>
-              </div>
-
-              <textarea
-                value={whatsappText}
-                onChange={e => setWhatsappText(e.target.value)}
-                rows={10}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-color)',
-                  color: '#fff',
-                  fontFamily: 'monospace',
-                  fontSize: '0.825rem',
-                  resize: 'vertical',
-                  marginBottom: '16px'
-                }}
-              />
-
+        {/* Live Preview Text & Individual Buttons */}
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Live Schedule Text Preview:
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={handleOpenWhatsAppWeb}
-                className="btn btn-primary"
-                style={{ width: '100%', padding: '12px', background: '#25D366', borderColor: '#25D366', color: '#fff', fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                onClick={handleCopyText}
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
               >
-                <ExternalLink size={18} /> Open WhatsApp Web & Send to Coach {coachName}
+                {copied ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
+                {copied ? 'Copied!' : 'Copy Text'}
+              </button>
+              <button
+                onClick={handlePrintPDF}
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+              >
+                <Printer size={14} /> Print PDF
               </button>
             </div>
-          )}
+          </div>
 
-          {/* TAB 2: ICS CALENDAR SYNC */}
-          {activeTab === 'ics' && (
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(59, 130, 246, 0.2)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', border: '1px solid var(--accent-blue)' }}>
-                <Calendar size={32} />
-              </div>
-              <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>
-                📅 Automatic Calendar Sync (.ics File)
-              </h4>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '460px', margin: '0 auto 24px auto', lineHeight: 1.5 }}>
-                Opening the downloaded <strong>.ics calendar file</strong> on iPhones, Android phones, Macs, or Windows PCs automatically adds all assigned chess class slots directly to Google Calendar, Apple Calendar, or Outlook with full student lists!
-              </p>
-
-              <a
-                href={icsUrl}
-                download={`mighty_knight_${coachName}_calendar.ics`}
-                className="btn btn-primary"
-                style={{ textDecoration: 'none', padding: '12px 28px', fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-              >
-                <Download size={18} /> Download Coach {coachName} Calendar (.ics)
-              </a>
-            </div>
-          )}
-
-          {/* TAB 3: EXCEL SPREADSHEET */}
-          {activeTab === 'excel' && (
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'rgba(234, 179, 8, 0.2)', color: 'var(--accent-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', border: '1px solid var(--accent-gold)' }}>
-                <Download size={32} />
-              </div>
-              <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>
-                📊 Dedicated Excel Schedule (.xlsx)
-              </h4>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '460px', margin: '0 auto 24px auto', lineHeight: 1.5 }}>
-                Includes 2 formatted spreadsheet worksheets: <strong>Timetable Schedule</strong> (Day, Time, Level, Batch, Student List) and <strong>Student Rosters</strong> (Student IDs and Names).
-              </p>
-
-              <a
-                href={excelUrl}
-                download={`mighty_knight_${coachName}_schedule.xlsx`}
-                className="btn btn-primary"
-                style={{ textDecoration: 'none', padding: '12px 28px', fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#000', fontWeight: 800 }}
-              >
-                <Download size={18} /> Download Excel Spreadsheet (.xlsx)
-              </a>
-            </div>
-          )}
+          <textarea
+            value={whatsappText}
+            onChange={e => setWhatsappText(e.target.value)}
+            rows={7}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)',
+              color: '#fff',
+              fontFamily: 'monospace',
+              fontSize: '0.8rem',
+              resize: 'vertical'
+            }}
+          />
         </div>
       </div>
     </div>
