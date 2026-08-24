@@ -5,6 +5,7 @@ import ExcelUploader from './components/ExcelUploader';
 import CoachScheduleView from './components/CoachScheduleView';
 import AdminScheduleView from './components/AdminScheduleView';
 import AttentionReportView from './components/AttentionReportView';
+import CoachWorkloadView from './components/CoachWorkloadView';
 import ManualEditModal from './components/ManualEditModal';
 import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus } from './services/api';
 
@@ -132,6 +133,12 @@ export default function App() {
           <AttentionReportView
             attentionData={output3Data}
             onOpenManualEditForStudent={handleOpenManualEdit}
+          />
+        )}
+
+        {activeTab === 'coachWorkload' && (
+          <CoachWorkloadView
+            coachSummaries={output2Data?.coach_summaries || []}
           />
         )}
       </main>

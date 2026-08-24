@@ -122,6 +122,13 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
         >
           <ShieldAlert size={16} className="pulse-icon" /> Output 3 — Unscheduled Attention
         </button>
+
+        <button
+          onClick={() => setActiveTab('coachWorkload')}
+          className={`btn ${activeTab === 'coachWorkload' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          📊 Coach Workload & Hours
+        </button>
       </div>
     </header>
   );
