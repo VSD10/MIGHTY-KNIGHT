@@ -133,6 +133,8 @@ export default function App() {
           <AttentionReportView
             attentionData={output3Data}
             onOpenManualEditForStudent={handleOpenManualEdit}
+            scheduleId={currentScheduleId}
+            onRefreshSchedule={handleRefreshCurrentSchedule}
           />
         )}
 
