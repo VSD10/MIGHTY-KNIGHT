@@ -1,7 +1,7 @@
 import React from 'react';
-import { Calendar as CalendarIcon, Clock, ChevronRight, Sparkles } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronRight, FileSpreadsheet } from 'lucide-react';
 
-export default function CalendarPicker({ startDate, endDate, setStartDate, setEndDate, onRunScheduler, loading }) {
+export default function CalendarPicker({ startDate, endDate, setStartDate, setEndDate, onRunScheduler, loading, onUploadClick }) {
   
   const handlePreset = (type) => {
     const today = new Date();
@@ -32,12 +32,13 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
   };
 
   return (
-    <div className="glass-panel" style={{ padding: '20px 28px', marginBottom: '28px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '20px' }}>
+    <div className="glass-panel" style={{ padding: '18px 24px', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+        {/* Left Title */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{
-            width: '42px',
-            height: '42px',
+            width: '40px',
+            height: '40px',
             borderRadius: '12px',
             background: 'rgba(251, 191, 36, 0.15)',
             border: '1px solid rgba(251, 191, 36, 0.35)',
@@ -46,58 +47,65 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
             justifyContent: 'center',
             color: 'var(--accent-gold)'
           }}>
-            <CalendarIcon size={22} />
+            <CalendarIcon size={20} />
           </div>
           <div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>Scheduling Date Range Selection</h3>
-            <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
-              Configure target period dates for automated class slot matching & capacity enforcement
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>Scheduling Date Range Selection</h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Configure target period dates for automated class slot matching
             </p>
           </div>
         </div>
 
-        {/* Date Inputs & Presets Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+        {/* Date Inputs, Presets & Top-Right Upload Action */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           {/* Quick presets */}
-          <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-secondary)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-            <button onClick={() => handlePreset('today')} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.775rem', border: 'none' }}>
+          <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-secondary)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+            <button onClick={() => handlePreset('today')} className="btn btn-secondary" style={{ padding: '5px 10px', fontSize: '0.75rem', border: 'none' }}>
               Today
             </button>
-            <button onClick={() => handlePreset('tomorrow')} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.775rem', border: 'none' }}>
+            <button onClick={() => handlePreset('tomorrow')} className="btn btn-secondary" style={{ padding: '5px 10px', fontSize: '0.75rem', border: 'none' }}>
               Tomorrow
             </button>
-            <button onClick={() => handlePreset('week')} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.775rem', border: 'none' }}>
+            <button onClick={() => handlePreset('week')} className="btn btn-secondary" style={{ padding: '5px 10px', fontSize: '0.75rem', border: 'none' }}>
               This Week
             </button>
-            <button onClick={() => handlePreset('month')} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.775rem', border: 'none' }}>
+            <button onClick={() => handlePreset('month')} className="btn btn-secondary" style={{ padding: '5px 10px', fontSize: '0.75rem', border: 'none' }}>
               Full Month
             </button>
           </div>
 
           {/* Date Range Inputs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--bg-secondary)', padding: '6px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-secondary)', padding: '4px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontWeight: 700 }}>START DATE</span>
+              <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: 700 }}>START DATE</span>
               <input
                 type="date"
                 value={startDate}
                 onChange={e => setStartDate(e.target.value)}
-                style={{ padding: '2px 6px', background: 'transparent', border: 'none', color: 'var(--accent-gold)', fontWeight: 800, fontSize: '0.875rem' }}
+                style={{ padding: '0px 4px', background: 'transparent', border: 'none', color: 'var(--accent-gold)', fontWeight: 800, fontSize: '0.85rem' }}
               />
             </div>
 
-            <ChevronRight size={16} style={{ color: 'var(--text-muted)' }} />
+            <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />
 
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontWeight: 700 }}>END DATE</span>
+              <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: 700 }}>END DATE</span>
               <input
                 type="date"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                style={{ padding: '2px 6px', background: 'transparent', border: 'none', color: 'var(--accent-gold)', fontWeight: 800, fontSize: '0.875rem' }}
+                style={{ padding: '0px 4px', background: 'transparent', border: 'none', color: 'var(--accent-gold)', fontWeight: 800, fontSize: '0.85rem' }}
               />
             </div>
           </div>
+
+          {/* Top-Right Upload Excel Data Button */}
+          {onUploadClick && (
+            <button onClick={onUploadClick} className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '0.8rem' }}>
+              <FileSpreadsheet size={16} /> Upload Excel
+            </button>
+          )}
         </div>
       </div>
     </div>

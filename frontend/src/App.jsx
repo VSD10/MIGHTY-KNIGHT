@@ -155,7 +155,7 @@ export default function App() {
 
       {/* 2. Main Executive Operations Canvas */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* Date Range Selector Header */}
+        {/* Top Header & Date Range Selector with Top-Right Upload Action */}
         <CalendarPicker
           startDate={startDate}
           endDate={endDate}
@@ -163,6 +163,7 @@ export default function App() {
           setEndDate={setEndDate}
           onRunScheduler={handleRunScheduler}
           loading={loading}
+          onUploadClick={() => setIsUploaderOpen(true)}
         />
 
         {/* Dynamic Canvas Views */}
