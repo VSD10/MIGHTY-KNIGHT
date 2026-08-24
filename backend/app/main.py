@@ -15,7 +15,10 @@ from app.engine.scheduler import run_scheduler
 from app.outputs.coach_schedule import generate_coach_schedule_text
 from app.outputs.admin_schedule import format_admin_schedule
 from app.outputs.attention_report import format_attention_report
-from app.storage.database import init_db, save_schedule_db, get_schedule_db
+from app.storage.database import (
+    init_db, save_schedule_db, get_schedule_db,
+    save_master_data_db, load_master_data_db, has_master_data_db
+)
 
 app = FastAPI(
     title="Mighty Knight Scheduling System API",
@@ -43,20 +46,33 @@ ACTIVE_DATA: Dict[str, Any] = {
 CURRENT_CONFIG: SystemConfig = DEFAULT_CONFIG
 
 def ensure_active_data():
-    if not ACTIVE_DATA["students"] or not ACTIVE_DATA["coaches"]:
+    """
+    Ensures master data (students & coaches) is loaded from SQLite.
+    If SQLite contains previously saved master data, loads it directly.
+    Only falls back to generating template data on a completely fresh database.
+    """
+    init_db()
+    if has_master_data_db():
+        data = load_master_data_db()
+        ACTIVE_DATA["students"] = data["students"]
+        ACTIVE_DATA["coaches"] = data["coaches"]
+        ACTIVE_DATA["parsing_errors"] = data["parsing_errors"]
+    else:
         sample_path = "sample_data/mighty_knight_template.xlsx"
         if not os.path.exists(sample_path):
             from sample_generator import generate_sample_excel
             generate_sample_excel(sample_path)
         with open(sample_path, "rb") as f:
             students, coaches, errors = parse_excel_file(f.read(), CURRENT_CONFIG)
-            ACTIVE_DATA["students"] = [s.model_dump() for s in students]
-            ACTIVE_DATA["coaches"] = [c.model_dump() for c in coaches]
+            s_dicts = [s.model_dump() for s in students]
+            c_dicts = [c.model_dump() for c in coaches]
+            ACTIVE_DATA["students"] = s_dicts
+            ACTIVE_DATA["coaches"] = c_dicts
             ACTIVE_DATA["parsing_errors"] = errors
+            save_master_data_db(s_dicts, c_dicts, errors, filename="mighty_knight_template.xlsx")
 
 @app.on_event("startup")
 def startup_event():
-    init_db()
     ensure_active_data()
 
 @app.get("/api/health")
@@ -90,9 +106,15 @@ async def upload_excel_data(file: UploadFile = File(...)):
             err_msg += f" (First error: {errors[0].get('message')})"
         raise HTTPException(status_code=400, detail=err_msg)
 
-    ACTIVE_DATA["students"] = [s.model_dump() for s in students]
-    ACTIVE_DATA["coaches"] = [c.model_dump() for c in coaches]
+    s_dicts = [s.model_dump() for s in students]
+    c_dicts = [c.model_dump() for c in coaches]
+
+    ACTIVE_DATA["students"] = s_dicts
+    ACTIVE_DATA["coaches"] = c_dicts
     ACTIVE_DATA["parsing_errors"] = errors
+
+    # Permanently store in local SQLite database (data/chess_scheduler.db)
+    save_master_data_db(s_dicts, c_dicts, errors, filename=file.filename)
 
     return {
         "filename": file.filename,
@@ -104,6 +126,7 @@ async def upload_excel_data(file: UploadFile = File(...)):
 
 @app.get("/api/data/summary")
 def get_data_summary():
+    ensure_active_data()
     return {
         "students_count": len(ACTIVE_DATA["students"]),
         "coaches_count": len(ACTIVE_DATA["coaches"]),
