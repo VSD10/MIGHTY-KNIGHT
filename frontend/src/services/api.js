@@ -78,6 +78,11 @@ export const assignStudentToClass = async (scheduleId, studentId, classId) => {
   return res.data;
 };
 
+export const createClassForStudent = async (scheduleId, classData) => {
+  const res = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
+  return res.data;
+};
+
 export const deleteClass = async (scheduleId, classId) => {
   const res = await api.delete(`/schedule/${scheduleId}/class/${classId}`);
   return res.data;

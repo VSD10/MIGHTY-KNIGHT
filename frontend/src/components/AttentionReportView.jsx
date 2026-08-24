@@ -1,9 +1,17 @@
 import React, { useState } from 'react';
-import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check, Zap } from 'lucide-react';
-import { assignStudentToClass } from '../services/api';
+import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check, Zap, Plus, X } from 'lucide-react';
+import { assignStudentToClass, createClassForStudent } from '../services/api';
 
 export default function AttentionReportView({ attentionData, scheduleId, onRefreshSchedule }) {
   const [assigningId, setAssigningId] = useState(null);
+  
+  // Custom Create New Class state per student
+  const [activeNewClassStudentId, setActiveNewClassStudentId] = useState(null);
+  const [newCoachName, setNewCoachName] = useState('PRAKASH');
+  const [newDate, setNewDate] = useState('2026-08-24');
+  const [newTimeSlot, setNewTimeSlot] = useState('05:00 PM - 06:00 PM');
+  const [newBatchType, setNewBatchType] = useState('G');
+  const [creating, setCreating] = useState(false);
 
   if (!attentionData) {
     return (
@@ -41,6 +49,26 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
     }
   };
 
+  const handleCreateNewClassForStudent = async (student) => {
+    setCreating(true);
+    try {
+      await createClassForStudent(scheduleId, {
+        student_id: student.student_id,
+        coach_name: newCoachName,
+        date: newDate,
+        time_slot: newTimeSlot,
+        student_level: student.student_level,
+        batch_type: newBatchType
+      });
+      setActiveNewClassStudentId(null);
+      if (onRefreshSchedule) onRefreshSchedule();
+    } catch (err) {
+      alert('Failed to create new class for student: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="unscheduled-banner" style={{ padding: '28px', marginBottom: '24px' }}>
       {/* Banner Header */}
@@ -58,7 +86,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
               ■ Unscheduled — Administrator Attention Required
             </h2>
             <p style={{ fontSize: '0.85rem', color: '#fca5a5', fontWeight: 500 }}>
-              Mandatory Student Accountability Rule (BRD Section 28 & 29). Standard & Emergency Overtime assignments available!
+              Mandatory Student Accountability Rule (BRD Section 28 & 29). One-click assignment or create a new custom class below!
             </p>
           </div>
         </div>
@@ -93,11 +121,11 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
           </span>
         </div>
         <span style={{ fontSize: '0.75rem', color: 'var(--accent-gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Zap size={14} /> Emergency overtime options allow admin decision overrides!
+          <Zap size={14} /> One-click accept or create a brand new class directly below!
         </span>
       </div>
 
-      {/* Unscheduled Students Table with Smart Recommendations */}
+      {/* Unscheduled Students Table with Smart Recommendations & New Class Builder */}
       <div style={{ overflowX: 'auto', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
         <table className="custom-table">
           <thead>
@@ -121,6 +149,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
             ) : (
               attention_records.map(rec => {
                 const recs = rec.recommendations || [];
+                const isCreatingNew = activeNewClassStudentId === rec.student_id;
                 return (
                   <tr
                     key={rec.student_id}
@@ -157,11 +186,75 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                         {rec.preferred_days}
                       </div>
                     </td>
-                    {/* SMART RECOMMENDATIONS & EMERGENCY OVERTIME COLUMN */}
-                    <td style={{ minWidth: '380px' }}>
-                      {recs.length === 0 ? (
-                        <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                          No existing classes for this level. Drag to Output 2 or create a new class.
+                    {/* SMART RECOMMENDATIONS & NEW CLASS BUILDER COLUMN */}
+                    <td style={{ minWidth: '400px' }}>
+                      {/* Create New Class Panel Toggle */}
+                      {isCreatingNew ? (
+                        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--accent-gold)', borderRadius: 'var(--radius-sm)', padding: '12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
+                              ➕ Create New Custom Class for {rec.student_name}:
+                            </span>
+                            <button onClick={() => setActiveNewClassStudentId(null)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+                              <X size={14} />
+                            </button>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>COACH</label>
+                              <input
+                                type="text"
+                                value={newCoachName}
+                                onChange={e => setNewCoachName(e.target.value)}
+                                placeholder="Coach Name"
+                                style={{ width: '100%', padding: '6px', fontSize: '0.75rem', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff' }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>DATE</label>
+                              <input
+                                type="date"
+                                value={newDate}
+                                onChange={e => setNewDate(e.target.value)}
+                                style={{ width: '100%', padding: '6px', fontSize: '0.75rem', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff' }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>TIME SLOT</label>
+                              <input
+                                type="text"
+                                value={newTimeSlot}
+                                onChange={e => setNewTimeSlot(e.target.value)}
+                                placeholder="e.g. 05:00 PM - 06:00 PM"
+                                style={{ width: '100%', padding: '6px', fontSize: '0.75rem', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff' }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>BATCH TYPE</label>
+                              <select
+                                value={newBatchType}
+                                onChange={e => setNewBatchType(e.target.value)}
+                                style={{ width: '100%', padding: '6px', fontSize: '0.75rem', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff' }}
+                              >
+                                <option value="G">Group (G)</option>
+                                <option value="L">Limited (L)</option>
+                                <option value="I">Individual (I)</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleCreateNewClassForStudent(rec)}
+                            disabled={creating}
+                            className="btn btn-primary"
+                            style={{ width: '100%', padding: '6px', fontSize: '0.775rem' }}
+                          >
+                            {creating ? 'Creating Class...' : '✓ Create & Assign New Class'}
+                          </button>
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -220,6 +313,21 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                               </div>
                             );
                           })}
+
+                          {/* Button to open New Class Creator Panel */}
+                          <button
+                            onClick={() => {
+                              setActiveNewClassStudentId(rec.student_id);
+                              setNewCoachName('PRAKASH');
+                              setNewDate('2026-08-24');
+                              setNewTimeSlot('05:00 PM - 06:00 PM');
+                              setNewBatchType(rec.batch_type || 'G');
+                            }}
+                            className="btn btn-secondary"
+                            style={{ padding: '6px', fontSize: '0.75rem', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                          >
+                            <Plus size={14} /> Create New Class Slot for {rec.student_name}
+                          </button>
                         </div>
                       )}
                     </td>

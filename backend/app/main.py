@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
@@ -461,6 +462,84 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
 
     save_schedule_db(res_dict)
     return {"status": "success", "schedule": res_dict}
+
+class CreateClassForStudentRequest(BaseModel):
+    student_id: str
+    coach_name: str
+    date: str
+    time_slot: str
+    student_level: Optional[str] = "Basic 1"
+    batch_type: Optional[str] = "G"
+
+@app.post("/api/schedule/{schedule_id}/create-class-for-student")
+def create_class_for_unscheduled_student(schedule_id: str, req: CreateClassForStudentRequest):
+    """
+    Creates a brand new class assignment in Output 2 for an unscheduled student from Output 3.
+    Instantly updates Output 1, Output 2, Output 3, and Output 4 (Coach Workload) atomically.
+    """
+    import uuid
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+    s_name = stu_map.get(req.student_id, req.student_id)
+
+    try:
+        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+        day_name = d_obj.strftime("%A")
+    except Exception:
+        day_name = "Monday"
+
+    new_class_id = f"CLS_{uuid.uuid4().hex[:6].upper()}"
+    new_class = {
+        "class_id": new_class_id,
+        "date": req.date,
+        "day": day_name,
+        "time_slot": req.time_slot,
+        "coach_name": req.coach_name.strip(),
+        "student_level": req.student_level or "Basic 1",
+        "batch_type": req.batch_type or "G",
+        "student_ids": [req.student_id],
+        "student_names": [s_name],
+        "students_formatted": f"{s_name} ({req.student_id})",
+        "warnings": ["Manual emergency class assignment created by administrator"],
+        "is_manual_override": True
+    }
+
+    res_dict["scheduled_classes"].append(new_class)
+
+    # Remove from unscheduled_records if present
+    res_dict["unscheduled_records"] = [
+        r for r in res_dict.get("unscheduled_records", []) if r["student_id"] != req.student_id
+    ]
+    res_dict["unscheduled_students_count"] = len(res_dict["unscheduled_records"])
+    res_dict["successfully_scheduled_students"] = max(0, res_dict["total_students_considered"] - res_dict["unscheduled_students_count"])
+    res_dict["accountability_passed"] = (res_dict["total_students_considered"] == res_dict["successfully_scheduled_students"] + res_dict["unscheduled_students_count"])
+
+    # Re-calculate Coach Communication Schedule (Output 1)
+    coach_schedule_map = {}
+    for s_cls in res_dict["scheduled_classes"]:
+        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
+        if key not in coach_schedule_map:
+            coach_schedule_map[key] = []
+        if s_cls["coach_name"] not in coach_schedule_map[key]:
+            coach_schedule_map[key].append(s_cls["coach_name"])
+
+    updated_coach_slots = []
+    for k, coaches_list in sorted(coach_schedule_map.items()):
+        dt, dy, ts = k.split("||")
+        updated_coach_slots.append({
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coaches": coaches_list
+        })
+
+    res_dict["coach_schedule"] = updated_coach_slots
+
+    save_schedule_db(res_dict)
+    return {"status": "success", "schedule": res_dict, "created_class_id": new_class_id}
 
 @app.delete("/api/schedule/{schedule_id}/class/{class_id}")
 def delete_class_from_schedule(schedule_id: str, class_id: str):
