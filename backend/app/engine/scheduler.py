@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 from app.models.student import StudentModel
 from app.models.coach import CoachModel
 from app.models.schedule import ScheduleResult, ScheduledClass, UnscheduledRecord, CoachCommunicationSlot
@@ -21,6 +21,7 @@ def run_scheduler(
     """
     Main Mighty Knight scheduling engine running the Priority Order (Section 39)
     and Mandatory Accountability Rules (Section 28).
+    Prevents student double-booking across coaches at the same day & time slot.
     """
     if not schedule_id:
         schedule_id = f"SCH_{uuid.uuid4().hex[:8].upper()}"
@@ -34,6 +35,9 @@ def run_scheduler(
     daily_coach_assignments: Dict[str, Dict[str, int]] = {} # date_str -> coach_name -> count
     monthly_coach_assignments: Dict[str, int] = {c.coach_name.strip(): 0 for c in coaches} # coach_name -> total count
     active_time_occupancy: Dict[str, Dict[str, List[str]]] = {} # date_str -> slot_str -> list[coach_name]
+
+    # Student occupancy tracking to prevent double-booking students at the same date & time slot
+    student_time_occupancy: Dict[str, Set[Tuple[str, str]]] = {s.student_id: set() for s in students}
 
     scheduled_classes: List[ScheduledClass] = []
 
@@ -90,6 +94,10 @@ def run_scheduler(
                         if class_assigned:
                             break
 
+                        # Skip if current student is ALREADY booked at this exact date & slot
+                        if (date_str, slot) in student_time_occupancy[student.student_id]:
+                            continue
+
                         # Check Sunday rules
                         is_sunday_tournament = False
                         if day_name == "Sunday":
@@ -101,15 +109,23 @@ def run_scheduler(
                             if student.tournament_pref and str(student.tournament_pref).strip().lower() in ["yes", "true", "1"]:
                                 is_sunday_tournament = True
 
-                        # Find other available students of same level and batch_type for co-batching
+                        # Find eligible peers of same level & batch_type for co-batching
+                        # Only include peers who:
+                        # 1) Are available on this day
+                        # 2) Have slot in their preference
+                        # 3) Still NEED more classes
+                        # 4) Are NOT ALREADY booked at (date_str, slot)
                         matching_peers = [
                             s for s in level_students
-                            if s.is_available_on_day(day_name) and is_slot_in_preference(slot, s.get_day_preference(day_name))
+                            if s.is_available_on_day(day_name) 
+                            and is_slot_in_preference(slot, s.get_day_preference(day_name))
+                            and tracker.scheduled_class_counts[s.student_id] < s.required_classes
+                            and (date_str, slot) not in student_time_occupancy[s.student_id]
                         ]
                         
-                        # Ensure current student is included
+                        # Ensure current student is first in matching_peers
                         if student not in matching_peers:
-                            matching_peers.append(student)
+                            matching_peers.insert(0, student)
 
                         # Create candidate batch group
                         batches = group_students_for_slot(matching_peers, level, batch_type, config)
@@ -137,7 +153,7 @@ def run_scheduler(
                         if assigned_coach:
                             c_name = assigned_coach.coach_name.strip()
 
-                            # Record assignment
+                            # Record coach assignment
                             if date_str not in daily_coach_assignments:
                                 daily_coach_assignments[date_str] = {}
                             daily_coach_assignments[date_str][c_name] = daily_coach_assignments[date_str].get(c_name, 0) + 1
@@ -150,12 +166,13 @@ def run_scheduler(
                                 active_time_occupancy[date_str][slot] = []
                             active_time_occupancy[date_str][slot].append(c_name)
 
-                            # Record scheduled students
+                            # Record scheduled students & student_time_occupancy for ALL students in this batch
                             batch_student_ids = [s.student_id for s in target_batch.students]
                             batch_student_names = [s.student_name for s in target_batch.students]
 
                             for s in target_batch.students:
                                 tracker.record_class_scheduled(s.student_id)
+                                student_time_occupancy[s.student_id].add((date_str, slot))
 
                             s_class = ScheduledClass(
                                 class_id=f"CLS_{uuid.uuid4().hex[:6].upper()}",
