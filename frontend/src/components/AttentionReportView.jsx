@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check, Zap } from 'lucide-react';
 import { assignStudentToClass } from '../services/api';
 
 export default function AttentionReportView({ attentionData, scheduleId, onRefreshSchedule }) {
@@ -22,7 +22,14 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
 
   const scheduled_count = total_students_considered - unscheduled_count;
 
-  const handleAcceptRecommendation = async (studentId, classId) => {
+  const handleAcceptRecommendation = async (studentId, classId, isOvertime) => {
+    if (isOvertime) {
+      const confirmOvertime = window.confirm(
+        "⚠️ EMERGENCY OVERTIME CONFIRMATION:\nThis assignment exceeds the standard capacity limit for this class batch. Do you want to approve emergency overtime for this coach?"
+      );
+      if (!confirmOvertime) return;
+    }
+
     setAssigningId(`${studentId}_${classId}`);
     try {
       await assignStudentToClass(scheduleId, studentId, classId);
@@ -51,7 +58,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
               ■ Unscheduled — Administrator Attention Required
             </h2>
             <p style={{ fontSize: '0.85rem', color: '#fca5a5', fontWeight: 500 }}>
-              Mandatory Student Accountability Rule (BRD Section 28 & 29). Click "Accept & Assign" on smart recommendations below!
+              Mandatory Student Accountability Rule (BRD Section 28 & 29). Standard & Emergency Overtime assignments available!
             </p>
           </div>
         </div>
@@ -86,7 +93,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
           </span>
         </div>
         <span style={{ fontSize: '0.75rem', color: 'var(--accent-gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Sparkles size={14} /> Smart recommendations available below for one-click assignment!
+          <Zap size={14} /> Emergency overtime options allow admin decision overrides!
         </span>
       </div>
 
@@ -101,7 +108,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
               <th>Required / Missing</th>
               <th>Failure Reason</th>
               <th>Preferred Days</th>
-              <th>💡 Smart Recommended Assignments & One-Click Accept</th>
+              <th>💡 Qualified Coach Options & Emergency Overtime (Day Load Shown)</th>
             </tr>
           </thead>
           <tbody>
@@ -140,32 +147,37 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                         {rec.remaining_classes} Missing
                       </span>
                     </td>
-                    <td style={{ maxWidth: '200px' }}>
+                    <td style={{ maxWidth: '190px' }}>
                       <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.775rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <AlertTriangle size={14} /> {rec.failure_reason}
                       </div>
                     </td>
-                    <td style={{ maxWidth: '160px' }}>
+                    <td style={{ maxWidth: '140px' }}>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                         {rec.preferred_days}
                       </div>
                     </td>
-                    {/* SMART RECOMMENDATIONS COLUMN */}
-                    <td style={{ minWidth: '340px' }}>
+                    {/* SMART RECOMMENDATIONS & EMERGENCY OVERTIME COLUMN */}
+                    <td style={{ minWidth: '380px' }}>
                       {recs.length === 0 ? (
                         <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                          No existing open classes for this level. Drag to Output 2 or create a new class.
+                          No existing classes for this level. Drag to Output 2 or create a new class.
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {recs.map((item, idx) => {
                             const isAssigning = assigningId === `${rec.student_id}_${item.class_id}`;
+                            const isOvertime = item.is_overtime;
                             return (
                               <div
                                 key={idx}
                                 style={{
                                   background: 'var(--bg-card)',
-                                  border: item.day_matched ? '1px solid var(--accent-gold)' : '1px solid var(--border-color)',
+                                  border: isOvertime
+                                    ? '1px dashed #f59e0b'
+                                    : item.day_matched
+                                      ? '1px solid var(--accent-gold)'
+                                      : '1px solid var(--border-color)',
                                   borderRadius: 'var(--radius-sm)',
                                   padding: '8px 12px',
                                   display: 'flex',
@@ -175,28 +187,35 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                                 }}
                               >
                                 <div>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                     <span>{item.coach_name}</span>
                                     <span style={{ opacity: 0.6 }}>• {item.day} ({item.time_slot})</span>
+                                    <span className="badge badge-gold" style={{ fontSize: '0.675rem', padding: '2px 6px' }}>
+                                      {item.coach_day_classes} {item.coach_day_classes === 1 ? 'class' : 'classes'} on {item.day}
+                                    </span>
                                   </div>
-                                  <div style={{ fontSize: '0.725rem', color: item.day_matched ? 'var(--accent-gold)' : 'var(--text-secondary)' }}>
+                                  <div style={{ fontSize: '0.725rem', color: isOvertime ? '#f59e0b' : item.day_matched ? 'var(--accent-gold)' : 'var(--text-secondary)' }}>
                                     {item.reason} ({item.current_seats}/{item.max_seats} filled)
                                   </div>
                                 </div>
 
                                 <button
-                                  onClick={() => handleAcceptRecommendation(rec.student_id, item.class_id)}
+                                  onClick={() => handleAcceptRecommendation(rec.student_id, item.class_id, isOvertime)}
                                   disabled={isAssigning}
                                   className="btn btn-secondary"
                                   style={{
                                     padding: '4px 10px',
-                                    fontSize: '0.75rem',
-                                    borderColor: 'var(--accent-gold)',
-                                    color: 'var(--accent-gold)',
+                                    fontSize: '0.725rem',
+                                    borderColor: isOvertime ? '#f59e0b' : 'var(--accent-gold)',
+                                    color: isOvertime ? '#f59e0b' : 'var(--accent-gold)',
                                     whiteSpace: 'nowrap'
                                   }}
                                 >
-                                  {isAssigning ? 'Assigning...' : '✓ Accept & Assign'}
+                                  {isAssigning
+                                    ? 'Assigning...'
+                                    : isOvertime
+                                      ? '⚠️ Overtime Accept'
+                                      : '✓ Accept & Assign'}
                                 </button>
                               </div>
                             );
