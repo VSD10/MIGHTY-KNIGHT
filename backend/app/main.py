@@ -205,6 +205,8 @@ def get_output1_coach_schedule(schedule_id: str):
         "whatsapp_plain_text": whatsapp_text
     }
 
+from app.outputs.admin_schedule import format_admin_schedule, generate_coach_summary
+
 @app.get("/api/schedule/{schedule_id}/output2")
 def get_output2_admin_schedule(schedule_id: str):
     res_dict = get_schedule_db(schedule_id)
@@ -212,9 +214,11 @@ def get_output2_admin_schedule(schedule_id: str):
         raise HTTPException(status_code=404, detail="Schedule not found")
     res = ScheduleResult(**res_dict)
     admin_rows = format_admin_schedule(res)
+    coach_summaries = generate_coach_summary(res, ACTIVE_DATA.get("coaches", []))
     return {
         "schedule_id": schedule_id,
-        "detailed_classes": admin_rows
+        "detailed_classes": admin_rows,
+        "coach_summaries": coach_summaries
     }
 
 @app.get("/api/schedule/{schedule_id}/output3")

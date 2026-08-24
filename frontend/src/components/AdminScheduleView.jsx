@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus } from 'lucide-react';
+import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Users, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { applyManualEdit, assignStudentToClass } from '../services/api';
 
 export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit, scheduleId, onRefreshSchedule }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState('ALL');
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'board'
+  const [showSummary, setShowSummary] = useState(true);
   const [dragOverClassId, setDragOverClassId] = useState(null);
 
   if (!adminScheduleData || !adminScheduleData.detailed_classes) {
@@ -17,6 +18,7 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
   }
 
   const classes = adminScheduleData.detailed_classes;
+  const coachSummaries = adminScheduleData.coach_summaries || [];
 
   // Filter classes
   const filteredClasses = classes.filter(cls => {
@@ -51,7 +53,6 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
         await assignStudentToClass(scheduleId, data.student.student_id, targetClass.class_id);
         if (onRefreshSchedule) onRefreshSchedule();
       } else if (data.class_id) {
-        // Dragging a class card (rescheduling)
         onOpenManualEdit(targetClass);
       }
     } catch (err) {
@@ -61,6 +62,108 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
 
   return (
     <div className="glass-panel" style={{ padding: '24px' }}>
+      {/* 📊 COACH WORKLOAD & HOURS SUMMARY SECTION */}
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: '18px 22px', marginBottom: '24px', border: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setShowSummary(!showSummary)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Clock size={20} style={{ color: 'var(--accent-gold)' }} />
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff' }}>
+              📊 Coach Workload & Assigned Hours Summary ({coachSummaries.length} Coaches)
+            </h3>
+          </div>
+          <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {showSummary ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+        </div>
+
+        {showSummary && (
+          <div style={{ marginTop: '16px', overflowX: 'auto' }}>
+            <table className="custom-table" style={{ fontSize: '0.825rem' }}>
+              <thead>
+                <tr>
+                  <th>Coach Name</th>
+                  <th>Assigned Classes</th>
+                  <th>Total Hours</th>
+                  <th>Students Coached</th>
+                  <th>Levels Handled</th>
+                  <th>Active Days</th>
+                  <th>Monthly Capacity (Min–Max)</th>
+                  <th>Capacity Utilization</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coachSummaries.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                      No coach workload summaries available.
+                    </td>
+                  </tr>
+                ) : (
+                  coachSummaries.map(c => (
+                    <tr key={c.coach_name}>
+                      <td>
+                        <strong style={{ color: '#fff', fontSize: '0.9rem' }}>{c.coach_name}</strong>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 800, color: 'var(--accent-gold)', fontSize: '0.95rem' }}>
+                          {c.assigned_classes} classes
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>
+                          {c.total_hours} hrs
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 700, color: '#fff' }}>
+                          {c.unique_students} students
+                        </span>
+                      </td>
+                      <td style={{ maxWidth: '200px' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          {c.levels_taught.length > 0 ? c.levels_taught.join(', ') : 'None'}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          {c.days_active.length > 0 ? c.days_active.join(', ') : 'None'}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 600, color: '#d1d5db' }}>
+                          {c.monthly_capacity_min} – {c.monthly_capacity_max} max
+                        </span>
+                      </td>
+                      <td style={{ minWidth: '130px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${Math.min(c.utilization_pct, 100)}%`,
+                              height: '100%',
+                              background: c.status_color,
+                              borderRadius: '3px'
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fff' }}>
+                            {c.utilization_pct}%
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="badge" style={{ background: `${c.status_color}22`, border: `1px solid ${c.status_color}`, color: c.status_color, fontSize: '0.725rem' }}>
+                          {c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Header & Controls */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
