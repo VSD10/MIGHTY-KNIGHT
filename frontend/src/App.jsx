@@ -105,6 +105,8 @@ export default function App() {
           <AdminScheduleView
             adminScheduleData={output2Data}
             onOpenManualEdit={handleOpenManualEdit}
+            scheduleId={currentScheduleId}
+            onRefreshSchedule={handleRunScheduler}
           />
         )}
 

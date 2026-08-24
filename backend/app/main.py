@@ -304,7 +304,71 @@ def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
         target_cls["student_level"] = req.student_level
     if req.batch_type:
         target_cls["batch_type"] = req.batch_type
+    
+    if req.student_ids is not None:
+        target_cls["student_ids"] = req.student_ids
+        stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+        names = [stu_map.get(sid, sid) for sid in req.student_ids]
+        target_cls["student_names"] = names
+        target_cls["students_formatted"] = " · ".join([f"{n} ({sid})" for sid, n in zip(req.student_ids, names)])
+
     target_cls["is_manual_override"] = True
+
+    # Re-calculate Coach Communication Schedule (Output 1)
+    coach_schedule_map = {}
+    for s_cls in res_dict["scheduled_classes"]:
+        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
+        if key not in coach_schedule_map:
+            coach_schedule_map[key] = []
+        if s_cls["coach_name"] not in coach_schedule_map[key]:
+            coach_schedule_map[key].append(s_cls["coach_name"])
+
+    updated_coach_slots = []
+    for k, coaches_list in sorted(coach_schedule_map.items()):
+        dt, dy, ts = k.split("||")
+        updated_coach_slots.append({
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coaches": coaches_list
+        })
+
+    res_dict["coach_schedule"] = updated_coach_slots
+
+    save_schedule_db(res_dict)
+    return {"status": "success", "schedule": res_dict}
+
+class AssignStudentRequest(BaseModel):
+    student_id: str
+    class_id: str
+
+@app.post("/api/schedule/{schedule_id}/assign-student")
+def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequest):
+    """
+    Drag-and-Drop Unscheduled Resolver: assigns an unscheduled student from Output 3 into a class in Output 2.
+    Updates Output 1, Output 2, and Output 3 atomically.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    target_cls = next((c for c in res_dict["scheduled_classes"] if c["class_id"] == req.class_id), None)
+    if not target_cls:
+        raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found")
+
+    if req.student_id not in target_cls["student_ids"]:
+        target_cls["student_ids"].append(req.student_id)
+        stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+        s_name = stu_map.get(req.student_id, req.student_id)
+        target_cls["student_names"].append(s_name)
+        target_cls["students_formatted"] = " · ".join([f"{n} ({sid})" for sid, n in zip(target_cls["student_ids"], target_cls["student_names"])])
+        target_cls["is_manual_override"] = True
+
+    # Remove from unscheduled_records if present
+    res_dict["unscheduled_records"] = [
+        r for r in res_dict.get("unscheduled_records", []) if r["student_id"] != req.student_id
+    ]
+    res_dict["unscheduled_students_count"] = len(res_dict["unscheduled_records"])
 
     # Re-calculate Coach Communication Schedule (Output 1)
     coach_schedule_map = {}

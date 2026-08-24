@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Edit3 } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move } from 'lucide-react';
 
 export default function AttentionReportView({ attentionData, onOpenManualEditForStudent }) {
   if (!attentionData) {
@@ -36,7 +36,7 @@ export default function AttentionReportView({ attentionData, onOpenManualEditFor
               ■ Unscheduled — Administrator Attention Required
             </h2>
             <p style={{ fontSize: '0.85rem', color: '#fca5a5', fontWeight: 500 }}>
-              Mandatory Student Accountability Rule (BRD Section 28 & 29). No student silently omitted.
+              Mandatory Student Accountability Rule (BRD Section 28 & 29). Drag unscheduled students into Output 2 classes!
             </p>
           </div>
         </div>
@@ -59,14 +59,19 @@ export default function AttentionReportView({ attentionData, onOpenManualEditFor
       </div>
 
       {/* Accountability status note */}
-      <div style={{ background: 'rgba(0, 0, 0, 0.3)', padding: '12px 18px', borderRadius: 'var(--radius-md)', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        {accountability_passed ? (
-          <CheckCircle2 size={18} style={{ color: '#10b981' }} />
-        ) : (
-          <AlertTriangle size={18} style={{ color: '#f59e0b' }} />
-        )}
-        <span style={{ fontSize: '0.85rem', color: '#f3f4f6' }}>
-          <strong>Accountability Rule Check:</strong> {accountability_passed ? 'PASSED — 100% of input students accounted for.' : 'WARNING — Mismatch in student counting.'}
+      <div style={{ background: 'rgba(0, 0, 0, 0.3)', padding: '12px 18px', borderRadius: 'var(--radius-md)', marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {accountability_passed ? (
+            <CheckCircle2 size={18} style={{ color: '#10b981' }} />
+          ) : (
+            <AlertTriangle size={18} style={{ color: '#f59e0b' }} />
+          )}
+          <span style={{ fontSize: '0.85rem', color: '#f3f4f6' }}>
+            <strong>Accountability Rule Check:</strong> {accountability_passed ? 'PASSED — 100% of input students accounted for.' : 'WARNING — Mismatch in student counting.'}
+          </span>
+        </div>
+        <span style={{ fontSize: '0.75rem', color: 'var(--accent-gold)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <Move size={14} /> Tip: Drag any student row onto a class in Output 2 to assign them!
         </span>
       </div>
 
@@ -75,6 +80,7 @@ export default function AttentionReportView({ attentionData, onOpenManualEditFor
         <table className="custom-table">
           <thead>
             <tr>
+              <th>Drag Handle</th>
               <th>Student Info</th>
               <th>Level & Batch</th>
               <th>Required</th>
@@ -87,13 +93,23 @@ export default function AttentionReportView({ attentionData, onOpenManualEditFor
           <tbody>
             {attention_records.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', color: '#10b981', padding: '30px', fontWeight: 600 }}>
+                <td colSpan={8} style={{ textAlign: 'center', color: '#10b981', padding: '30px', fontWeight: 600 }}>
                   🎉 All students were successfully scheduled! No administrative attention required.
                 </td>
               </tr>
             ) : (
               attention_records.map(rec => (
-                <tr key={rec.student_id}>
+                <tr
+                  key={rec.student_id}
+                  draggable={true}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("application/json", JSON.stringify({ type: "UNSCHEDULED_STUDENT", student: rec }));
+                  }}
+                  style={{ cursor: 'grab' }}
+                >
+                  <td style={{ color: 'var(--accent-gold)' }}>
+                    <Move size={16} title="Drag to assign to class in Output 2" />
+                  </td>
                   <td>
                     <div style={{ fontWeight: 700, color: '#fff' }}>{rec.student_name}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--accent-gold)' }}>ID: {rec.student_id}</div>
@@ -118,7 +134,7 @@ export default function AttentionReportView({ attentionData, onOpenManualEditFor
                       <AlertTriangle size={14} /> {rec.failure_reason}
                     </div>
                   </td>
-                  <td style={{ maxWidth: '300px' }}>
+                  <td style={{ maxWidth: '250px' }}>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       {rec.preferred_days}
                     </div>

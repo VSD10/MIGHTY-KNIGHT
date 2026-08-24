@@ -70,6 +70,14 @@ export const applyManualEdit = async (scheduleId, editData) => {
   return res.data;
 };
 
+export const assignStudentToClass = async (scheduleId, studentId, classId) => {
+  const res = await api.post(`/schedule/${scheduleId}/assign-student`, {
+    student_id: studentId,
+    class_id: classId
+  });
+  return res.data;
+};
+
 export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };

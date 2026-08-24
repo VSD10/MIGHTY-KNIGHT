@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, X, ShieldAlert } from 'lucide-react';
+import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus } from 'lucide-react';
 import { validateManualOverride, applyManualEdit } from '../services/api';
 
 export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess }) {
@@ -10,6 +10,12 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
   const [batchType, setBatchType] = useState(targetClass.batch_type || 'G');
   const [timeSlot, setTimeSlot] = useState(targetClass.time_slot || '');
   const [dateStr, setDateStr] = useState(targetClass.date || '');
+  
+  // Student Re-Assignment state inside batch
+  const [studentIds, setStudentIds] = useState(targetClass.student_ids || []);
+  const [studentNames, setStudentNames] = useState(targetClass.student_names || []);
+  const [newStudentInput, setNewStudentInput] = useState('');
+
   const [warnings, setWarnings] = useState([]);
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,6 +28,9 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       setBatchType(targetClass.batch_type || 'G');
       setTimeSlot(targetClass.time_slot || '');
       setDateStr(targetClass.date || '');
+      setStudentIds(targetClass.student_ids || []);
+      setStudentNames(targetClass.student_names || []);
+      setNewStudentInput('');
       setValidated(false);
       setWarnings([]);
     }
@@ -38,6 +47,27 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     'Intermediate'
   ];
 
+  const handleRemoveStudent = (index) => {
+    const updatedIds = studentIds.filter((_, idx) => idx !== index);
+    const updatedNames = studentNames.filter((_, idx) => idx !== index);
+    setStudentIds(updatedIds);
+    setStudentNames(updatedNames);
+    setValidated(false);
+  };
+
+  const handleAddStudent = () => {
+    if (!newStudentInput.trim()) return;
+    const sId = newStudentInput.trim().toUpperCase();
+    if (studentIds.includes(sId)) {
+      alert(`Student ${sId} is already in this class batch.`);
+      return;
+    }
+    setStudentIds([...studentIds, sId]);
+    setStudentNames([...studentNames, sId]); // Use ID as fallback name
+    setNewStudentInput('');
+    setValidated(false);
+  };
+
   const handleValidate = async () => {
     setValidating(true);
     setWarnings([]);
@@ -49,7 +79,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
         batch_type: batchType,
         date: dateStr,
         time_slot: timeSlot,
-        student_ids: targetClass.student_ids
+        student_ids: studentIds
       });
       setWarnings(res.warnings || []);
       setValidated(true);
@@ -70,7 +100,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
         batch_type: batchType,
         date: dateStr,
         time_slot: timeSlot,
-        student_ids: targetClass.student_ids
+        student_ids: studentIds
       });
       if (onSaveSuccess) onSaveSuccess();
       onClose();
@@ -93,7 +123,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       zIndex: 1000,
       padding: '20px'
     }}>
-      <div className="glass-panel" style={{ width: '100%', maxWidth: '600px', padding: '28px', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div className="glass-panel" style={{ width: '100%', maxWidth: '650px', padding: '28px', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
         <button
           onClick={onClose}
           style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
@@ -105,7 +135,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
           <ShieldAlert style={{ color: 'var(--accent-gold)' }} /> Manual Administrative Override (Section 37)
         </h2>
         <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-          Manually modify class coach, student level, batch type, date, or time slot. The engine checks for rule violations before saving.
+          Manually modify class coach, student level, batch type, date, time slot, or student roster.
         </p>
 
         {/* Form Controls */}
@@ -182,14 +212,67 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
           </div>
         </div>
 
-        {/* Current Students in Batch info */}
-        <div style={{ background: 'var(--bg-secondary)', padding: '12px 14px', borderRadius: 'var(--radius-md)', marginBottom: '20px' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
-            STUDENTS IN THIS CLASS ({targetClass.student_names ? targetClass.student_names.length : 0}):
-          </span>
-          <p style={{ fontSize: '0.8rem', color: '#fff', marginTop: '4px' }}>
-            {targetClass.students_formatted}
-          </p>
+        {/* Manual Student Re-Assignment Panel */}
+        <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '20px', border: '1px solid var(--border-color)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
+              STUDENTS IN THIS BATCH ({studentIds.length}):
+            </span>
+          </div>
+
+          {/* Student Tag Chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
+            {studentIds.map((sid, idx) => {
+              const name = studentNames[idx] || sid;
+              return (
+                <span
+                  key={sid}
+                  style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '4px 10px',
+                    fontSize: '0.8rem',
+                    color: '#fff',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <strong>{name}</strong> <span style={{ opacity: 0.6 }}>({sid})</span>
+                  <button
+                    onClick={() => handleRemoveStudent(idx)}
+                    title="Remove student from batch"
+                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  >
+                    <UserMinus size={14} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Add Student Input */}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input
+              type="text"
+              placeholder="Enter Student ID (e.g. STU019) to add..."
+              value={newStudentInput}
+              onChange={e => setNewStudentInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddStudent()}
+              style={{
+                flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.825rem'
+              }}
+            />
+            <button
+              onClick={handleAddStudent}
+              className="btn btn-secondary"
+              style={{ padding: '8px 14px', fontSize: '0.8rem', borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)' }}
+            >
+              <UserPlus size={14} /> Add Student
+            </button>
+          </div>
         </div>
 
         {/* Live Rule Violations Warning Panel */}
