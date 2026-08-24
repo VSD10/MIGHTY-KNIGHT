@@ -164,6 +164,7 @@ export default function App() {
             onOpenManualEditForStudent={handleOpenManualEdit}
             scheduleId={currentScheduleId}
             onRefreshSchedule={handleRefreshCurrentSchedule}
+            coachList={output2Data?.coach_summaries?.map(c => c.coach_name) || []}
           />
         )}
 

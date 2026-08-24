@@ -2,16 +2,20 @@ import React, { useState } from 'react';
 import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check, Zap, Plus, X } from 'lucide-react';
 import { assignStudentToClass, createClassForStudent } from '../services/api';
 
-export default function AttentionReportView({ attentionData, scheduleId, onRefreshSchedule }) {
+const DEFAULT_COACHES = ["PRAKASH", "RAVEENA", "GURUVANTHANA", "BATHRINATH", "KARTHIK"];
+
+export default function AttentionReportView({ attentionData, scheduleId, onRefreshSchedule, coachList }) {
   const [assigningId, setAssigningId] = useState(null);
   
   // Custom Create New Class state per student
   const [activeNewClassStudentId, setActiveNewClassStudentId] = useState(null);
-  const [newCoachName, setNewCoachName] = useState('PRAKASH');
+  const [newCoachName, setNewCoachName] = useState('BATHRINATH');
   const [newDate, setNewDate] = useState('2026-08-24');
   const [newTimeSlot, setNewTimeSlot] = useState('05:00 PM - 06:00 PM');
   const [newBatchType, setNewBatchType] = useState('G');
   const [creating, setCreating] = useState(false);
+
+  const coachesOptions = (coachList && coachList.length > 0) ? coachList : DEFAULT_COACHES;
 
   if (!attentionData) {
     return (
@@ -41,7 +45,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
     setAssigningId(`${studentId}_${classId}`);
     try {
       await assignStudentToClass(scheduleId, studentId, classId);
-      if (onRefreshSchedule) onRefreshSchedule();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to assign student: ' + (err.response?.data?.detail || err.message));
     } finally {
@@ -61,7 +65,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
         batch_type: newBatchType
       });
       setActiveNewClassStudentId(null);
-      if (onRefreshSchedule) onRefreshSchedule();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to create new class for student: ' + (err.response?.data?.detail || err.message));
     } finally {
@@ -203,13 +207,15 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
                             <div>
                               <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>COACH</label>
-                              <input
-                                type="text"
+                              <select
                                 value={newCoachName}
                                 onChange={e => setNewCoachName(e.target.value)}
-                                placeholder="Coach Name"
                                 style={{ width: '100%', padding: '6px', fontSize: '0.75rem', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff' }}
-                              />
+                              >
+                                {coachesOptions.map((c, i) => (
+                                  <option key={i} value={c}>{c}</option>
+                                ))}
+                              </select>
                             </div>
 
                             <div>
@@ -224,13 +230,16 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
 
                             <div>
                               <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>TIME SLOT</label>
-                              <input
-                                type="text"
+                              <select
                                 value={newTimeSlot}
                                 onChange={e => setNewTimeSlot(e.target.value)}
-                                placeholder="e.g. 05:00 PM - 06:00 PM"
                                 style={{ width: '100%', padding: '6px', fontSize: '0.75rem', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff' }}
-                              />
+                              >
+                                <option value="05:00 PM - 06:00 PM">05:00 PM - 06:00 PM</option>
+                                <option value="06:00 PM - 07:00 PM">06:00 PM - 07:00 PM</option>
+                                <option value="07:00 PM - 08:00 PM">07:00 PM - 08:00 PM</option>
+                                <option value="04:00 PM - 05:00 PM">04:00 PM - 05:00 PM</option>
+                              </select>
                             </div>
 
                             <div>
@@ -318,7 +327,7 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                           <button
                             onClick={() => {
                               setActiveNewClassStudentId(rec.student_id);
-                              setNewCoachName('PRAKASH');
+                              if (coachesOptions.length > 0) setNewCoachName(coachesOptions[0]);
                               setNewDate('2026-08-24');
                               setNewTimeSlot('05:00 PM - 06:00 PM');
                               setNewBatchType(rec.batch_type || 'G');
