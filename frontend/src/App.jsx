@@ -171,6 +171,8 @@ export default function App() {
         {activeTab === 'coachWorkload' && (
           <CoachWorkloadView
             coachSummaries={output2Data?.coach_summaries || []}
+            detailedClasses={output2Data?.detailed_classes || []}
+            scheduleId={currentScheduleId}
           />
         )}
       </main>

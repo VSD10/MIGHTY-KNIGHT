@@ -92,6 +92,15 @@ export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };
 
+export const getCoachExcelUrl = (scheduleId, coachName) => {
+  return `${API_BASE_URL}/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/export-excel`;
+};
+
+export const getCoachWhatsAppMsg = async (scheduleId, coachName) => {
+  const res = await api.get(`/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/whatsapp`);
+  return res.data;
+};
+
 export const getDataSummary = async () => {
   const res = await api.get('/data/summary');
   return res.data;

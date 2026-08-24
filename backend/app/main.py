@@ -248,6 +248,42 @@ def get_output2_admin_schedule(schedule_id: str):
         "coach_summaries": coach_summaries
     }
 
+from fastapi.responses import FileResponse, Response
+from app.outputs.coach_excel import generate_coach_individual_excel, generate_coach_whatsapp_msg
+
+@app.get("/api/schedule/{schedule_id}/coach/{coach_name}/export-excel")
+def export_individual_coach_excel(schedule_id: str, coach_name: str):
+    """
+    Exports a dedicated Excel spreadsheet (.xlsx) for a specific coach's schedule and student roster.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    excel_bytes = generate_coach_individual_excel(coach_name, res_dict.get("scheduled_classes", []))
+    safe_name = coach_name.strip().replace(" ", "_")
+    filename = f"mighty_knight_{safe_name}_schedule.xlsx"
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.get("/api/schedule/{schedule_id}/coach/{coach_name}/whatsapp")
+def get_individual_coach_whatsapp(schedule_id: str, coach_name: str):
+    """
+    Generates tailored WhatsApp schedule broadcast text for a specific coach.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    msg_text = generate_coach_whatsapp_msg(coach_name, res_dict.get("scheduled_classes", []))
+    return {
+        "coach_name": coach_name,
+        "whatsapp_text": msg_text
+    }
+
 @app.get("/api/schedule/{schedule_id}/output3")
 def get_output3_attention_report(schedule_id: str):
     res_dict = get_schedule_db(schedule_id)
