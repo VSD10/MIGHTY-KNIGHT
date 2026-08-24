@@ -284,6 +284,26 @@ def get_individual_coach_whatsapp(schedule_id: str, coach_name: str):
         "whatsapp_text": msg_text
     }
 
+from app.outputs.coach_ics import generate_coach_ics
+
+@app.get("/api/schedule/{schedule_id}/coach/{coach_name}/export-ics")
+def export_individual_coach_ics(schedule_id: str, coach_name: str):
+    """
+    Exports a standard iCalendar (.ics) file for a coach to automatically add classes to Google/Apple/Outlook Calendar.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    ics_content = generate_coach_ics(coach_name, res_dict.get("scheduled_classes", []))
+    safe_name = coach_name.strip().replace(" ", "_")
+    filename = f"mighty_knight_{safe_name}_calendar.ics"
+    return Response(
+        content=ics_content,
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 @app.get("/api/schedule/{schedule_id}/output3")
 def get_output3_attention_report(schedule_id: str):
     res_dict = get_schedule_db(schedule_id)

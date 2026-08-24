@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
-import { Clock, Users, Award, AlertTriangle, CheckCircle2, Search, BarChart2, Download, MessageSquare, ChevronDown, ChevronUp, Copy, Check, Calendar, BookOpen } from 'lucide-react';
-import { getCoachExcelUrl, getCoachWhatsAppMsg } from '../services/api';
+import { Clock, Users, Award, AlertTriangle, CheckCircle2, Search, BarChart2, Download, MessageSquare, ChevronDown, ChevronUp, Copy, Check, Calendar, BookOpen, Share2 } from 'lucide-react';
+import { getCoachExcelUrl, getCoachIcsUrl, getCoachWhatsAppMsg } from '../services/api';
+import CoachDispatchModal from './CoachDispatchModal';
 
 export default function CoachWorkloadView({ coachSummaries, detailedClasses, scheduleId }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [expandedCoach, setExpandedCoach] = useState(null);
   const [copiedCoach, setCopiedCoach] = useState(null);
+  
+  // Modal state
+  const [dispatchCoachName, setDispatchCoachName] = useState(null);
 
   if (!coachSummaries || coachSummaries.length === 0) {
     return (
@@ -250,45 +254,45 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
                 </div>
 
                 {/* Right: Actions Bar */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {/* Dispatch Modal Opener */}
+                  <button
+                    onClick={() => setDispatchCoachName(coach.coach_name)}
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '0.775rem', borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    title="Dispatch schedule via WhatsApp, .ics Calendar, Excel, or PDF"
+                  >
+                    <Share2 size={14} /> Dispatch & Share
+                  </button>
+
+                  {/* iCalendar (.ics) Direct Sync */}
+                  <a
+                    href={getCoachIcsUrl(scheduleId, coach.coach_name)}
+                    download={`mighty_knight_${coach.coach_name}_calendar.ics`}
+                    className="btn btn-secondary"
+                    style={{ textDecoration: 'none', color: '#fff', padding: '6px 10px', fontSize: '0.775rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Download .ics File to sync with Google Calendar / Outlook"
+                  >
+                    <Calendar size={14} style={{ color: 'var(--accent-blue)' }} /> .ics Sync
+                  </a>
+
                   {/* Excel Export Button */}
                   <a
                     href={excelUrl}
                     download={`mighty_knight_${coach.coach_name}_schedule.xlsx`}
                     className="btn btn-secondary"
-                    style={{ textDecoration: 'none', color: '#fff', padding: '6px 12px', fontSize: '0.775rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    style={{ textDecoration: 'none', color: '#fff', padding: '6px 10px', fontSize: '0.775rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                     title="Download Excel Timetable & Student Roster for this Coach"
                   >
-                    <Download size={14} /> Excel Sheet
+                    <Download size={14} /> Excel
                   </a>
-
-                  {/* WhatsApp Direct Open */}
-                  <button
-                    onClick={() => handleOpenWhatsAppWeb(coach.coach_name)}
-                    className="btn btn-secondary"
-                    style={{ padding: '6px 12px', fontSize: '0.775rem', borderColor: '#25D366', color: '#25D366', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    title="Send Schedule via WhatsApp"
-                  >
-                    <MessageSquare size={14} /> WhatsApp
-                  </button>
-
-                  {/* Copy Text */}
-                  <button
-                    onClick={() => handleCopyWhatsApp(coach.coach_name)}
-                    className="btn btn-secondary"
-                    style={{ padding: '6px 10px', fontSize: '0.775rem' }}
-                    title="Copy formatted WhatsApp text"
-                  >
-                    {isCopied ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
-                  </button>
 
                   {/* Expand / Collapse Timetable Toggle */}
                   <button
                     onClick={() => toggleExpand(coach.coach_name)}
                     className="btn btn-primary"
-                    style={{ padding: '6px 14px', fontSize: '0.775rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    style={{ padding: '6px 12px', fontSize: '0.775rem', display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
-                    <Calendar size={14} />
                     {isExpanded ? 'Hide Timetable' : 'View Timetable'}
                     {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   </button>
@@ -360,6 +364,14 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
           );
         })}
       </div>
+
+      {/* Interactive Coach Schedule Dispatch Modal */}
+      <CoachDispatchModal
+        isOpen={Boolean(dispatchCoachName)}
+        onClose={() => setDispatchCoachName(null)}
+        coachName={dispatchCoachName}
+        scheduleId={scheduleId}
+      />
     </div>
   );
 }

@@ -96,6 +96,10 @@ export const getCoachExcelUrl = (scheduleId, coachName) => {
   return `${API_BASE_URL}/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/export-excel`;
 };
 
+export const getCoachIcsUrl = (scheduleId, coachName) => {
+  return `${API_BASE_URL}/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/export-ics`;
+};
+
 export const getCoachWhatsAppMsg = async (scheduleId, coachName) => {
   const res = await api.get(`/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/whatsapp`);
   return res.data;
