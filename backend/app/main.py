@@ -1,5 +1,4 @@
-import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -16,7 +15,7 @@ from app.outputs.coach_schedule import generate_coach_schedule_text
 from app.outputs.admin_schedule import format_admin_schedule
 from app.outputs.attention_report import format_attention_report
 from app.storage.database import (
-    init_db, save_schedule_db, get_schedule_db,
+    init_db, save_schedule_db, get_schedule_db, get_latest_schedule_db,
     save_master_data_db, load_master_data_db, has_master_data_db
 )
 
@@ -184,6 +183,33 @@ def trigger_scheduling_run(req: ScheduleRequest):
     save_schedule_db(res_dict)
 
     return res_dict
+
+@app.get("/api/schedule/latest/active")
+def get_active_or_latest_schedule():
+    """
+    Retrieves the most recent active schedule saved in SQLite for 0-loss state recovery on app launch/refresh.
+    """
+    latest = get_latest_schedule_db()
+    if not latest:
+        ensure_active_data()
+        s_date = date.today()
+        e_date = s_date + timedelta(days=6)
+        students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
+        coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
+        result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
+        latest = result.model_dump()
+        save_schedule_db(latest)
+
+    return {
+        "schedule_id": latest["schedule_id"],
+        "status": latest.get("status", "Draft"),
+        "start_date": latest.get("start_date", ""),
+        "end_date": latest.get("end_date", ""),
+        "total_students_considered": latest.get("total_students_considered", 0),
+        "successfully_scheduled_students": latest.get("successfully_scheduled_students", 0),
+        "unscheduled_students_count": latest.get("unscheduled_students_count", 0),
+        "accountability_passed": latest.get("accountability_passed", True)
+    }
 
 @app.get("/api/schedule/{schedule_id}")
 def get_schedule_by_id(schedule_id: str):
@@ -409,6 +435,8 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
         r for r in res_dict.get("unscheduled_records", []) if r["student_id"] != req.student_id
     ]
     res_dict["unscheduled_students_count"] = len(res_dict["unscheduled_records"])
+    res_dict["successfully_scheduled_students"] = max(0, res_dict["total_students_considered"] - res_dict["unscheduled_students_count"])
+    res_dict["accountability_passed"] = (res_dict["total_students_considered"] == res_dict["successfully_scheduled_students"] + res_dict["unscheduled_students_count"])
 
     # Re-calculate Coach Communication Schedule (Output 1)
     coach_schedule_map = {}

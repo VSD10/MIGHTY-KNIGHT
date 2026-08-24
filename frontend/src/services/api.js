@@ -91,3 +91,8 @@ export const getDataSummary = async () => {
   const res = await api.get('/data/summary');
   return res.data;
 };
+
+export const getActiveSchedule = async () => {
+  const res = await api.get('/schedule/latest/active');
+  return res.data;
+};

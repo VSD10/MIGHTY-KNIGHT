@@ -180,6 +180,7 @@ def has_master_data_db(db_path: str = DB_PATH) -> bool:
 def save_schedule_db(schedule_dict: Dict[str, Any], db_path: str = DB_PATH):
     """
     Saves generated schedule and output views in SQLite schedules table.
+    Also updates latest_schedule_id pointer in active_metadata.
     """
     init_db(db_path)
     conn = get_connection(db_path)
@@ -200,6 +201,7 @@ def save_schedule_db(schedule_dict: Dict[str, Any], db_path: str = DB_PATH):
         json.dumps(schedule_dict),
         schedule_dict["created_at"]
     ))
+    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('latest_schedule_id', ?)", (schedule_dict["schedule_id"],))
     conn.commit()
     conn.close()
 
@@ -215,4 +217,27 @@ def get_schedule_db(schedule_id: str, db_path: str = DB_PATH) -> Optional[Dict[s
     conn.close()
     if row:
         return json.loads(row["data_json"])
+    return None
+
+def get_latest_schedule_db(db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves the most recent active schedule from SQLite for zero-data-loss application reloads.
+    """
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT value FROM active_metadata WHERE key = 'latest_schedule_id'")
+    row = cursor.fetchone()
+    if row:
+        sched_id = row["value"]
+        conn.close()
+        return get_schedule_db(sched_id, db_path)
+
+    cursor.execute("SELECT schedule_id FROM schedules ORDER BY created_at DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return get_schedule_db(row["schedule_id"], db_path)
+
     return None

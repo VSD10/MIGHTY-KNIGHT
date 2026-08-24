@@ -7,7 +7,7 @@ import AdminScheduleView from './components/AdminScheduleView';
 import AttentionReportView from './components/AttentionReportView';
 import CoachWorkloadView from './components/CoachWorkloadView';
 import ManualEditModal from './components/ManualEditModal';
-import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus } from './services/api';
+import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus, getActiveSchedule } from './services/api';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('output1');
@@ -29,10 +29,39 @@ export default function App() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [targetEditClass, setTargetEditClass] = useState(null);
 
-  // Auto-run scheduler on initial load with default data
+  // Load existing active schedule from SQLite on initial page load / server restart
   useEffect(() => {
-    handleRunScheduler();
+    loadInitialActiveSchedule();
   }, []);
+
+  const loadInitialActiveSchedule = async () => {
+    setLoading(true);
+    try {
+      const active = await getActiveSchedule();
+      if (active && active.schedule_id) {
+        const sId = active.schedule_id;
+        setCurrentScheduleId(sId);
+        setScheduleStatus(active.status || 'Draft');
+        if (active.start_date) setStartDate(active.start_date);
+        if (active.end_date) setEndDate(active.end_date);
+
+        const o1 = await getOutput1(sId);
+        const o2 = await getOutput2(sId);
+        const o3 = await getOutput3(sId);
+
+        setOutput1Data(o1);
+        setOutput2Data(o2);
+        setOutput3Data(o3);
+      } else {
+        handleRunScheduler();
+      }
+    } catch (err) {
+      console.error('Failed to load active schedule:', err);
+      handleRunScheduler();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleRunScheduler = async () => {
     setLoading(true);
