@@ -1,11 +1,12 @@
 from typing import List, Dict
 from datetime import datetime
 from app.models.schedule import ScheduleResult, CoachCommunicationSlot
+from app.utils.time_utils import parse_time_slot_sort_key
 
 def generate_coach_schedule_text(result: ScheduleResult) -> str:
     """
     Generates Output 1 WhatsApp-ready plain text (BRD Section 34).
-    Contains only: Date, Day, Time, and Coach names. Clean and ready to paste into WhatsApp.
+    Contains only: Date, Day, Time, and Coach names. Clean, sorted chronologically, and ready for WhatsApp.
     """
     if not result.coach_schedule:
         return "No classes scheduled for the selected period."
@@ -24,6 +25,9 @@ def generate_coach_schedule_text(result: ScheduleResult) -> str:
 
     for d_str in sorted(dates_map.keys()):
         slots = dates_map[d_str]
+        # Sort slots by start time chronologically
+        slots.sort(key=lambda s: parse_time_slot_sort_key(s.date, s.time_slot))
+
         try:
             date_obj = datetime.strptime(d_str, "%Y-%m-%d")
             formatted_date = date_obj.strftime("%A, %B %d, %Y")

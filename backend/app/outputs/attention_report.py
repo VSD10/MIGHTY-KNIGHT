@@ -1,11 +1,12 @@
 from typing import List, Dict, Any
 from app.models.schedule import ScheduleResult, UnscheduledRecord
+from app.utils.time_utils import parse_time_slot_sort_key
 
 def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
     """
     Formats Output 3: Unscheduled / Administrator Attention Report (BRD Section 29, 31).
     Generates smart assignment recommendations & emergency overtime options for each unscheduled student.
-    Includes coach's daily schedule load and emergency capacity extension flags.
+    Includes coach's daily schedule load and emergency capacity extension flags, sorted chronologically.
     """
     report_rows = []
     
@@ -68,8 +69,8 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
                 "reason": reason
             })
 
-        # Sort recommendations: non-overtime first, then day_matched, then seats available
-        recommendations.sort(key=lambda x: (x["is_overtime"], not x["day_matched"], x["current_seats"]))
+        # Sort recommendations: non-overtime first, then day_matched, then chronologically by Date -> Time Slot
+        recommendations.sort(key=lambda x: (x["is_overtime"], not x["day_matched"], parse_time_slot_sort_key(x["date"], x["time_slot"])))
 
         row = {
             "student_id": rec.student_id,
@@ -83,7 +84,10 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
             "remaining_classes": rec.remaining_classes,
             "failure_reason": rec.failure_reason,
             "details": rec.details,
-            "recommendations": recommendations[:5] # Top 5 recommendations (standard + emergency options)
+            "recommendations": recommendations[:5] # Top 5 recommendations
         }
         report_rows.append(row)
+
+    # Sort unscheduled records by student name
+    report_rows.sort(key=lambda x: x["student_name"])
     return report_rows

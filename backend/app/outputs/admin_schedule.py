@@ -1,13 +1,21 @@
 from typing import List, Dict, Any
 from app.models.schedule import ScheduleResult, ScheduledClass
+from app.utils.time_utils import parse_time_slot_sort_key
 
 def format_admin_schedule(result: ScheduleResult) -> List[Dict[str, Any]]:
     """
     Formats Output 2: Detailed Administrative Schedule (BRD Section 35).
-    Includes full class details: Date, Day, Time, Coach, Level, Batch Type, Student List, Warnings.
+    Includes full class details sorted strictly chronologically by Date and Time Slot.
     """
     admin_rows = []
-    for cls in result.scheduled_classes:
+
+    # Sort classes chronologically by Date -> Time Slot -> Coach Name
+    sorted_classes = sorted(
+        result.scheduled_classes,
+        key=lambda c: (parse_time_slot_sort_key(c.date, c.time_slot), c.coach_name)
+    )
+
+    for cls in sorted_classes:
         students_formatted = " · ".join(
             [f"{name} ({sid})" for sid, name in zip(cls.student_ids, cls.student_names)]
         )

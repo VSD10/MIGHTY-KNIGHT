@@ -3,6 +3,23 @@ import { Clock, Users, Award, AlertTriangle, CheckCircle2, Search, BarChart2, Do
 import { getCoachExcelUrl, getCoachIcsUrl, getCoachWhatsAppMsg } from '../services/api';
 import CoachDispatchModal from './CoachDispatchModal';
 
+const getTimeSlotSortMinutes = (timeSlotStr) => {
+  if (!timeSlotStr) return 0;
+  try {
+    const startPart = timeSlotStr.split('-')[0].trim();
+    const match = startPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!match) return 0;
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const ampm = match[3].toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  } catch (e) {
+    return 0;
+  }
+};
+
 export default function CoachWorkloadView({ coachSummaries, detailedClasses, scheduleId }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -165,8 +182,12 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
             cls => (cls.coach_name || '').trim().toLowerCase() === (coach.coach_name || '').trim().toLowerCase()
           );
 
-          // Sort classes by date & time
-          coachClasses.sort((a, b) => (a.date + a.time_slot).localeCompare(b.date + b.time_slot));
+          // Sort classes chronologically by Date -> Time Slot
+          coachClasses.sort((a, b) => {
+            const dateComp = (a.date || '').localeCompare(b.date || '');
+            if (dateComp !== 0) return dateComp;
+            return getTimeSlotSortMinutes(a.time_slot) - getTimeSlotSortMinutes(b.time_slot);
+          });
 
           const excelUrl = getCoachExcelUrl(scheduleId, coach.coach_name);
 
