@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import Header from './components/Header';
+import Sidebar from './components/Sidebar';
+import AttentionSidebarDrawer from './components/AttentionSidebarDrawer';
 import CalendarPicker from './components/CalendarPicker';
 import ExcelUploader from './components/ExcelUploader';
 import CoachScheduleView from './components/CoachScheduleView';
@@ -8,18 +9,21 @@ import AttentionReportView from './components/AttentionReportView';
 import CoachWorkloadView from './components/CoachWorkloadView';
 import MasterDataView from './components/MasterDataView';
 import ManualEditModal from './components/ManualEditModal';
-import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus, getActiveSchedule } from './services/api';
+import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus, getActiveSchedule, getDataSummary } from './services/api';
+import { ShieldAlert, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('output1');
+  const [activeTab, setActiveTab] = useState('output2'); // Default to Detailed Admin Matrix
   const [startDate, setStartDate] = useState('2026-08-24');
   const [endDate, setEndDate] = useState('2026-08-30');
   const [loading, setLoading] = useState(false);
   const [isUploaderOpen, setIsUploaderOpen] = useState(false);
+  const [isAttentionDrawerOpen, setIsAttentionDrawerOpen] = useState(true);
 
   // Active Schedule State
   const [currentScheduleId, setCurrentScheduleId] = useState(null);
   const [scheduleStatus, setScheduleStatus] = useState('Draft');
+  const [activeFileInfo, setActiveFileInfo] = useState(null);
   
   // Output states
   const [output1Data, setOutput1Data] = useState(null);
@@ -35,9 +39,19 @@ export default function App() {
     loadInitialActiveSchedule();
   }, []);
 
+  const fetchActiveFileInfo = async () => {
+    try {
+      const summary = await getDataSummary();
+      if (summary) setActiveFileInfo(summary);
+    } catch (err) {
+      console.error("Failed to fetch active file summary:", err);
+    }
+  };
+
   const loadInitialActiveSchedule = async () => {
     setLoading(true);
     try {
+      await fetchActiveFileInfo();
       const active = await getActiveSchedule();
       if (active && active.schedule_id) {
         const sId = active.schedule_id;
@@ -72,7 +86,6 @@ export default function App() {
       setCurrentScheduleId(sId);
       setScheduleStatus(result.status || 'Draft');
 
-      // Fetch all 3 outputs independently
       const o1 = await getOutput1(sId);
       const o2 = await getOutput2(sId);
       const o3 = await getOutput3(sId);
@@ -80,6 +93,7 @@ export default function App() {
       setOutput1Data(o1);
       setOutput2Data(o2);
       setOutput3Data(o3);
+      await fetchActiveFileInfo();
     } catch (err) {
       console.error('Failed to run scheduler:', err);
     } finally {
@@ -109,6 +123,7 @@ export default function App() {
       setOutput1Data(o1);
       setOutput2Data(o2);
       setOutput3Data(o3);
+      await fetchActiveFileInfo();
     } catch (err) {
       console.error('Failed to refresh schedule outputs:', err);
     } finally {
@@ -121,66 +136,100 @@ export default function App() {
     setIsEditModalOpen(true);
   };
 
+  const attentionCount = output3Data?.unscheduled_records?.length || 0;
+
   return (
-    <div style={{ minHeight: '100vh', padding: '24px 32px', maxWidth: '1400px', margin: '0 auto' }}>
-      {/* Top Navigation & App Bar */}
-      <Header
-        scheduleStatus={scheduleStatus}
-        onStatusToggle={handleStatusToggle}
+    <div style={{ display: 'flex', gap: '24px', minHeight: '100vh', padding: '24px', maxWidth: '1800px', margin: '0 auto' }}>
+      {/* 1. Left Command & Operations Sidebar */}
+      <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        activeFileInfo={activeFileInfo}
+        scheduleStatus={scheduleStatus}
+        onStatusToggle={handleStatusToggle}
         onUploadClick={() => setIsUploaderOpen(true)}
         onScheduleClick={handleRunScheduler}
         loading={loading}
+        attentionCount={attentionCount}
       />
 
-      {/* Date / Calendar Picker Controls */}
-      <CalendarPicker
-        startDate={startDate}
-        endDate={endDate}
-        setStartDate={setStartDate}
-        setEndDate={setEndDate}
-        onRunScheduler={handleRunScheduler}
-        loading={loading}
-      />
+      {/* 2. Main Executive Canvas Area */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {/* Top Date Range Bar & Emergency Drawer Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ flex: 1 }}>
+            <CalendarPicker
+              startDate={startDate}
+              endDate={endDate}
+              setStartDate={setStartDate}
+              setEndDate={setEndDate}
+              onRunScheduler={handleRunScheduler}
+              loading={loading}
+            />
+          </div>
 
-      {/* Active Output View */}
-      <main>
-        {activeTab === 'output1' && (
-          <CoachScheduleView coachScheduleData={output1Data} />
-        )}
+          {/* Persistent Attention Drawer Toggle Button */}
+          <button
+            onClick={() => setIsAttentionDrawerOpen(!isAttentionDrawerOpen)}
+            className="btn btn-danger"
+            style={{ padding: '12px 18px', height: 'fit-content', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800 }}
+          >
+            <ShieldAlert size={18} className={attentionCount > 0 ? "pulse-icon" : ""} />
+            {isAttentionDrawerOpen ? 'Hide Attention Panel' : `Unscheduled Stream (${attentionCount})`}
+            {isAttentionDrawerOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        </div>
 
-        {activeTab === 'output2' && (
-          <AdminScheduleView
-            adminScheduleData={output2Data}
-            onOpenManualEdit={handleOpenManualEdit}
-            scheduleId={currentScheduleId}
-            onRefreshSchedule={handleRefreshCurrentSchedule}
-          />
-        )}
+        {/* Dynamic Canvas Views */}
+        <main>
+          {activeTab === 'output1' && (
+            <CoachScheduleView coachScheduleData={output1Data} />
+          )}
 
-        {activeTab === 'output3' && (
-          <AttentionReportView
-            attentionData={output3Data}
-            onOpenManualEditForStudent={handleOpenManualEdit}
-            scheduleId={currentScheduleId}
-            onRefreshSchedule={handleRefreshCurrentSchedule}
-            coachList={output2Data?.coach_summaries?.map(c => c.coach_name) || []}
-          />
-        )}
+          {activeTab === 'output2' && (
+            <AdminScheduleView
+              adminScheduleData={output2Data}
+              onOpenManualEdit={handleOpenManualEdit}
+              scheduleId={currentScheduleId}
+              onRefreshSchedule={handleRefreshCurrentSchedule}
+            />
+          )}
 
-        {activeTab === 'coachWorkload' && (
-          <CoachWorkloadView
-            coachSummaries={output2Data?.coach_summaries || []}
-            detailedClasses={output2Data?.detailed_classes || []}
-            scheduleId={currentScheduleId}
-          />
-        )}
+          {activeTab === 'output3' && (
+            <AttentionReportView
+              attentionData={output3Data}
+              onOpenManualEditForStudent={handleOpenManualEdit}
+              scheduleId={currentScheduleId}
+              onRefreshSchedule={handleRefreshCurrentSchedule}
+              coachList={output2Data?.coach_summaries?.map(c => c.coach_name) || []}
+            />
+          )}
 
-        {activeTab === 'masterData' && (
-          <MasterDataView onReRunScheduler={handleRunScheduler} />
-        )}
-      </main>
+          {activeTab === 'coachWorkload' && (
+            <CoachWorkloadView
+              coachSummaries={output2Data?.coach_summaries || []}
+              detailedClasses={output2Data?.detailed_classes || []}
+              scheduleId={currentScheduleId}
+            />
+          )}
+
+          {activeTab === 'masterData' && (
+            <MasterDataView onReRunScheduler={handleRunScheduler} />
+          )}
+        </main>
+      </div>
+
+      {/* 3. Right Persistent Emergency Attention Side Drawer */}
+      {isAttentionDrawerOpen && (
+        <AttentionSidebarDrawer
+          isOpen={isAttentionDrawerOpen}
+          onClose={() => setIsAttentionDrawerOpen(false)}
+          attentionRecords={output3Data?.unscheduled_records || []}
+          scheduleId={currentScheduleId}
+          onRefreshSchedule={handleRefreshCurrentSchedule}
+          coachList={output2Data?.coach_summaries?.map(c => c.coach_name) || []}
+        />
+      )}
 
       {/* Excel Upload Modal */}
       <ExcelUploader
@@ -198,7 +247,7 @@ export default function App() {
         onClose={() => setIsEditModalOpen(false)}
         targetClass={targetEditClass}
         scheduleId={currentScheduleId}
-        onSaveSuccess={() => handleRefreshCurrentSchedule(currentScheduleId)}
+        onRefreshSchedule={handleRefreshCurrentSchedule}
       />
     </div>
   );
