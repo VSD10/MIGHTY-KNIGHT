@@ -6,6 +6,7 @@ import CoachScheduleView from './components/CoachScheduleView';
 import AdminScheduleView from './components/AdminScheduleView';
 import AttentionReportView from './components/AttentionReportView';
 import CoachWorkloadView from './components/CoachWorkloadView';
+import MasterDataView from './components/MasterDataView';
 import ManualEditModal from './components/ManualEditModal';
 import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus, getActiveSchedule } from './services/api';
 
@@ -174,6 +175,10 @@ export default function App() {
             detailedClasses={output2Data?.detailed_classes || []}
             scheduleId={currentScheduleId}
           />
+        )}
+
+        {activeTab === 'masterData' && (
+          <MasterDataView onReRunScheduler={handleRunScheduler} />
         )}
       </main>
 

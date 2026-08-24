@@ -154,6 +154,75 @@ def get_data_summary():
         "upload_timestamp": ACTIVE_DATA.get("upload_timestamp", "")
     }
 
+@app.get("/api/master/data")
+def get_master_data():
+    ensure_active_data()
+    return {
+        "students": ACTIVE_DATA["students"],
+        "coaches": ACTIVE_DATA["coaches"],
+        "filename": ACTIVE_DATA.get("filename", "Master Data"),
+        "upload_timestamp": ACTIVE_DATA.get("upload_timestamp", "")
+    }
+
+class MasterStudentRequest(BaseModel):
+    student_id: str
+    student_name: str
+    student_level: str
+    batch_type: str
+    preferred_days: Optional[str] = "All"
+    preferred_time: Optional[str] = "05:00 PM"
+    region_timezone: Optional[str] = "IST"
+    required_classes: Optional[int] = 8
+
+@app.post("/api/master/students")
+def save_master_student(req: MasterStudentRequest):
+    ensure_active_data()
+    s_dict = req.model_dump()
+    ACTIVE_DATA["students"] = [s for s in ACTIVE_DATA["students"] if s["student_id"] != req.student_id]
+    ACTIVE_DATA["students"].append(s_dict)
+    from app.storage.database import save_single_student_db
+    save_single_student_db(s_dict)
+    return {"status": "success", "student": s_dict}
+
+@app.delete("/api/master/students/{student_id}")
+def delete_master_student(student_id: str):
+    ensure_active_data()
+    ACTIVE_DATA["students"] = [s for s in ACTIVE_DATA["students"] if s["student_id"] != student_id]
+    from app.storage.database import delete_single_student_db
+    delete_single_student_db(student_id)
+    return {"status": "success", "deleted_student_id": student_id}
+
+class MasterCoachRequest(BaseModel):
+    coach_name: str
+    levels_handled: List[str]
+    monthly_capacity_min: Optional[int] = 0
+    monthly_capacity_max: Optional[int] = 100
+    mon_max: Optional[int] = 4
+    tue_max: Optional[int] = 4
+    wed_max: Optional[int] = 4
+    thu_max: Optional[int] = 4
+    fri_max: Optional[int] = 4
+    sat_max: Optional[int] = 5
+    sun_max: Optional[int] = 2
+
+@app.post("/api/master/coaches")
+def save_master_coach(req: MasterCoachRequest):
+    ensure_active_data()
+    c_dict = req.model_dump()
+    ACTIVE_DATA["coaches"] = [c for c in ACTIVE_DATA["coaches"] if c["coach_name"].strip().lower() != req.coach_name.strip().lower()]
+    ACTIVE_DATA["coaches"].append(c_dict)
+    from app.storage.database import save_single_coach_db
+    save_single_coach_db(c_dict)
+    return {"status": "success", "coach": c_dict}
+
+@app.delete("/api/master/coaches/{coach_name}")
+def delete_master_coach(coach_name: str):
+    ensure_active_data()
+    ACTIVE_DATA["coaches"] = [c for c in ACTIVE_DATA["coaches"] if c["coach_name"].strip().lower() != coach_name.strip().lower()]
+    from app.storage.database import delete_single_coach_db
+    delete_single_coach_db(coach_name)
+    return {"status": "success", "deleted_coach_name": coach_name}
+
 @app.get("/api/download-template")
 def download_excel_template():
     sample_path = "sample_data/mighty_knight_template.xlsx"

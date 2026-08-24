@@ -126,6 +126,58 @@ def save_master_data_db(
     conn.commit()
     conn.close()
 
+def save_single_student_db(s: Dict[str, Any], db_path: str = DB_PATH):
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO students (student_id, student_name, student_level, batch_type, region_timezone, required_classes, data_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        s["student_id"],
+        s["student_name"],
+        s["student_level"],
+        s["batch_type"],
+        s.get("region_timezone", "IST"),
+        s.get("required_classes", 8),
+        json.dumps(s)
+    ))
+    conn.commit()
+    conn.close()
+
+def delete_single_student_db(student_id: str, db_path: str = DB_PATH):
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM students WHERE student_id = ?", (student_id,))
+    conn.commit()
+    conn.close()
+
+def save_single_coach_db(c: Dict[str, Any], db_path: str = DB_PATH):
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO coaches (coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max, data_json)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        c["coach_name"],
+        json.dumps(c.get("levels_handled", [])),
+        c.get("monthly_capacity_min", 0),
+        c.get("monthly_capacity_max", 100),
+        json.dumps(c)
+    ))
+    conn.commit()
+    conn.close()
+
+def delete_single_coach_db(coach_name: str, db_path: str = DB_PATH):
+    init_db(db_path)
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM coaches WHERE coach_name = ?", (coach_name,))
+    conn.commit()
+    conn.close()
+
 def load_master_data_db(db_path: str = DB_PATH) -> Dict[str, Any]:
     """
     Loads persisted master student and coach records from SQLite.

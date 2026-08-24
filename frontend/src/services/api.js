@@ -105,6 +105,31 @@ export const getCoachWhatsAppMsg = async (scheduleId, coachName) => {
   return res.data;
 };
 
+export const getMasterData = async () => {
+  const res = await api.get('/master/data');
+  return res.data;
+};
+
+export const saveMasterStudent = async (studentData) => {
+  const res = await api.post('/master/students', studentData);
+  return res.data;
+};
+
+export const deleteMasterStudent = async (studentId) => {
+  const res = await api.delete(`/master/students/${studentId}`);
+  return res.data;
+};
+
+export const saveMasterCoach = async (coachData) => {
+  const res = await api.post('/master/coaches', coachData);
+  return res.data;
+};
+
+export const deleteMasterCoach = async (coachName) => {
+  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}`);
+  return res.data;
+};
+
 export const getDataSummary = async () => {
   const res = await api.get('/data/summary');
   return res.data;

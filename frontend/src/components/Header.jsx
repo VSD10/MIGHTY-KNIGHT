@@ -129,6 +129,14 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
         >
           📊 Coach Workload & Hours
         </button>
+
+        <button
+          onClick={() => setActiveTab('masterData')}
+          className={`btn ${activeTab === 'masterData' ? 'btn-primary' : 'btn-secondary'}`}
+          style={activeTab === 'masterData' ? { background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#000', fontWeight: 800 } : {}}
+        >
+          👥 Master Data (Students & Coaches)
+        </button>
       </div>
     </header>
   );
