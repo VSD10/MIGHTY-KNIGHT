@@ -416,3 +416,43 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
 
     save_schedule_db(res_dict)
     return {"status": "success", "schedule": res_dict}
+
+@app.delete("/api/schedule/{schedule_id}/class/{class_id}")
+def delete_class_from_schedule(schedule_id: str, class_id: str):
+    """
+    Deletes a scheduled class from the schedule.
+    Updates Output 1 and Output 2 automatically.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    target_cls = next((c for c in res_dict["scheduled_classes"] if c["class_id"] == class_id), None)
+    if not target_cls:
+        raise HTTPException(status_code=404, detail=f"Class ID {class_id} not found")
+
+    res_dict["scheduled_classes"] = [c for c in res_dict["scheduled_classes"] if c["class_id"] != class_id]
+
+    # Re-calculate Coach Communication Schedule (Output 1)
+    coach_schedule_map = {}
+    for s_cls in res_dict["scheduled_classes"]:
+        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
+        if key not in coach_schedule_map:
+            coach_schedule_map[key] = []
+        if s_cls["coach_name"] not in coach_schedule_map[key]:
+            coach_schedule_map[key].append(s_cls["coach_name"])
+
+    updated_coach_slots = []
+    for k, coaches_list in sorted(coach_schedule_map.items()):
+        dt, dy, ts = k.split("||")
+        updated_coach_slots.append({
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coaches": coaches_list
+        })
+
+    res_dict["coach_schedule"] = updated_coach_slots
+
+    save_schedule_db(res_dict)
+    return {"status": "success", "schedule": res_dict}

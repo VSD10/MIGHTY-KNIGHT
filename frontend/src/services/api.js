@@ -78,6 +78,11 @@ export const assignStudentToClass = async (scheduleId, studentId, classId) => {
   return res.data;
 };
 
+export const deleteClass = async (scheduleId, classId) => {
+  const res = await api.delete(`/schedule/${scheduleId}/class/${classId}`);
+  return res.data;
+};
+
 export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };

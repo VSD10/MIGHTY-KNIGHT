@@ -67,6 +67,24 @@ export default function App() {
     }
   };
 
+  const handleRefreshCurrentSchedule = async (sId = currentScheduleId) => {
+    if (!sId) return;
+    try {
+      setLoading(true);
+      const o1 = await getOutput1(sId);
+      const o2 = await getOutput2(sId);
+      const o3 = await getOutput3(sId);
+
+      setOutput1Data(o1);
+      setOutput2Data(o2);
+      setOutput3Data(o3);
+    } catch (err) {
+      console.error('Failed to refresh schedule outputs:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleOpenManualEdit = (cls) => {
     setTargetEditClass(cls);
     setIsEditModalOpen(true);
@@ -106,7 +124,7 @@ export default function App() {
             adminScheduleData={output2Data}
             onOpenManualEdit={handleOpenManualEdit}
             scheduleId={currentScheduleId}
-            onRefreshSchedule={handleRunScheduler}
+            onRefreshSchedule={handleRefreshCurrentSchedule}
           />
         )}
 
@@ -134,7 +152,7 @@ export default function App() {
         onClose={() => setIsEditModalOpen(false)}
         targetClass={targetEditClass}
         scheduleId={currentScheduleId}
-        onSaveSuccess={handleRunScheduler}
+        onSaveSuccess={() => handleRefreshCurrentSchedule(currentScheduleId)}
       />
     </div>
   );

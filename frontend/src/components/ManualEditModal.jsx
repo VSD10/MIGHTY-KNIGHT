@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus } from 'lucide-react';
-import { validateManualOverride, applyManualEdit } from '../services/api';
+import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2 } from 'lucide-react';
+import { validateManualOverride, applyManualEdit, deleteClass } from '../services/api';
 
 export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess }) {
   if (!isOpen || !targetClass) return null;
@@ -106,6 +106,20 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       onClose();
     } catch (err) {
       alert('Failed to save manual edit: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteClass = async () => {
+    if (!window.confirm(`Are you sure you want to remove Class ${targetClass.class_id} (${targetClass.coach_name} - ${targetClass.time_slot}) from Output 2?`)) return;
+    setSaving(true);
+    try {
+      await deleteClass(scheduleId, targetClass.class_id);
+      if (onSaveSuccess) onSaveSuccess();
+      onClose();
+    } catch (err) {
+      alert('Failed to delete class: ' + (err.response?.data?.detail || err.message));
     } finally {
       setSaving(false);
     }
@@ -295,17 +309,28 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-          <button onClick={onClose} className="btn btn-secondary">Cancel</button>
-          {!validated ? (
-            <button onClick={handleValidate} disabled={validating} className="btn btn-secondary" style={{ borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)' }}>
-              {validating ? 'Checking Rules...' : 'Validate Rules'}
-            </button>
-          ) : (
-            <button onClick={handleSave} disabled={saving} className="btn btn-primary">
-              {saving ? 'Saving...' : 'Acknowledge & Save Override'}
-            </button>
-          )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <button
+            onClick={handleDeleteClass}
+            disabled={saving}
+            className="btn btn-secondary"
+            style={{ borderColor: '#ef4444', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Trash2 size={14} /> Delete Class
+          </button>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+            {!validated ? (
+              <button onClick={handleValidate} disabled={validating} className="btn btn-secondary" style={{ borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)' }}>
+                {validating ? 'Checking Rules...' : 'Validate Rules'}
+              </button>
+            ) : (
+              <button onClick={handleSave} disabled={saving} className="btn btn-primary">
+                {saving ? 'Saving...' : 'Acknowledge & Save Override'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
