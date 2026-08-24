@@ -77,6 +77,7 @@ def save_master_data_db(
     coaches: List[Dict[str, Any]], 
     errors: List[Dict[str, Any]] = None,
     filename: str = "",
+    upload_timestamp: str = "",
     db_path: str = DB_PATH
 ):
     """
@@ -119,6 +120,8 @@ def save_master_data_db(
     cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('parsing_errors', ?)", (json.dumps(errors or []),))
     if filename:
         cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_filename', ?)", (filename,))
+    if upload_timestamp:
+        cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_upload_timestamp', ?)", (upload_timestamp,))
 
     conn.commit()
     conn.close()
@@ -147,12 +150,17 @@ def load_master_data_db(db_path: str = DB_PATH) -> Dict[str, Any]:
     fn_row = cursor.fetchone()
     last_filename = fn_row["value"] if fn_row else ""
 
+    cursor.execute("SELECT value FROM active_metadata WHERE key = 'last_upload_timestamp'")
+    ts_row = cursor.fetchone()
+    last_upload_timestamp = ts_row["value"] if ts_row else ""
+
     conn.close()
     return {
         "students": students,
         "coaches": coaches,
         "parsing_errors": parsing_errors,
-        "last_filename": last_filename
+        "last_filename": last_filename,
+        "last_upload_timestamp": last_upload_timestamp
     }
 
 def has_master_data_db(db_path: str = DB_PATH) -> bool:

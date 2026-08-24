@@ -39,7 +39,9 @@ app.add_middleware(
 ACTIVE_DATA: Dict[str, Any] = {
     "students": [],
     "coaches": [],
-    "parsing_errors": []
+    "parsing_errors": [],
+    "filename": "",
+    "upload_timestamp": ""
 }
 
 # Current configuration
@@ -57,6 +59,8 @@ def ensure_active_data():
         ACTIVE_DATA["students"] = data["students"]
         ACTIVE_DATA["coaches"] = data["coaches"]
         ACTIVE_DATA["parsing_errors"] = data["parsing_errors"]
+        ACTIVE_DATA["filename"] = data.get("last_filename", "Master Data")
+        ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp", "")
     else:
         sample_path = "sample_data/mighty_knight_template.xlsx"
         if not os.path.exists(sample_path):
@@ -69,7 +73,10 @@ def ensure_active_data():
             ACTIVE_DATA["students"] = s_dicts
             ACTIVE_DATA["coaches"] = c_dicts
             ACTIVE_DATA["parsing_errors"] = errors
-            save_master_data_db(s_dicts, c_dicts, errors, filename="mighty_knight_template.xlsx")
+            ACTIVE_DATA["filename"] = "mighty_knight_template.xlsx"
+            now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+            ACTIVE_DATA["upload_timestamp"] = now_str
+            save_master_data_db(s_dicts, c_dicts, errors, filename="mighty_knight_template.xlsx", upload_timestamp=now_str)
 
 @app.on_event("startup")
 def startup_event():
@@ -108,16 +115,20 @@ async def upload_excel_data(file: UploadFile = File(...)):
 
     s_dicts = [s.model_dump() for s in students]
     c_dicts = [c.model_dump() for c in coaches]
+    now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
 
     ACTIVE_DATA["students"] = s_dicts
     ACTIVE_DATA["coaches"] = c_dicts
     ACTIVE_DATA["parsing_errors"] = errors
+    ACTIVE_DATA["filename"] = file.filename
+    ACTIVE_DATA["upload_timestamp"] = now_str
 
     # Permanently store in local SQLite database (data/chess_scheduler.db)
-    save_master_data_db(s_dicts, c_dicts, errors, filename=file.filename)
+    save_master_data_db(s_dicts, c_dicts, errors, filename=file.filename, upload_timestamp=now_str)
 
     return {
         "filename": file.filename,
+        "upload_timestamp": now_str,
         "total_students_parsed": len(students),
         "total_coaches_parsed": len(coaches),
         "parsing_errors_count": len(errors),
@@ -130,7 +141,9 @@ def get_data_summary():
     return {
         "students_count": len(ACTIVE_DATA["students"]),
         "coaches_count": len(ACTIVE_DATA["coaches"]),
-        "parsing_errors": ACTIVE_DATA["parsing_errors"]
+        "parsing_errors": ACTIVE_DATA["parsing_errors"],
+        "filename": ACTIVE_DATA.get("filename", "Master Data"),
+        "upload_timestamp": ACTIVE_DATA.get("upload_timestamp", "")
     }
 
 @app.get("/api/download-template")

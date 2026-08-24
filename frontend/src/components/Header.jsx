@@ -1,8 +1,25 @@
-import React from 'react';
-import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download } from 'lucide-react';
-import { getDownloadTemplateUrl } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download, HardDrive } from 'lucide-react';
+import { getDownloadTemplateUrl, getDataSummary } from '../services/api';
 
 export default function Header({ scheduleStatus, onStatusToggle, activeTab, setActiveTab, onUploadClick, onScheduleClick, loading }) {
+  const [activeFileInfo, setActiveFileInfo] = useState(null);
+
+  useEffect(() => {
+    fetchActiveFileInfo();
+  }, []);
+
+  const fetchActiveFileInfo = async () => {
+    try {
+      const summary = await getDataSummary();
+      if (summary) {
+        setActiveFileInfo(summary);
+      }
+    } catch (err) {
+      console.error("Failed to fetch active file summary:", err);
+    }
+  };
+
   return (
     <header className="glass-panel" style={{ padding: '16px 28px', marginBottom: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
@@ -33,8 +50,25 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
           </div>
         </div>
 
-        {/* Schedule Controls */}
+        {/* Schedule Controls & Active Dataset Badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {activeFileInfo && (
+            <div style={{
+              background: 'rgba(245, 158, 11, 0.15)',
+              border: '1px solid rgba(245, 158, 11, 0.4)',
+              borderRadius: 'var(--radius-md)',
+              padding: '6px 12px',
+              fontSize: '0.775rem',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <HardDrive size={14} style={{ color: 'var(--accent-gold)' }} />
+              <span>Active File: <strong>{activeFileInfo.filename}</strong> ({activeFileInfo.students_count} students, {activeFileInfo.coaches_count} coaches)</span>
+            </div>
+          )}
+
           {scheduleStatus && (
             <button
               onClick={onStatusToggle}

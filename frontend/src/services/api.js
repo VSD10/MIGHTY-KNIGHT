@@ -86,3 +86,8 @@ export const deleteClass = async (scheduleId, classId) => {
 export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };
+
+export const getDataSummary = async () => {
+  const res = await api.get('/data/summary');
+  return res.data;
+};
