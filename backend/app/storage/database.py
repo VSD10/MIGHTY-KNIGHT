@@ -90,6 +90,9 @@ def save_master_data_db(
 
     cursor.execute("DELETE FROM students")
     cursor.execute("DELETE FROM coaches")
+    # Clear stale schedule runs so old snapshots cannot overwrite new uploads
+    cursor.execute("DELETE FROM schedules")
+    cursor.execute("DELETE FROM active_metadata WHERE key = 'latest_schedule_id'")
 
     for s in students:
         cursor.execute("""

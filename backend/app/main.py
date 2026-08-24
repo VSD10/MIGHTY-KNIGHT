@@ -266,10 +266,13 @@ def trigger_scheduling_run(req: ScheduleRequest):
 def get_active_or_latest_schedule():
     """
     Retrieves the most recent active schedule saved in SQLite for 0-loss state recovery on app launch/refresh.
+    Verifies that the active schedule matches the current master student count in SQLite.
     """
+    ensure_active_data()
     latest = get_latest_schedule_db()
-    if not latest:
-        ensure_active_data()
+    current_student_count = len(ACTIVE_DATA["students"])
+
+    if not latest or latest.get("total_students_considered") != current_student_count:
         s_date = date.today()
         e_date = s_date + timedelta(days=6)
         students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
