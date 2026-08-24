@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
-import AttentionSidebarDrawer from './components/AttentionSidebarDrawer';
 import CalendarPicker from './components/CalendarPicker';
 import ExcelUploader from './components/ExcelUploader';
 import CoachScheduleView from './components/CoachScheduleView';
@@ -10,7 +9,6 @@ import CoachWorkloadView from './components/CoachWorkloadView';
 import MasterDataView from './components/MasterDataView';
 import ManualEditModal from './components/ManualEditModal';
 import { runSchedule, getOutput1, getOutput2, getOutput3, updateScheduleStatus, getActiveSchedule, getDataSummary } from './services/api';
-import { ShieldAlert, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('output2'); // Default to Detailed Admin Matrix
@@ -18,7 +16,7 @@ export default function App() {
   const [endDate, setEndDate] = useState('2026-08-30');
   const [loading, setLoading] = useState(false);
   const [isUploaderOpen, setIsUploaderOpen] = useState(false);
-  const [isAttentionDrawerOpen, setIsAttentionDrawerOpen] = useState(true);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Active Schedule State
   const [currentScheduleId, setCurrentScheduleId] = useState(null);
@@ -140,7 +138,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', gap: '24px', minHeight: '100vh', padding: '24px', maxWidth: '1800px', margin: '0 auto' }}>
-      {/* 1. Left Command & Operations Sidebar */}
+      {/* 1. Left Command & Operations Retractable Sidebar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -151,34 +149,21 @@ export default function App() {
         onScheduleClick={handleRunScheduler}
         loading={loading}
         attentionCount={attentionCount}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
       />
 
-      {/* 2. Main Executive Canvas Area */}
+      {/* 2. Main Executive Operations Canvas */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* Top Date Range Bar & Emergency Drawer Toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
-          <div style={{ flex: 1 }}>
-            <CalendarPicker
-              startDate={startDate}
-              endDate={endDate}
-              setStartDate={setStartDate}
-              setEndDate={setEndDate}
-              onRunScheduler={handleRunScheduler}
-              loading={loading}
-            />
-          </div>
-
-          {/* Persistent Attention Drawer Toggle Button */}
-          <button
-            onClick={() => setIsAttentionDrawerOpen(!isAttentionDrawerOpen)}
-            className="btn btn-danger"
-            style={{ padding: '12px 18px', height: 'fit-content', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800 }}
-          >
-            <ShieldAlert size={18} className={attentionCount > 0 ? "pulse-icon" : ""} />
-            {isAttentionDrawerOpen ? 'Hide Attention Panel' : `Unscheduled Stream (${attentionCount})`}
-            {isAttentionDrawerOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        </div>
+        {/* Date Range Selector Header */}
+        <CalendarPicker
+          startDate={startDate}
+          endDate={endDate}
+          setStartDate={setStartDate}
+          setEndDate={setEndDate}
+          onRunScheduler={handleRunScheduler}
+          loading={loading}
+        />
 
         {/* Dynamic Canvas Views */}
         <main>
@@ -218,18 +203,6 @@ export default function App() {
           )}
         </main>
       </div>
-
-      {/* 3. Right Persistent Emergency Attention Side Drawer */}
-      {isAttentionDrawerOpen && (
-        <AttentionSidebarDrawer
-          isOpen={isAttentionDrawerOpen}
-          onClose={() => setIsAttentionDrawerOpen(false)}
-          attentionRecords={output3Data?.unscheduled_records || []}
-          scheduleId={currentScheduleId}
-          onRefreshSchedule={handleRefreshCurrentSchedule}
-          coachList={output2Data?.coach_summaries?.map(c => c.coach_name) || []}
-        />
-      )}
 
       {/* Excel Upload Modal */}
       <ExcelUploader
