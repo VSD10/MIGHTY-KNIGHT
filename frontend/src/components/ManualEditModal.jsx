@@ -1,9 +1,25 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2 } from 'lucide-react';
 import { validateManualOverride, applyManualEdit, deleteClass } from '../services/api';
 
-export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess }) {
+export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess, onRefreshSchedule }) {
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
+
   if (!isOpen || !targetClass) return null;
+
+  const triggerRefresh = () => {
+    if (onSaveSuccess) onSaveSuccess();
+    if (onRefreshSchedule) onRefreshSchedule();
+  };
 
   const [coachName, setCoachName] = useState(targetClass.coach_name || '');
   const [studentLevel, setStudentLevel] = useState(targetClass.student_level || 'Basic 1');
@@ -44,6 +60,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     'Beginner 3',
     'Early Intermediate 1',
     'Early Intermediate 2',
+    'Intermediate 1',
     'Intermediate'
   ];
 
@@ -102,7 +119,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
         time_slot: timeSlot,
         student_ids: studentIds
       });
-      if (onSaveSuccess) onSaveSuccess();
+      triggerRefresh();
       onClose();
     } catch (err) {
       alert('Failed to save manual edit: ' + (err.response?.data?.detail || err.message));
@@ -116,7 +133,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     setSaving(true);
     try {
       await deleteClass(scheduleId, targetClass.class_id);
-      if (onSaveSuccess) onSaveSuccess();
+      triggerRefresh();
       onClose();
     } catch (err) {
       alert('Failed to delete class: ' + (err.response?.data?.detail || err.message));
@@ -193,7 +210,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
                 background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 600
               }}
             >
-              <option value="G">G — Group Batch (8–10 students)</option>
+              <option value="G">G — Group Batch (4–10 students)</option>
               <option value="L">L — Limited Students Batch (1–3 students)</option>
               <option value="I">I — Individual Batch (1 student)</option>
             </select>
@@ -226,90 +243,84 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
           </div>
         </div>
 
-        {/* Manual Student Re-Assignment Panel */}
-        <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '20px', border: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
-              STUDENTS IN THIS BATCH ({studentIds.length}):
-            </span>
+        {/* STUDENT BATCH RE-ASSIGNMENT PANEL */}
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '14px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>STUDENTS ASSIGNED TO THIS BATCH ({studentIds.length})</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Group Batch Capacity Target: 4–10</span>
           </div>
 
-          {/* Student Tag Chips */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
-            {studentIds.map((sid, idx) => {
-              const name = studentNames[idx] || sid;
-              return (
-                <span
-                  key={sid}
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '4px 10px',
-                    fontSize: '0.8rem',
-                    color: '#fff',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            {studentIds.map((sId, idx) => (
+              <div
+                key={idx}
+                style={{
+                  background: 'rgba(251, 191, 36, 0.15)',
+                  border: '1px solid var(--accent-gold)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '4px 8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '0.775rem',
+                  color: '#fff'
+                }}
+              >
+                <span>{studentNames[idx] || sId}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveStudent(idx)}
+                  style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                  title="Remove student from this batch"
                 >
-                  <strong>{name}</strong> <span style={{ opacity: 0.6 }}>({sid})</span>
-                  <button
-                    onClick={() => handleRemoveStudent(idx)}
-                    title="Remove student from batch"
-                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                  >
-                    <UserMinus size={14} />
-                  </button>
-                </span>
-              );
-            })}
+                  <UserMinus size={13} />
+                </button>
+              </div>
+            ))}
           </div>
 
-          {/* Add Student Input */}
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="text"
-              placeholder="Enter Student ID (e.g. STU019) to add..."
+              placeholder="Enter Student ID to add (e.g. MKS00074)..."
               value={newStudentInput}
               onChange={e => setNewStudentInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAddStudent()}
-              style={{
-                flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-md)',
-                background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.825rem'
-              }}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddStudent(); } }}
+              style={{ flex: 1, padding: '6px 10px', fontSize: '0.775rem', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
             />
             <button
+              type="button"
               onClick={handleAddStudent}
               className="btn btn-secondary"
-              style={{ padding: '8px 14px', fontSize: '0.8rem', borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)' }}
+              style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
             >
               <UserPlus size={14} /> Add Student
             </button>
           </div>
         </div>
 
-        {/* Live Rule Violations Warning Panel */}
-        {validated && (
-          <div style={{ marginBottom: '20px' }}>
-            {warnings.length > 0 ? (
-              <div style={{ background: 'var(--status-danger-bg)', border: '1px solid #ef4444', padding: '14px', borderRadius: 'var(--radius-md)' }}>
-                <p style={{ fontWeight: 700, color: '#ef4444', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertCircle size={16} /> Rule Violation Warnings ({warnings.length})
-                </p>
-                {warnings.map((w, idx) => (
-                  <p key={idx} style={{ fontSize: '0.775rem', color: '#fca5a5', marginTop: '4px' }}>• {w}</p>
-                ))}
-              </div>
-            ) : (
-              <div style={{ background: 'var(--status-success-bg)', border: '1px solid #10b981', padding: '14px', borderRadius: 'var(--radius-md)', color: '#10b981', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle size={16} /> No Rule Violations Detected. Safe to Save!
-              </div>
-            )}
+        {/* Warning Messages */}
+        {warnings.length > 0 && (
+          <div style={{ background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)', borderRadius: 'var(--radius-md)', padding: '12px', marginBottom: '16px' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f43f5e', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <AlertCircle size={16} /> Constraint Rule Warnings Detected:
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.775rem', color: '#fca5a5' }}>
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {validated && warnings.length === 0 && (
+          <div style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: '16px', color: '#10b981', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <CheckCircle size={16} /> Rule Validation Passed: No hard constraint conflicts!
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' }}>
           <button
             onClick={handleDeleteClass}
             disabled={saving}
@@ -335,4 +346,6 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

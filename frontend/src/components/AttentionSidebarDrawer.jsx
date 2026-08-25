@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert, X, ChevronRight, UserPlus, Sparkles, Check, AlertTriangle } from 'lucide-react';
+import { ShieldAlert, X, ChevronRight, UserPlus, Sparkles, Check, AlertTriangle, Search } from 'lucide-react';
 import { assignStudentToClass, createClassForStudent } from '../services/api';
 
 export default function AttentionSidebarDrawer({
@@ -13,6 +13,7 @@ export default function AttentionSidebarDrawer({
   const [assigningStudentId, setAssigningStudentId] = useState(null);
   const [selectedClassId, setSelectedClassId] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   if (!isOpen) return null;
 
@@ -76,6 +77,26 @@ export default function AttentionSidebarDrawer({
         </button>
       </div>
 
+      {/* SEARCH BAR FOR DRAWER */}
+      <div style={{ marginBottom: '14px', position: 'relative' }}>
+        <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--accent-gold)' }} />
+        <input
+          type="text"
+          placeholder="Search student by name/ID..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '8px 10px 8px 34px',
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            color: '#fff',
+            fontSize: '0.8rem'
+          }}
+        />
+      </div>
+
       {/* Unscheduled Students List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {records.length === 0 ? (
@@ -85,8 +106,18 @@ export default function AttentionSidebarDrawer({
             <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>100% accountability rate achieved.</span>
           </div>
         ) : (
-          records.map((rec) => {
-            const isSelected = assigningStudentId === rec.student_id;
+          records
+            .filter((rec) => {
+              const q = searchQuery.toLowerCase().trim();
+              if (!q) return true;
+              return (
+                (rec.student_name || '').toLowerCase().includes(q) ||
+                (rec.student_id || '').toLowerCase().includes(q) ||
+                (rec.student_level || '').toLowerCase().includes(q)
+              );
+            })
+            .map((rec) => {
+              const isSelected = assigningStudentId === rec.student_id;
             const recs = rec.recommendations || [];
 
             return (
@@ -149,8 +180,8 @@ export default function AttentionSidebarDrawer({
                       >
                         <div>
                           <strong style={{ color: '#fff' }}>{candidate.coach_name}</strong>
-                          <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>
-                            ({candidate.day} {candidate.time_slot})
+                          <span style={{ color: 'var(--accent-gold)', marginLeft: '4px', fontWeight: 600 }}>
+                            ({candidate.date ? `${candidate.date} ${candidate.day}` : candidate.day} · {candidate.time_slot})
                           </span>
                         </div>
                         <span style={{ fontWeight: 800, color: candidate.is_overtime ? '#f43f5e' : '#10b981' }}>

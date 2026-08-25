@@ -20,6 +20,11 @@ class BatchGroup:
             return True
         return False
 
+    def is_valid(self) -> bool:
+        if self.batch_type == "G":
+            return len(self.students) >= self.config.min_capacity and len(self.students) <= self.config.max_capacity
+        return len(self.students) > 0 and len(self.students) <= self.config.max_capacity
+
     def get_warnings(self) -> List[str]:
         warnings = []
         if self.batch_type == "G" and len(self.students) < self.config.min_capacity:

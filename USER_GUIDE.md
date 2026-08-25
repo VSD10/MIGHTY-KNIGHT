@@ -127,7 +127,7 @@ Mighty Knight generates **three separate views** designed for different user rol
   - Student Level & Batch Type
   - Total Headcount
   - Full Student Names & Student IDs
-  - Warnings (e.g., *Group Batch size below target minimum 8*)
+  - Warnings (e.g., *Group Batch size below target minimum 4*)
 * **Search & Filter**: Search by coach name, student name, or filter by Student Level.
 * **Manual Edit Button**: Click **`Edit Class`** on any row to override assignments.
 

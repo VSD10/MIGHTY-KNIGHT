@@ -6,19 +6,56 @@ from typing import Dict, Any, List, Optional
 # Local SQLite Database Path inside data/ folder
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-DB_PATH = os.path.join(DATA_DIR, "chess_scheduler.db")
+DEFAULT_DB_PATH = os.path.join(DATA_DIR, "chess_scheduler.db")
 
-def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    conn = sqlite3.connect(db_path)
+def get_db_path() -> str:
+    env_path = os.environ.get("CHESS_DB_PATH")
+    if env_path:
+        return os.path.abspath(env_path)
+    return DEFAULT_DB_PATH
+
+def log_db_status(context: str, db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    abs_path = os.path.abspath(target_path)
+    exists = os.path.exists(abs_path)
+    size_bytes = os.path.getsize(abs_path) if exists else 0
+    student_count = 0
+    coach_count = 0
+
+    if exists:
+        try:
+            conn = get_connection(abs_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM students")
+            student_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM coaches")
+            coach_count = cursor.fetchone()[0]
+            conn.close()
+        except Exception as e:
+            print(f"[{context}] Error reading DB counts: {e}", flush=True)
+
+    print(f"==================================================", flush=True)
+    print(f"[{context}] DATABASE STATUS LOG", flush=True)
+    print(f"  - DB Absolute Path: {abs_path}", flush=True)
+    print(f"  - DB Exists       : {exists}", flush=True)
+    print(f"  - DB File Size    : {size_bytes} bytes", flush=True)
+    print(f"  - Student Count   : {student_count}", flush=True)
+    print(f"  - Coach Count     : {coach_count}", flush=True)
+    print(f"==================================================", flush=True)
+
+def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
+    target_path = db_path or get_db_path()
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+    conn = sqlite3.connect(target_path)
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db(db_path: str = DB_PATH):
+def init_db(db_path: Optional[str] = None):
     """
     Automatically initializes local SQLite tables for schedules, master students, master coaches, and metadata.
     """
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     
     # 1. Schedules table
@@ -78,14 +115,15 @@ def save_master_data_db(
     errors: List[Dict[str, Any]] = None,
     filename: str = "",
     upload_timestamp: str = "",
-    db_path: str = DB_PATH
+    db_path: Optional[str] = None
 ):
     """
     Persists uploaded master student and coach data into SQLite.
     Replaces existing master records cleanly in a transaction.
     """
-    init_db(db_path)
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM students")
@@ -129,9 +167,10 @@ def save_master_data_db(
     conn.commit()
     conn.close()
 
-def save_single_student_db(s: Dict[str, Any], db_path: str = DB_PATH):
-    init_db(db_path)
-    conn = get_connection(db_path)
+def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR REPLACE INTO students (student_id, student_name, student_level, batch_type, region_timezone, required_classes, data_json)
@@ -148,17 +187,19 @@ def save_single_student_db(s: Dict[str, Any], db_path: str = DB_PATH):
     conn.commit()
     conn.close()
 
-def delete_single_student_db(student_id: str, db_path: str = DB_PATH):
-    init_db(db_path)
-    conn = get_connection(db_path)
+def delete_single_student_db(student_id: str, db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM students WHERE student_id = ?", (student_id,))
     conn.commit()
     conn.close()
 
-def save_single_coach_db(c: Dict[str, Any], db_path: str = DB_PATH):
-    init_db(db_path)
-    conn = get_connection(db_path)
+def save_single_coach_db(c: Dict[str, Any], db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR REPLACE INTO coaches (coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max, data_json)
@@ -173,20 +214,22 @@ def save_single_coach_db(c: Dict[str, Any], db_path: str = DB_PATH):
     conn.commit()
     conn.close()
 
-def delete_single_coach_db(coach_name: str, db_path: str = DB_PATH):
-    init_db(db_path)
-    conn = get_connection(db_path)
+def delete_single_coach_db(coach_name: str, db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM coaches WHERE coach_name = ?", (coach_name,))
     conn.commit()
     conn.close()
 
-def load_master_data_db(db_path: str = DB_PATH) -> Dict[str, Any]:
+def load_master_data_db(db_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Loads persisted master student and coach records from SQLite.
     """
-    init_db(db_path)
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
 
     cursor.execute("SELECT data_json FROM students")
@@ -218,12 +261,13 @@ def load_master_data_db(db_path: str = DB_PATH) -> Dict[str, Any]:
         "last_upload_timestamp": last_upload_timestamp
     }
 
-def has_master_data_db(db_path: str = DB_PATH) -> bool:
+def has_master_data_db(db_path: Optional[str] = None) -> bool:
     """
     Checks if SQLite database contains valid master student and coach records.
     """
-    init_db(db_path)
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM students")
     s_count = cursor.fetchone()[0]
@@ -232,13 +276,14 @@ def has_master_data_db(db_path: str = DB_PATH) -> bool:
     conn.close()
     return s_count > 0 and c_count > 0
 
-def save_schedule_db(schedule_dict: Dict[str, Any], db_path: str = DB_PATH):
+def save_schedule_db(schedule_dict: Dict[str, Any], db_path: Optional[str] = None):
     """
     Saves generated schedule and output views in SQLite schedules table.
     Also updates latest_schedule_id pointer in active_metadata.
     """
-    init_db(db_path)
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR REPLACE INTO schedules 
@@ -260,12 +305,13 @@ def save_schedule_db(schedule_dict: Dict[str, Any], db_path: str = DB_PATH):
     conn.commit()
     conn.close()
 
-def get_schedule_db(schedule_id: str, db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+def get_schedule_db(schedule_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Retrieves saved schedule from SQLite schedules table.
     """
-    init_db(db_path)
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("SELECT data_json FROM schedules WHERE schedule_id = ?", (schedule_id,))
     row = cursor.fetchone()
@@ -274,12 +320,13 @@ def get_schedule_db(schedule_id: str, db_path: str = DB_PATH) -> Optional[Dict[s
         return json.loads(row["data_json"])
     return None
 
-def get_latest_schedule_db(db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+def get_latest_schedule_db(db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Retrieves the most recent active schedule from SQLite for zero-data-loss application reloads.
     """
-    init_db(db_path)
-    conn = get_connection(db_path)
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
     cursor = conn.cursor()
 
     cursor.execute("SELECT value FROM active_metadata WHERE key = 'latest_schedule_id'")
@@ -287,12 +334,12 @@ def get_latest_schedule_db(db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
     if row:
         sched_id = row["value"]
         conn.close()
-        return get_schedule_db(sched_id, db_path)
+        return get_schedule_db(sched_id, target_path)
 
     cursor.execute("SELECT schedule_id FROM schedules ORDER BY created_at DESC LIMIT 1")
     row = cursor.fetchone()
     conn.close()
     if row:
-        return get_schedule_db(row["schedule_id"], db_path)
+        return get_schedule_db(row["schedule_id"], target_path)
 
     return None

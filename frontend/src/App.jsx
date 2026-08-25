@@ -221,6 +221,7 @@ export default function App() {
         onClose={() => setIsEditModalOpen(false)}
         targetClass={targetEditClass}
         scheduleId={currentScheduleId}
+        onSaveSuccess={handleRefreshCurrentSchedule}
         onRefreshSchedule={handleRefreshCurrentSchedule}
       />
     </div>

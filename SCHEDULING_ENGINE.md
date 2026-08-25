@@ -110,11 +110,11 @@ The engine strictly validates **7 non-negotiable condition checks** before confi
 
 Students are grouped into compatible batches before assigning to coaches:
 
-- **Group Batch (`G`)**: Target size 8–10 students. Same level, same batch type.
+- **Group Batch (`G`)**: Target size 4–10 students. Same level, same batch type.
 - **Limited Batch (`L`)**: Target size 1–3 students.
 - **Individual Batch (`I`)**: Single student (1-on-1 coaching).
 
-If a group batch has fewer than 8 students, the engine schedules the batch but attaches a diagnostic warning flag (*Group batch size below target minimum 8*) for administrative review.
+If a group batch has fewer than 4 students, the engine schedules the batch but attaches a diagnostic warning flag (*Group batch size below target minimum 4*) for administrative review.
 
 ---
 

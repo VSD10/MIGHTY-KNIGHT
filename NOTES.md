@@ -34,9 +34,9 @@ This document tracks all design decisions, rule interpretations, and assumptions
 ---
 
 ## 4. Batch Grouping & Minimum Capacity Flagging
-- **Group Batch (`G`)**: Max capacity 10, target minimum 8.
+- **Group Batch (`G`)**: Max capacity 10, target minimum 4.
   - Students of the same level, batch type `G`, same day, and time slot are grouped together.
-  - If fewer than 8 students match for a slot, the system **does not reject the class**; instead, it schedules the class to ensure student progress and flags a warning: `Group Batch capacity below target (X/8 students) — Administrator Review Suggested`.
+  - If fewer than 4 students match for a slot, the system **does not reject the class**; instead, it schedules the class to ensure student progress and flags a warning: `Group Batch capacity below target (X/4 students) — Administrator Review Suggested`.
 - **Limited Batch (`L`)**: Capacity 1–3 students.
 - **Individual Batch (`I`)**: Capacity 1 student.
 

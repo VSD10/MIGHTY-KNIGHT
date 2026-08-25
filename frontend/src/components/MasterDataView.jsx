@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Users, Award, Search, Plus, Edit2, Trash2, Save, X, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { getMasterData, saveMasterStudent, deleteMasterStudent, saveMasterCoach, deleteMasterCoach } from '../services/api';
 
@@ -354,6 +355,14 @@ export default function MasterDataView({ onReRunScheduler }) {
 function StudentEditModal({ student, onSave, onClose }) {
   const [formData, setFormData] = useState({ ...student });
 
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.student_id || !formData.student_name) {
@@ -363,10 +372,45 @@ function StudentEditModal({ student, onSave, onClose }) {
     onSave(formData);
   };
 
-  return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div className="glass-panel" style={{ width: '100%', maxWidth: '520px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--accent-gold)', padding: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+  const modalContent = (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        background: 'rgba(0, 0, 0, 0.75)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        zIndex: 99999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px',
+        boxSizing: 'border-box'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass-panel"
+        style={{
+          width: '100%',
+          maxWidth: '520px',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          background: 'var(--bg-secondary)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--accent-gold)',
+          padding: '24px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(251, 191, 36, 0.25)',
+          margin: 'auto'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>
             {student.student_id ? 'Edit Master Student' : 'Add New Master Student'}
           </h3>
@@ -408,10 +452,13 @@ function StudentEditModal({ student, onSave, onClose }) {
               >
                 <option value="Basic 1">Basic 1</option>
                 <option value="Basic 2">Basic 2</option>
+                <option value="Beginner 1">Beginner 1</option>
+                <option value="Beginner 2">Beginner 2</option>
+                <option value="Beginner 3">Beginner 3</option>
+                <option value="Early Intermediate 1">Early Intermediate 1</option>
+                <option value="Early Intermediate 2">Early Intermediate 2</option>
                 <option value="Intermediate 1">Intermediate 1</option>
-                <option value="Intermediate 2">Intermediate 2</option>
-                <option value="Advanced 1">Advanced 1</option>
-                <option value="Advanced 2">Advanced 2</option>
+                <option value="Intermediate">Intermediate</option>
               </select>
             </div>
 
@@ -460,11 +507,21 @@ function StudentEditModal({ student, onSave, onClose }) {
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
 
 function CoachEditModal({ coach, onSave, onClose }) {
   const [formData, setFormData] = useState({ ...coach });
   const [levelsStr, setLevelsStr] = useState(Array.isArray(coach.levels_handled) ? coach.levels_handled.join(', ') : '');
+
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -476,10 +533,45 @@ function CoachEditModal({ coach, onSave, onClose }) {
     onSave({ ...formData, levels_handled: lvls });
   };
 
-  return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div className="glass-panel" style={{ width: '100%', maxWidth: '540px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--accent-blue)', padding: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+  const modalContent = (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100vw',
+        height: '100vh',
+        background: 'rgba(0, 0, 0, 0.75)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        zIndex: 99999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px',
+        boxSizing: 'border-box'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="glass-panel"
+        style={{
+          width: '100%',
+          maxWidth: '540px',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          background: 'var(--bg-secondary)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--accent-blue)',
+          padding: '24px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(96, 165, 250, 0.25)',
+          margin: 'auto'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>
             {coach.coach_name ? 'Edit Master Coach' : 'Add New Master Coach'}
           </h3>
@@ -541,4 +633,6 @@ function CoachEditModal({ coach, onSave, onClose }) {
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

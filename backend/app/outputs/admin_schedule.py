@@ -16,9 +16,7 @@ def format_admin_schedule(result: ScheduleResult) -> List[Dict[str, Any]]:
     )
 
     for cls in sorted_classes:
-        students_formatted = " · ".join(
-            [f"{name} ({sid})" for sid, name in zip(cls.student_ids, cls.student_names)]
-        )
+        students_formatted = " · ".join(cls.student_names)
         row = {
             "class_id": cls.class_id,
             "date": cls.date,

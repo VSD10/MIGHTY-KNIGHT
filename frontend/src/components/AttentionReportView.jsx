@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check, Zap, Plus, X, Calendar, Clock, Award } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, CheckCircle2, UserX, Info, Move, Sparkles, Check, Zap, Plus, X, Calendar, Clock, Award, Search } from 'lucide-react';
 import { assignStudentToClass, createClassForStudent } from '../services/api';
 
 const DEFAULT_COACHES = ["PRAKASH", "RAVEENA", "GURUVANTHANA", "BATHRINATH", "KARTHIK"];
 
 export default function AttentionReportView({ attentionData, scheduleId, onRefreshSchedule, coachList }) {
   const [assigningId, setAssigningId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Custom Create New Class state per student
   const [activeNewClassStudentId, setActiveNewClassStudentId] = useState(null);
@@ -129,6 +130,47 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
         </span>
       </div>
 
+      {/* SEARCH OPTION FOR UNSCHEDULED STUDENTS */}
+      <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', background: 'rgba(0, 0, 0, 0.25)', padding: '12px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: '280px', maxWidth: '500px' }}>
+          <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--accent-gold)' }} />
+          <input
+            type="text"
+            placeholder="Search unscheduled student by name or ID (e.g. Harshitha, MKS00074)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px 14px 10px 38px',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              color: '#fff',
+              fontSize: '0.85rem',
+              fontWeight: 500
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              style={{
+                position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer'
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+          Showing {attention_records.filter(r => {
+            const q = searchQuery.toLowerCase().trim();
+            if (!q) return true;
+            return (r.student_name || '').toLowerCase().includes(q) || (r.student_id || '').toLowerCase().includes(q) || (r.student_level || '').toLowerCase().includes(q);
+          }).length} of {attention_records.length} unscheduled students
+        </span>
+      </div>
+
       {/* UNSCHEDULED STUDENT CARDS LAYOUT (NO OVERLAPPING!) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {attention_records.length === 0 ? (
@@ -136,9 +178,20 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
             🎉 All students were successfully scheduled! No administrative attention required.
           </div>
         ) : (
-          attention_records.map(rec => {
-            const recs = rec.recommendations || [];
-            const isCreatingNew = activeNewClassStudentId === rec.student_id;
+          attention_records
+            .filter(rec => {
+              const q = searchQuery.toLowerCase().trim();
+              if (!q) return true;
+              return (
+                (rec.student_name || '').toLowerCase().includes(q) ||
+                (rec.student_id || '').toLowerCase().includes(q) ||
+                (rec.student_level || '').toLowerCase().includes(q) ||
+                (rec.failure_reason || '').toLowerCase().includes(q)
+              );
+            })
+            .map(rec => {
+              const recs = rec.recommendations || [];
+              const isCreatingNew = activeNewClassStudentId === rec.student_id;
 
             return (
               <div
@@ -310,7 +363,12 @@ export default function AttentionReportView({ attentionData, scheduleId, onRefre
                               <div>
                                 <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                   <span>{item.coach_name}</span>
-                                  <span style={{ opacity: 0.6 }}>• {item.day} ({item.time_slot})</span>
+                                  <span style={{ color: 'var(--accent-gold)', fontWeight: 700 }}>
+                                    • {item.date ? `${item.date} (${item.day})` : item.day}
+                                  </span>
+                                  <span style={{ opacity: 0.85, color: '#fff' }}>
+                                    · {item.time_slot}
+                                  </span>
                                   <span className="badge badge-gold" style={{ fontSize: '0.675rem', padding: '2px 6px' }}>
                                     {item.coach_day_classes} {item.coach_day_classes === 1 ? 'class' : 'classes'}
                                   </span>

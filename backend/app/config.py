@@ -50,7 +50,7 @@ class SystemConfig(BaseModel):
     }
 
     batch_types: Dict[str, BatchConfig] = {
-        "G": BatchConfig(symbol="G", name="Group Batch", min_capacity=8, max_capacity=10),
+        "G": BatchConfig(symbol="G", name="Group Batch", min_capacity=4, max_capacity=10),
         "L": BatchConfig(symbol="L", name="Limited Students Batch", min_capacity=1, max_capacity=3),
         "I": BatchConfig(symbol="I", name="Individual Batch", min_capacity=1, max_capacity=1)
     }

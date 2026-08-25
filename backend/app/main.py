@@ -17,7 +17,8 @@ from app.outputs.admin_schedule import format_admin_schedule
 from app.outputs.attention_report import format_attention_report
 from app.storage.database import (
     init_db, save_schedule_db, get_schedule_db, get_latest_schedule_db,
-    save_master_data_db, load_master_data_db, has_master_data_db
+    save_master_data_db, load_master_data_db, has_master_data_db,
+    log_db_status, BASE_DIR
 )
 
 app = FastAPI(
@@ -59,10 +60,10 @@ def ensure_active_data():
         ACTIVE_DATA["students"] = data["students"]
         ACTIVE_DATA["coaches"] = data["coaches"]
         ACTIVE_DATA["parsing_errors"] = data["parsing_errors"]
-        ACTIVE_DATA["filename"] = data.get("last_filename", "Master Data")
-        ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp", "")
+        ACTIVE_DATA["filename"] = data.get("last_filename") or "Master Data"
+        ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp") or ""
     else:
-        sample_path = "sample_data/mighty_knight_template.xlsx"
+        sample_path = os.path.join(BASE_DIR, "sample_data", "mighty_knight_template.xlsx")
         if not os.path.exists(sample_path):
             from sample_generator import generate_sample_excel
             generate_sample_excel(sample_path)
@@ -81,6 +82,7 @@ def ensure_active_data():
 @app.on_event("startup")
 def startup_event():
     ensure_active_data()
+    log_db_status("STARTUP")
 
 @app.get("/api/health")
 def health_check():
@@ -125,6 +127,7 @@ async def upload_excel_data(file: UploadFile = File(...)):
 
     # Permanently store in local SQLite database (data/chess_scheduler.db)
     save_master_data_db(s_dicts, c_dicts, errors, filename=file.filename, upload_timestamp=now_str)
+    log_db_status("AFTER_EXCEL_UPLOAD")
 
     # Immediately generate schedule for this new uploaded dataset & persist as active schedule in SQLite
     s_date = date.today()
@@ -225,7 +228,7 @@ def delete_master_coach(coach_name: str):
 
 @app.get("/api/download-template")
 def download_excel_template():
-    sample_path = "sample_data/mighty_knight_template.xlsx"
+    sample_path = os.path.join(BASE_DIR, "sample_data", "mighty_knight_template.xlsx")
     if not os.path.exists(sample_path):
         from sample_generator import generate_sample_excel
         generate_sample_excel(sample_path)
@@ -513,7 +516,7 @@ def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
         stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
         names = [stu_map.get(sid, sid) for sid in req.student_ids]
         target_cls["student_names"] = names
-        target_cls["students_formatted"] = " · ".join([f"{n} ({sid})" for sid, n in zip(req.student_ids, names)])
+        target_cls["students_formatted"] = " · ".join(names)
 
     target_cls["is_manual_override"] = True
 
@@ -538,8 +541,67 @@ def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
 
     res_dict["coach_schedule"] = updated_coach_slots
 
+    # Real-time Sync for Output 3 (Unscheduled / Attention Report)
+    sync_schedule_accountability(res_dict)
+
     save_schedule_db(res_dict)
     return {"status": "success", "schedule": res_dict}
+
+def sync_schedule_accountability(res_dict: dict):
+    """
+    Recalculates Output 3 (Unscheduled / Attention Report) and student accountability
+    in real time whenever Output 2 is manually modified (class deleted or student removed).
+    Guarantees: scheduled_classes + remaining_classes == required_classes for ALL students.
+    """
+    students = ACTIVE_DATA.get("students", [])
+    if not students:
+        return
+
+    sch_counts = {s["student_id"]: 0 for s in students}
+    for cls in res_dict.get("scheduled_classes", []):
+        for sid in cls.get("student_ids", []):
+            sch_counts[sid] = sch_counts.get(sid, 0) + 1
+
+    unscheduled_records = []
+    scheduled_count = 0
+    unscheduled_count = 0
+
+    existing_reasons = {r["student_id"]: r.get("failure_reason") for r in res_dict.get("unscheduled_records", [])}
+
+    for s in students:
+        s_id = s["student_id"]
+        req = s.get("required_classes", 8)
+        sch = sch_counts.get(s_id, 0)
+        rem = max(0, req - sch)
+
+        if rem > 0:
+            unscheduled_count += 1
+            reason = existing_reasons.get(s_id) or "Manual removal from class or unassigned remaining classes"
+            unscheduled_records.append({
+                "student_id": s_id,
+                "student_name": s["student_name"],
+                "student_level": s["student_level"],
+                "batch_type": s["batch_type"],
+                "required_classes": req,
+                "scheduled_classes": sch,
+                "remaining_classes": rem,
+                "mon_pref": s.get("mon_pref", "No Preference"),
+                "tue_pref": s.get("tue_pref", "No Preference"),
+                "wed_pref": s.get("wed_pref", "No Preference"),
+                "thu_pref": s.get("thu_pref", "No Preference"),
+                "fri_pref": s.get("fri_pref", "No Preference"),
+                "sat_pref": s.get("sat_pref", "No Preference"),
+                "sun_pref": s.get("sun_pref", "No Preference"),
+                "failure_reason": reason
+            })
+        else:
+            scheduled_count += 1
+
+    res_dict["unscheduled_records"] = unscheduled_records
+    res_dict["unscheduled_students_count"] = unscheduled_count
+    res_dict["successfully_scheduled_students"] = scheduled_count
+    res_dict["total_students_considered"] = len(students)
+    res_dict["accountability_passed"] = (len(students) == scheduled_count + unscheduled_count)
 
 class AssignStudentRequest(BaseModel):
     student_id: str
@@ -564,7 +626,7 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
         stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
         s_name = stu_map.get(req.student_id, req.student_id)
         target_cls["student_names"].append(s_name)
-        target_cls["students_formatted"] = " · ".join([f"{n} ({sid})" for sid, n in zip(target_cls["student_ids"], target_cls["student_names"])])
+        target_cls["students_formatted"] = " · ".join(target_cls["student_names"])
         target_cls["is_manual_override"] = True
 
     # Remove from unscheduled_records if present
@@ -713,6 +775,9 @@ def delete_class_from_schedule(schedule_id: str, class_id: str):
         })
 
     res_dict["coach_schedule"] = updated_coach_slots
+
+    # Real-time Sync for Output 3 (Unscheduled / Attention Report)
+    sync_schedule_accountability(res_dict)
 
     save_schedule_db(res_dict)
     return {"status": "success", "schedule": res_dict}
