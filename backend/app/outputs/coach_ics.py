@@ -7,7 +7,7 @@ def parse_time_slot(date_str: str, time_slot: str):
     Parses date (YYYY-MM-DD) and time slot string (e.g. '05:00 PM - 06:00 PM') into DTSTART and DTEND datetime objects.
     """
     try:
-        parts = time_slot.split("-")
+        parts = re.split(r'[-–—]', time_slot)
         start_str = parts[0].strip()
         end_str = parts[1].strip() if len(parts) > 1 else start_str
         

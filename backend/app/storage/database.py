@@ -98,7 +98,21 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
-    # 4. Active metadata table
+    # 4. Master Batches table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS batches (
+            batch_id TEXT PRIMARY KEY,
+            batch_name TEXT NOT NULL,
+            level TEXT NOT NULL,
+            batch_type TEXT NOT NULL,
+            fixed_trainer TEXT,
+            schedule_timings TEXT,
+            student_ids_json TEXT,
+            data_json TEXT NOT NULL
+        )
+    """)
+
+    # 5. Active metadata table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS active_metadata (
             key TEXT PRIMARY KEY,
@@ -172,6 +186,7 @@ def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
     init_db(target_path)
     conn = get_connection(target_path)
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM active_metadata WHERE key = 'master_cleared'")
     cursor.execute("""
         INSERT OR REPLACE INTO students (student_id, student_name, student_level, batch_type, region_timezone, required_classes, data_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -193,6 +208,29 @@ def delete_single_student_db(student_id: str, db_path: Optional[str] = None):
     conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM students WHERE student_id = ?", (student_id,))
+    
+    # Cascade: Unlink student from any master batches
+    cursor.execute("SELECT batch_id, data_json FROM batches")
+    rows = cursor.fetchall()
+    for row in rows:
+        try:
+            b = json.loads(row["data_json"])
+            s_ids = b.get("student_ids", [])
+            students_list = b.get("students", [])
+            modified = False
+            if student_id in s_ids:
+                b["student_ids"] = [sid for sid in s_ids if sid != student_id]
+                modified = True
+            if any(s.get("student_id") == student_id for s in students_list):
+                b["students"] = [s for s in students_list if s.get("student_id") != student_id]
+                b["student_count"] = len(b["students"])
+                modified = True
+            if modified:
+                cursor.execute("UPDATE batches SET student_ids_json = ?, data_json = ? WHERE batch_id = ?",
+                               (json.dumps(b.get("student_ids", [])), json.dumps(b), row["batch_id"]))
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
@@ -201,6 +239,7 @@ def save_single_coach_db(c: Dict[str, Any], db_path: Optional[str] = None):
     init_db(target_path)
     conn = get_connection(target_path)
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM active_metadata WHERE key = 'master_cleared'")
     cursor.execute("""
         INSERT OR REPLACE INTO coaches (coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max, data_json)
         VALUES (?, ?, ?, ?, ?)
@@ -220,8 +259,147 @@ def delete_single_coach_db(coach_name: str, db_path: Optional[str] = None):
     conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM coaches WHERE coach_name = ?", (coach_name,))
+
+    # Cascade: Unassign coach from master batches
+    cursor.execute("SELECT batch_id, data_json FROM batches")
+    rows = cursor.fetchall()
+    for row in rows:
+        try:
+            b = json.loads(row["data_json"])
+            if b.get("fixed_trainer", "").strip().lower() == coach_name.strip().lower():
+                b["fixed_trainer"] = "Unassigned"
+                cursor.execute("UPDATE batches SET fixed_trainer = 'Unassigned', data_json = ? WHERE batch_id = ?",
+                               (json.dumps(b), row["batch_id"]))
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
+
+def get_master_statistics_db(db_path: Optional[str] = None) -> Dict[str, int]:
+    """
+    Computes real-time master data statistics directly from SQLite.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM batches")
+    total_batches = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM students")
+    total_students = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM coaches")
+    total_coaches = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM batches WHERE batch_type = 'G'")
+    group_batches = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM batches WHERE batch_type = 'L'")
+    limited_batches = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM batches WHERE batch_type = 'I'")
+    individual_batches = cursor.fetchone()[0]
+    conn.close()
+    return {
+        "total_batches": total_batches,
+        "total_students": total_students,
+        "total_coaches": total_coaches,
+        "group_batches": group_batches,
+        "limited_batches": limited_batches,
+        "individual_batches": individual_batches
+    }
+
+
+def save_single_batch_db(b: Dict[str, Any], db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM active_metadata WHERE key = 'master_cleared'")
+    cursor.execute("""
+        INSERT OR REPLACE INTO batches (batch_id, batch_name, level, batch_type, fixed_trainer, schedule_timings, student_ids_json, data_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        b["batch_id"],
+        b.get("batch_name", b["batch_id"]),
+        b.get("level", "Beginner"),
+        b.get("batch_type", "G"),
+        b.get("fixed_trainer", "Unassigned"),
+        b.get("schedule_timings", ""),
+        json.dumps(b.get("student_ids", [])),
+        json.dumps(b)
+    ))
+    conn.commit()
+    conn.close()
+
+def delete_single_batch_db(batch_id: str, db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM batches WHERE batch_id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
+
+def load_master_batches_db(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT data_json FROM batches")
+    rows = cursor.fetchall()
+    batches = [json.loads(row["data_json"]) for row in rows]
+    conn.close()
+    return batches
+
+def save_all_master_batches_db(batches: List[Dict[str, Any]], db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM batches")
+    for b in batches:
+        cursor.execute("""
+            INSERT INTO batches (batch_id, batch_name, level, batch_type, fixed_trainer, schedule_timings, student_ids_json, data_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            b["batch_id"],
+            b.get("batch_name", b["batch_id"]),
+            b.get("level", "Beginner"),
+            b.get("batch_type", "G"),
+            b.get("fixed_trainer", "Unassigned"),
+            b.get("schedule_timings", ""),
+            json.dumps(b.get("student_ids", [])),
+            json.dumps(b)
+        ))
+    conn.commit()
+    conn.close()
+
+def clear_all_master_data_db(db_path: Optional[str] = None):
+    """
+    Completely wipes all students, coaches, batches, schedules, and active metadata from the SQLite DB.
+    Sets master_cleared flag in active_metadata so empty state is respected across restarts.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM students")
+    cursor.execute("DELETE FROM coaches")
+    cursor.execute("DELETE FROM batches")
+    cursor.execute("DELETE FROM schedules")
+    cursor.execute("DELETE FROM active_metadata")
+    cursor.execute("INSERT INTO active_metadata (key, value) VALUES ('master_cleared', 'true')")
+    conn.commit()
+    conn.close()
+
+def is_master_cleared_db(db_path: Optional[str] = None) -> bool:
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM active_metadata WHERE key = 'master_cleared'")
+    row = cursor.fetchone()
+    conn.close()
+    return bool(row and row["value"] == "true")
+
 
 def load_master_data_db(db_path: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -240,6 +418,10 @@ def load_master_data_db(db_path: Optional[str] = None) -> Dict[str, Any]:
     coach_rows = cursor.fetchall()
     coaches = [json.loads(row["data_json"]) for row in coach_rows]
 
+    cursor.execute("SELECT data_json FROM batches")
+    batch_rows = cursor.fetchall()
+    batches = [json.loads(row["data_json"]) for row in batch_rows]
+
     cursor.execute("SELECT value FROM active_metadata WHERE key = 'parsing_errors'")
     err_row = cursor.fetchone()
     parsing_errors = json.loads(err_row["value"]) if err_row else []
@@ -256,6 +438,7 @@ def load_master_data_db(db_path: Optional[str] = None) -> Dict[str, Any]:
     return {
         "students": students,
         "coaches": coaches,
+        "batches": batches,
         "parsing_errors": parsing_errors,
         "last_filename": last_filename,
         "last_upload_timestamp": last_upload_timestamp
@@ -343,3 +526,70 @@ def get_latest_schedule_db(db_path: Optional[str] = None) -> Optional[Dict[str, 
         return get_schedule_db(row["schedule_id"], target_path)
 
     return None
+
+def save_system_config_db(config_dict: Dict[str, Any], db_path: Optional[str] = None):
+    """
+    Persists current SystemConfig dictionary into SQLite active_metadata table.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('system_config', ?)", (json.dumps(config_dict),))
+    conn.commit()
+    conn.close()
+
+def load_system_config_db(db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves persisted SystemConfig dictionary from SQLite active_metadata table.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM active_metadata WHERE key = 'system_config'")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        try:
+            return json.loads(row["value"])
+        except Exception:
+            return None
+    return None
+
+def clear_all_master_data_db(db_path: Optional[str] = None):
+    """
+    Wipes all students, coaches, batches, and schedules from the SQLite database,
+    and marks master_cleared flag as true so server restarts don't auto-reload sample data.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM students")
+    cursor.execute("DELETE FROM coaches")
+    cursor.execute("DELETE FROM batches")
+    cursor.execute("DELETE FROM schedules")
+    cursor.execute("DELETE FROM active_metadata WHERE key = 'latest_schedule_id'")
+    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('master_cleared', 'true')")
+    conn.commit()
+    conn.close()
+    log_db_status("POST_CLEAR_ALL_MASTER_DATA", target_path)
+
+def is_master_cleared_db(db_path: Optional[str] = None) -> bool:
+    """
+    Returns True if master data was explicitly cleared by the user.
+    """
+    target_path = db_path or get_db_path()
+    if not os.path.exists(target_path):
+        return False
+    try:
+        conn = get_connection(target_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM active_metadata WHERE key = 'master_cleared'")
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row and row["value"] == "true")
+    except Exception:
+        return False
+

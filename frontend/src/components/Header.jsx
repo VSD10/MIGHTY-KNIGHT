@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download, HardDrive, Sparkles, Layers, Users, BarChart3, MessageSquare } from 'lucide-react';
+import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download, HardDrive, Sparkles, Layers, Users, BarChart3, GraduationCap, MessageSquare } from 'lucide-react';
 import { getDownloadTemplateUrl, getDataSummary } from '../services/api';
 
 export default function Header({ scheduleStatus, onStatusToggle, activeTab, setActiveTab, onUploadClick, onScheduleClick, loading }) {
@@ -140,11 +140,27 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
         </button>
 
         <button
+          onClick={() => setActiveTab('studentSchedules')}
+          className={`btn ${activeTab === 'studentSchedules' ? 'btn-primary' : 'btn-secondary'}`}
+          style={activeTab === 'studentSchedules' ? { background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', color: '#fff', border: 'none' } : {}}
+        >
+          <GraduationCap size={16} /> Output 5 — Student Schedules
+        </button>
+
+        <button
           onClick={() => setActiveTab('masterData')}
           className={`btn ${activeTab === 'masterData' ? 'btn-primary' : 'btn-secondary'}`}
           style={activeTab === 'masterData' ? { background: 'linear-gradient(135deg, #a855f7 0%, #7e22ce 100%)', color: '#fff', border: 'none' } : {}}
         >
-          <Users size={16} /> Master Data (Students & Coaches)
+          <Users size={16} /> Master Data (Batches, Students & Coaches)
+        </button>
+
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-secondary'}`}
+          style={activeTab === 'settings' ? { background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)', color: '#fff', border: 'none' } : {}}
+        >
+          <Sparkles size={16} /> Settings — Engine Controls
         </button>
       </div>
     </header>

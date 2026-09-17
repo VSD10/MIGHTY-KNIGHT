@@ -7,6 +7,7 @@ class ScheduledClass(BaseModel):
     day: str
     time_slot: str
     coach_name: str
+    batch_name: Optional[str] = None
     student_level: str
     batch_type: str
     student_ids: List[str]

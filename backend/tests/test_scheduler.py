@@ -55,6 +55,8 @@ def test_group_batch_minimum_and_one_class_per_day():
         if cls.batch_type == "G":
             assert len(cls.student_ids) >= min_group_cap, f"Class {cls.class_id} had {len(cls.student_ids)} students, below min {min_group_cap}"
             assert len(cls.student_ids) <= max_group_cap, f"Class {cls.class_id} had {len(cls.student_ids)} students, above max {max_group_cap}"
+        elif cls.batch_type == "L":
+            assert 1 <= len(cls.student_ids) <= 4, f"Limited class {cls.class_id} had {len(cls.student_ids)} students (allowed 1-4)"
 
     # 2. Assert no student has more than 1 class per day
     student_date_counts = {}

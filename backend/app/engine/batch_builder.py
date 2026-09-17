@@ -1,3 +1,4 @@
+import math
 from typing import List, Dict, Any, Tuple
 from app.models.student import StudentModel
 from app.config import SystemConfig, BatchConfig
@@ -38,21 +39,21 @@ def group_students_for_slot(
     config: SystemConfig
 ) -> List[BatchGroup]:
     """
-    Groups candidate students of the same level and batch_type into valid BatchGroup instances.
-    Each group will contain between 1 and max_capacity students.
+    Groups candidate students of the same level and batch_type into balanced BatchGroup instances.
+    Uses balanced partitioning so groups are spread evenly across capacity bounds.
     """
+    if not candidate_students:
+        return []
+
     batch_cfg = config.batch_types.get(batch_type, config.batch_types["G"])
-    groups: List[BatchGroup] = []
-    
-    current_group = BatchGroup(level, batch_type, batch_cfg)
+    max_cap = batch_cfg.max_capacity
+    total = len(candidate_students)
 
-    for student in candidate_students:
-        if not current_group.can_add_student(student):
-            groups.append(current_group)
-            current_group = BatchGroup(level, batch_type, batch_cfg)
-        current_group.add_student(student)
+    num_groups = max(1, math.ceil(total / max_cap))
 
-    if len(current_group.students) > 0:
-        groups.append(current_group)
+    groups: List[BatchGroup] = [BatchGroup(level, batch_type, batch_cfg) for _ in range(num_groups)]
+    for i, student in enumerate(candidate_students):
+        group_idx = i % num_groups
+        groups[group_idx].add_student(student)
 
-    return groups
+    return [g for g in groups if len(g.students) > 0]

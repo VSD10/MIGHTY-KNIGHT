@@ -43,7 +43,7 @@ Unlike simple calendar tools or naive random assigners, this engine evaluates mu
 └─────────────────┘             └─────────────────┘             └─────────────────┘
   • Same Level                    • 5-Step Selection              • Verifies 100%
   • Same Batch Type               • 7 Hard Constraints             student match
-  • Caps: G (8-10), L(3), I(1)    • Priority Ranking              • Audits errors
+  • Caps: G (8-10), L(4), I(1)    • Priority Ranking              • Audits errors
 ```
 
 ---
@@ -111,7 +111,7 @@ The engine strictly validates **7 non-negotiable condition checks** before confi
 Students are grouped into compatible batches before assigning to coaches:
 
 - **Group Batch (`G`)**: Target size 4–10 students. Same level, same batch type.
-- **Limited Batch (`L`)**: Target size 1–3 students.
+- **Limited Batch (`L`)**: Target size 1–4 students.
 - **Individual Batch (`I`)**: Single student (1-on-1 coaching).
 
 If a group batch has fewer than 4 students, the engine schedules the batch but attaches a diagnostic warning flag (*Group batch size below target minimum 4*) for administrative review.

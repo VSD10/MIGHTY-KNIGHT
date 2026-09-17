@@ -6,8 +6,7 @@ import CoachDispatchModal from './CoachDispatchModal';
 const getTimeSlotSortMinutes = (timeSlotStr) => {
   if (!timeSlotStr) return 0;
   try {
-    const startPart = timeSlotStr.split('-')[0].trim();
-    const match = startPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    const match = timeSlotStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
     if (!match) return 0;
     let hours = parseInt(match[1], 10);
     const minutes = parseInt(match[2], 10);

@@ -38,7 +38,7 @@ Contains the students requiring chess classes for the month/period:
 | `Student ID` | Unique student ID | `STU001` |
 | `Student Name` | Full name | `Aarav Sharma` |
 | `Student Level` | Level (Basic 1 to Intermediate) | `Basic 1` |
-| `Batch Type` | **G** (Group 8-10), **L** (Limited 1-3), **I** (Individual 1) | `G` |
+| `Batch Type` | **G** (Group 8-10), **L** (Limited 1-4), **I** (Individual 1) | `G` |
 | `Required Classes` | Total classes needed for period | `8` |
 | `Monday` to `Sunday` | Preference: `5 PM - 9 PM`, `No Preference`, or `Not Available` | `05:00 PM – 09:00 PM` |
 | `Tournament Preference` | `Yes` or `No` | `No` |

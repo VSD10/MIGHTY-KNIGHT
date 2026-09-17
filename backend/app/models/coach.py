@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
 
 class CoachModel(BaseModel):
@@ -37,6 +37,16 @@ class CoachModel(BaseModel):
         }
         return day_map.get(day_name, 4)
 
-    def can_handle_level(self, level: str) -> bool:
+    def can_handle_level(self, level: str, config: Optional[Any] = None) -> bool:
         normalized_handled = [l.strip().lower() for l in self.levels_handled]
-        return level.strip().lower() in normalized_handled
+        if level.strip().lower() in normalized_handled:
+            return True
+        if config and hasattr(config, "coach_priority"):
+            p_list = [p.strip().lower() for p in config.coach_priority.get(level, [])]
+            if self.coach_name.strip().lower() in p_list:
+                return True
+        return False
+
+    def get_parsed_preferred_timings(self) -> dict:
+        from app.engine.time_utils import parse_coach_preferred_timings
+        return parse_coach_preferred_timings(self.preferred_timings)

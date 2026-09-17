@@ -50,7 +50,13 @@ def test_api_schedule_workflow():
     assert o3.status_code == 200
     assert "attention_records" in o3.json()
 
-    # 6. Status toggle
+    # 6. Fetch Output 5
+    o5 = client.get(f"/api/schedule/{schedule_id}/output5")
+    assert o5.status_code == 200
+    assert "student_schedules" in o5.json()
+    assert len(o5.json()["student_schedules"]) > 0
+
+    # 7. Status toggle
     st_resp = client.post(f"/api/schedule/{schedule_id}/status", json={"status": "Finalized"})
     assert st_resp.status_code == 200
     assert st_resp.json()["status"] == "Finalized"

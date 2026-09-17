@@ -177,7 +177,7 @@ The academy currently uses three batch categories. These values should be config
 | Batch Type | Symbol | Capacity |
 |---|---|---|
 | Group Batch | G | 4 – 10 students |
-| Limited Students Batch | L | 1 – 3 students |
+| Limited Students Batch | L | 1 – 4 students |
 | Individual Batch | I | 1 student |
 
 If a Group Batch cannot reach its configured minimum because of scheduling constraints, the system should flag it for administrator review.

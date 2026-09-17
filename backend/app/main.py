@@ -15,9 +15,14 @@ from app.engine.scheduler import run_scheduler
 from app.outputs.coach_schedule import generate_coach_schedule_text
 from app.outputs.admin_schedule import format_admin_schedule
 from app.outputs.attention_report import format_attention_report
+from app.outputs.student_schedule import format_student_schedules, generate_student_ics
+from app.utils.time_utils import parse_time_slot_sort_key
 from app.storage.database import (
     init_db, save_schedule_db, get_schedule_db, get_latest_schedule_db,
     save_master_data_db, load_master_data_db, has_master_data_db,
+    save_single_batch_db, delete_single_batch_db, load_master_batches_db, save_all_master_batches_db,
+    clear_all_master_data_db, is_master_cleared_db,
+    save_system_config_db, load_system_config_db,
     log_db_status, BASE_DIR
 )
 
@@ -40,6 +45,7 @@ app.add_middleware(
 ACTIVE_DATA: Dict[str, Any] = {
     "students": [],
     "coaches": [],
+    "batches": [],
     "parsing_errors": [],
     "filename": "",
     "upload_timestamp": ""
@@ -50,34 +56,39 @@ CURRENT_CONFIG: SystemConfig = DEFAULT_CONFIG
 
 def ensure_active_data():
     """
-    Ensures master data (students & coaches) is loaded from SQLite.
-    If SQLite contains previously saved master data, loads it directly.
-    Only falls back to generating template data on a completely fresh database.
+    Ensures master data (students & coaches) and system configuration is loaded from SQLite.
+    If SQLite contains previously saved master data and config, loads it directly.
     """
+    global CURRENT_CONFIG
     init_db()
-    if has_master_data_db():
-        data = load_master_data_db()
-        ACTIVE_DATA["students"] = data["students"]
-        ACTIVE_DATA["coaches"] = data["coaches"]
-        ACTIVE_DATA["parsing_errors"] = data["parsing_errors"]
-        ACTIVE_DATA["filename"] = data.get("last_filename") or "Master Data"
-        ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp") or ""
-    else:
-        sample_path = os.path.join(BASE_DIR, "sample_data", "mighty_knight_template.xlsx")
-        if not os.path.exists(sample_path):
-            from sample_generator import generate_sample_excel
-            generate_sample_excel(sample_path)
-        with open(sample_path, "rb") as f:
-            students, coaches, errors = parse_excel_file(f.read(), CURRENT_CONFIG)
-            s_dicts = [s.model_dump() for s in students]
-            c_dicts = [c.model_dump() for c in coaches]
-            ACTIVE_DATA["students"] = s_dicts
-            ACTIVE_DATA["coaches"] = c_dicts
-            ACTIVE_DATA["parsing_errors"] = errors
-            ACTIVE_DATA["filename"] = "mighty_knight_template.xlsx"
-            now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
-            ACTIVE_DATA["upload_timestamp"] = now_str
-            save_master_data_db(s_dicts, c_dicts, errors, filename="mighty_knight_template.xlsx", upload_timestamp=now_str)
+
+    # Load persisted configuration if exists
+    saved_cfg = load_system_config_db()
+    if saved_cfg:
+        try:
+            cfg = SystemConfig(**saved_cfg)
+            cfg.sync_from_rules_registry()
+            CURRENT_CONFIG = cfg
+        except Exception as e:
+            print(f"[STARTUP] Could not parse saved DB config: {e}", flush=True)
+
+    if is_master_cleared_db():
+        ACTIVE_DATA["students"] = []
+        ACTIVE_DATA["coaches"] = []
+        ACTIVE_DATA["batches"] = []
+        ACTIVE_DATA["parsing_errors"] = []
+        ACTIVE_DATA["filename"] = "Empty (Clean Slate)"
+        ACTIVE_DATA["upload_timestamp"] = ""
+        return
+
+    # Load master data directly from SQLite database as the single source of truth
+    data = load_master_data_db()
+    ACTIVE_DATA["students"] = data.get("students", [])
+    ACTIVE_DATA["coaches"] = data.get("coaches", [])
+    ACTIVE_DATA["batches"] = load_master_batches_db()
+    ACTIVE_DATA["parsing_errors"] = data.get("parsing_errors", [])
+    ACTIVE_DATA["filename"] = data.get("last_filename") or ("Master Data" if (ACTIVE_DATA["students"] or ACTIVE_DATA["batches"]) else "Empty (Clean Slate)")
+    ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp") or ""
 
 @app.on_event("startup")
 def startup_event():
@@ -90,13 +101,18 @@ def health_check():
 
 @app.get("/api/config")
 def get_system_config():
+    CURRENT_CONFIG.sync_to_rules_registry()
     return CURRENT_CONFIG.model_dump()
 
 @app.post("/api/config")
 def update_system_config(config_data: Dict[str, Any]):
     global CURRENT_CONFIG
     try:
-        CURRENT_CONFIG = SystemConfig(**config_data)
+        new_cfg = SystemConfig(**config_data)
+        new_cfg.sync_from_rules_registry()
+        new_cfg.sync_to_rules_registry()
+        CURRENT_CONFIG = new_cfg
+        save_system_config_db(CURRENT_CONFIG.model_dump())
         return {"status": "success", "config": CURRENT_CONFIG.model_dump()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
@@ -163,19 +179,141 @@ def get_master_data():
     return {
         "students": ACTIVE_DATA["students"],
         "coaches": ACTIVE_DATA["coaches"],
+        "batches": ACTIVE_DATA.get("batches", []),
         "filename": ACTIVE_DATA.get("filename", "Master Data"),
         "upload_timestamp": ACTIVE_DATA.get("upload_timestamp", "")
+    }
+
+@app.get("/api/master/batches")
+def get_master_batches():
+    ensure_active_data()
+    return {
+        "batches": ACTIVE_DATA.get("batches", []),
+        "count": len(ACTIVE_DATA.get("batches", []))
+    }
+
+@app.get("/api/master/stats")
+def get_master_statistics():
+    ensure_active_data()
+    from app.storage.database import get_master_statistics_db
+    return get_master_statistics_db()
+
+@app.get("/api/master/students")
+def get_master_students():
+    ensure_active_data()
+    return {
+        "students": ACTIVE_DATA.get("students", []),
+        "count": len(ACTIVE_DATA.get("students", []))
+    }
+
+@app.get("/api/master/coaches")
+def get_master_coaches():
+    ensure_active_data()
+    return {
+        "coaches": ACTIVE_DATA.get("coaches", []),
+        "count": len(ACTIVE_DATA.get("coaches", []))
+    }
+
+class MasterBatchRequest(BaseModel):
+    batch_id: str
+    batch_name: str
+    batch_type: str = "G"
+    level: str = "Beginner"
+    capacity_min: Optional[int] = 4
+    capacity_max: Optional[int] = 10
+    fixed_trainer: Optional[str] = "Unassigned"
+    schedule_timings: Optional[str] = ""
+    weekly_slots: Optional[List[str]] = []
+    student_ids: Optional[List[str]] = []
+    students: Optional[List[Dict[str, Any]]] = []
+    notes: Optional[str] = ""
+
+@app.post("/api/master/batches")
+def save_master_batch(req: MasterBatchRequest):
+    ensure_active_data()
+    b_dict = req.model_dump()
+    
+    # Auto-adjust min/max capacity if not provided
+    if not b_dict.get("capacity_min"):
+        b_dict["capacity_min"] = 1 if b_dict["batch_type"] in ["I", "L"] else 4
+    if not b_dict.get("capacity_max"):
+        b_dict["capacity_max"] = 1 if b_dict["batch_type"] == "I" else (4 if b_dict["batch_type"] == "L" else 10)
+    
+    # Hydrate student details if student_ids provided
+    if b_dict.get("student_ids"):
+        id_set = set(b_dict["student_ids"])
+        b_dict["students"] = [
+            {
+                "student_id": s["student_id"],
+                "student_name": s["student_name"],
+                "student_level": s.get("student_level", b_dict["level"]),
+                "mkca_rating": s.get("mkca_rating", "-"),
+                "fixed_trainer": b_dict["fixed_trainer"]
+            }
+            for s in ACTIVE_DATA["students"] if s["student_id"] in id_set
+        ]
+    b_dict["student_count"] = len(b_dict.get("students", []))
+    
+    ACTIVE_DATA["batches"] = [b for b in ACTIVE_DATA.get("batches", []) if b["batch_id"] != req.batch_id]
+    ACTIVE_DATA["batches"].append(b_dict)
+    save_single_batch_db(b_dict)
+    return {"status": "success", "batch": b_dict}
+
+@app.delete("/api/master/batches/{batch_id:path}")
+def delete_master_batch(batch_id: str):
+    ensure_active_data()
+    ACTIVE_DATA["batches"] = [b for b in ACTIVE_DATA.get("batches", []) if b["batch_id"] != batch_id]
+    delete_single_batch_db(batch_id)
+    return {"status": "success", "deleted_batch_id": batch_id}
+
+@app.post("/api/master/batches/import-dataset")
+def import_batch_dataset():
+    ensure_active_data()
+    dataset_path = os.path.join(BASE_DIR, "sample_data", "monthly_batch_schedule_dataset.csv")
+    if not os.path.exists(dataset_path):
+        raise HTTPException(status_code=404, detail="Dataset file not found")
+    
+    from app.ingestion.batch_dataset_parser import parse_monthly_batch_dataset
+    b_list, s_list, t_list = parse_monthly_batch_dataset(dataset_path)
+    
+    ACTIVE_DATA["batches"] = b_list
+    save_all_master_batches_db(b_list)
+    
+    # Ensure students from dataset are synced into students list if not present
+    existing_stu_ids = {s["student_id"] for s in ACTIVE_DATA.get("students", [])}
+    for s in s_list:
+        if s["student_id"] not in existing_stu_ids:
+            ACTIVE_DATA["students"].append(s)
+            from app.storage.database import save_single_student_db
+            save_single_student_db(s)
+            existing_stu_ids.add(s["student_id"])
+            
+    return {
+        "status": "success",
+        "batches_imported": len(b_list),
+        "students_synced": len(s_list),
+        "trainers_found": len(t_list),
+        "batches": b_list
     }
 
 class MasterStudentRequest(BaseModel):
     student_id: str
     student_name: str
     student_level: str
-    batch_type: str
-    preferred_days: Optional[str] = "All"
-    preferred_time: Optional[str] = "05:00 PM"
-    region_timezone: Optional[str] = "IST"
+    batch_type: str = "G"
     required_classes: Optional[int] = 8
+    region_timezone: Optional[str] = "IST"
+    mkca_rating: Optional[float] = None
+    mon_pref: Optional[str] = "No Preference"
+    tue_pref: Optional[str] = "No Preference"
+    wed_pref: Optional[str] = "No Preference"
+    thu_pref: Optional[str] = "No Preference"
+    fri_pref: Optional[str] = "No Preference"
+    sat_pref: Optional[str] = "No Preference"
+    sun_pref: Optional[str] = "No Preference"
+    assigned_batch_id: Optional[str] = None
+    tournament_pref: Optional[str] = "No"
+    additional_comments: Optional[str] = ""
 
 @app.post("/api/master/students")
 def save_master_student(req: MasterStudentRequest):
@@ -185,6 +323,18 @@ def save_master_student(req: MasterStudentRequest):
     ACTIVE_DATA["students"].append(s_dict)
     from app.storage.database import save_single_student_db
     save_single_student_db(s_dict)
+
+    # If assigned_batch_id is provided, sync batch enrollment
+    if req.assigned_batch_id:
+        for b in ACTIVE_DATA.get("batches", []):
+            if b["batch_id"] == req.assigned_batch_id:
+                s_ids = b.get("student_ids", [])
+                if req.student_id not in s_ids:
+                    s_ids.append(req.student_id)
+                    b["student_ids"] = s_ids
+                    b["student_count"] = len(s_ids)
+                    save_single_batch_db(b)
+
     return {"status": "success", "student": s_dict}
 
 @app.delete("/api/master/students/{student_id}")
@@ -207,6 +357,11 @@ class MasterCoachRequest(BaseModel):
     fri_max: Optional[int] = 4
     sat_max: Optional[int] = 5
     sun_max: Optional[int] = 2
+    sunday_pref: Optional[str] = "Available"
+    sunday_max_classes: Optional[int] = 2
+    preferred_timings: Optional[str] = "No Preference"
+    special_comments: Optional[str] = ""
+    temporary_exceptions: Optional[str] = ""
 
 @app.post("/api/master/coaches")
 def save_master_coach(req: MasterCoachRequest):
@@ -244,8 +399,9 @@ class ScheduleRequest(BaseModel):
 
 @app.post("/api/schedule/run")
 def trigger_scheduling_run(req: ScheduleRequest):
-    if not ACTIVE_DATA["students"] or not ACTIVE_DATA["coaches"]:
-        raise HTTPException(status_code=400, detail="No active student or coach data uploaded. Please upload Excel first.")
+    ensure_active_data()
+    if not ACTIVE_DATA.get("students") and not ACTIVE_DATA.get("batches"):
+        raise HTTPException(status_code=400, detail="No master students or batches exist in Master Data Hub. Please create students and batches first.")
 
     try:
         s_date = datetime.strptime(req.start_date, "%Y-%m-%d").date()
@@ -256,8 +412,8 @@ def trigger_scheduling_run(req: ScheduleRequest):
     if s_date > e_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date.")
 
-    students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
-    coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
+    students = [StudentModel(**s) for s in ACTIVE_DATA.get("students", [])]
+    coaches = [CoachModel(**c) for c in ACTIVE_DATA.get("coaches", [])]
 
     result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
     res_dict = result.model_dump()
@@ -272,8 +428,22 @@ def get_active_or_latest_schedule():
     Verifies that the active schedule matches the current master student count in SQLite.
     """
     ensure_active_data()
-    latest = get_latest_schedule_db()
     current_student_count = len(ACTIVE_DATA["students"])
+    current_batch_count = len(ACTIVE_DATA.get("batches", []))
+
+    if is_master_cleared_db() or (current_student_count == 0 and current_batch_count == 0):
+        return {
+            "schedule_id": None,
+            "status": "Empty",
+            "start_date": "",
+            "end_date": "",
+            "total_students_considered": 0,
+            "successfully_scheduled_students": 0,
+            "unscheduled_students_count": 0,
+            "accountability_passed": True
+        }
+
+    latest = get_latest_schedule_db()
 
     if not latest or latest.get("total_students_considered") != current_student_count:
         s_date = date.today()
@@ -402,6 +572,41 @@ def get_output3_attention_report(schedule_id: str):
         "attention_records": attention_rows
     }
 
+@app.get("/api/schedule/{schedule_id}/output5")
+def get_output5_student_schedules(schedule_id: str):
+    """
+    Returns Output 5: Student-Wise Schedules (individual timetables per student).
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    res = ScheduleResult(**res_dict)
+    master_students = ACTIVE_DATA.get("students", [])
+    student_schedules = format_student_schedules(res, master_students)
+    return {
+        "schedule_id": schedule_id,
+        "total_students": len(student_schedules),
+        "student_schedules": student_schedules
+    }
+
+@app.get("/api/schedule/{schedule_id}/student/{student_id}/export-ics")
+def export_individual_student_ics(schedule_id: str, student_id: str):
+    """
+    Exports a standard iCalendar (.ics) file for a student to automatically add assigned classes to Google/Apple/Outlook Calendar.
+    """
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    ics_content = generate_student_ics(student_id, res_dict.get("scheduled_classes", []))
+    safe_id = student_id.strip().replace(" ", "_")
+    filename = f"mighty_knight_student_{safe_id}_calendar.ics"
+    return Response(
+        content=ics_content,
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 class StatusUpdateRequest(BaseModel):
     status: str # Draft or Finalized
 
@@ -459,8 +664,8 @@ def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
         cnt = len(req.student_ids)
         if req.batch_type == "G" and cnt > 10:
             violations.append(f"BATCH CAPACITY BREACH: Group Batch has {cnt} students (max 10 allowed).")
-        elif req.batch_type == "L" and cnt > 3:
-            violations.append(f"BATCH CAPACITY BREACH: Limited Batch has {cnt} students (max 3 allowed).")
+        elif req.batch_type == "L" and cnt > 4:
+            violations.append(f"BATCH CAPACITY BREACH: Limited Batch has {cnt} students (max 4 allowed).")
         elif req.batch_type == "I" and cnt > 1:
             violations.append(f"BATCH CAPACITY BREACH: Individual Batch has {cnt} students (max 1 allowed).")
 
@@ -530,7 +735,8 @@ def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
             coach_schedule_map[key].append(s_cls["coach_name"])
 
     updated_coach_slots = []
-    for k, coaches_list in sorted(coach_schedule_map.items()):
+    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
+    for k, coaches_list in sorted_items:
         dt, dy, ts = k.split("||")
         updated_coach_slots.append({
             "date": dt,
@@ -577,11 +783,14 @@ def sync_schedule_accountability(res_dict: dict):
         if rem > 0:
             unscheduled_count += 1
             reason = existing_reasons.get(s_id) or "Manual removal from class or unassigned remaining classes"
+            pref_days = [f"{d}: {s.get(f'{d[:3].lower()}_pref', 'No Preference')}" for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] if s.get(f"{d[:3].lower()}_pref") != "Not Available"]
             unscheduled_records.append({
                 "student_id": s_id,
                 "student_name": s["student_name"],
                 "student_level": s["student_level"],
                 "batch_type": s["batch_type"],
+                "preferred_days": ", ".join(pref_days) if pref_days else "Flexible",
+                "preferred_time": s.get("mon_pref") or "Flexible",
                 "required_classes": req,
                 "scheduled_classes": sch,
                 "remaining_classes": rem,
@@ -592,7 +801,8 @@ def sync_schedule_accountability(res_dict: dict):
                 "fri_pref": s.get("fri_pref", "No Preference"),
                 "sat_pref": s.get("sat_pref", "No Preference"),
                 "sun_pref": s.get("sun_pref", "No Preference"),
-                "failure_reason": reason
+                "failure_reason": reason,
+                "details": f"Needs {rem} more class(es) to complete requirement"
             })
         else:
             scheduled_count += 1
@@ -647,7 +857,8 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
             coach_schedule_map[key].append(s_cls["coach_name"])
 
     updated_coach_slots = []
-    for k, coaches_list in sorted(coach_schedule_map.items()):
+    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
+    for k, coaches_list in sorted_items:
         dt, dy, ts = k.split("||")
         updated_coach_slots.append({
             "date": dt,
@@ -725,7 +936,8 @@ def create_class_for_unscheduled_student(schedule_id: str, req: CreateClassForSt
             coach_schedule_map[key].append(s_cls["coach_name"])
 
     updated_coach_slots = []
-    for k, coaches_list in sorted(coach_schedule_map.items()):
+    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
+    for k, coaches_list in sorted_items:
         dt, dy, ts = k.split("||")
         updated_coach_slots.append({
             "date": dt,
@@ -738,6 +950,83 @@ def create_class_for_unscheduled_student(schedule_id: str, req: CreateClassForSt
 
     save_schedule_db(res_dict)
     return {"status": "success", "schedule": res_dict, "created_class_id": new_class_id}
+
+class CreateClassGeneralRequest(BaseModel):
+    coach_name: str
+    date: str
+    time_slot: str
+    student_level: Optional[str] = "Basic 1"
+    batch_type: Optional[str] = "G"
+    batch_name: Optional[str] = ""
+    student_ids: Optional[List[str]] = []
+
+@app.post("/api/schedule/{schedule_id}/classes")
+def create_custom_schedule_class(schedule_id: str, req: CreateClassGeneralRequest):
+    """
+    Creates a new custom class on a specific day/slot for detailed daily schedule planning.
+    Instantly updates Output 1, Output 2, Output 3, and SQLite.
+    """
+    import uuid
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    try:
+        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+        day_name = d_obj.strftime("%A")
+    except Exception:
+        day_name = "Monday"
+
+    stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+    s_names = [stu_map.get(sid, sid) for sid in (req.student_ids or [])]
+    s_formatted = " · ".join([f"{name} ({sid})" for sid, name in zip(req.student_ids or [], s_names)]) if s_names else "Open / Unassigned"
+
+    new_class_id = f"CLS_{uuid.uuid4().hex[:6].upper()}"
+    new_class = {
+        "class_id": new_class_id,
+        "date": req.date,
+        "day": day_name,
+        "time_slot": req.time_slot,
+        "coach_name": req.coach_name.strip(),
+        "student_level": req.student_level or "Basic 1",
+        "batch_type": req.batch_type or "G",
+        "batch_name": req.batch_name or f"{req.student_level or 'Basic 1'} - {req.coach_name.strip()}",
+        "student_ids": req.student_ids or [],
+        "student_names": s_names,
+        "students_formatted": s_formatted,
+        "warnings": ["Manually planned daily class"],
+        "is_manual_override": True
+    }
+
+    res_dict["scheduled_classes"].append(new_class)
+
+    # Re-calculate Coach Communication Schedule (Output 1)
+    coach_schedule_map = {}
+    for s_cls in res_dict["scheduled_classes"]:
+        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
+        if key not in coach_schedule_map:
+            coach_schedule_map[key] = []
+        if s_cls["coach_name"] not in coach_schedule_map[key]:
+            coach_schedule_map[key].append(s_cls["coach_name"])
+
+    updated_coach_slots = []
+    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
+    for k, coaches_list in sorted_items:
+        dt, dy, ts = k.split("||")
+        updated_coach_slots.append({
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coaches": coaches_list
+        })
+
+    res_dict["coach_schedule"] = updated_coach_slots
+
+    # Real-time Sync for Output 3 (Unscheduled / Attention Report)
+    sync_schedule_accountability(res_dict)
+
+    save_schedule_db(res_dict)
+    return {"status": "success", "schedule": res_dict, "created_class": new_class}
 
 @app.delete("/api/schedule/{schedule_id}/class/{class_id}")
 def delete_class_from_schedule(schedule_id: str, class_id: str):
@@ -765,7 +1054,8 @@ def delete_class_from_schedule(schedule_id: str, class_id: str):
             coach_schedule_map[key].append(s_cls["coach_name"])
 
     updated_coach_slots = []
-    for k, coaches_list in sorted(coach_schedule_map.items()):
+    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
+    for k, coaches_list in sorted_items:
         dt, dy, ts = k.split("||")
         updated_coach_slots.append({
             "date": dt,
@@ -781,3 +1071,27 @@ def delete_class_from_schedule(schedule_id: str, class_id: str):
 
     save_schedule_db(res_dict)
     return {"status": "success", "schedule": res_dict}
+
+@app.post("/api/master/clear-all")
+@app.delete("/api/master/all")
+def clear_all_master_data():
+    """
+    Wipes all master students, coaches, batches, and generated schedules completely,
+    returning the academy to a 100% clean state ready to restart from scratch.
+    """
+    global ACTIVE_DATA
+    ACTIVE_DATA = {
+        "students": [],
+        "coaches": [],
+        "batches": [],
+        "schedules": {},
+        "parsing_errors": [],
+        "filename": "Empty (Clean Slate)",
+        "upload_timestamp": ""
+    }
+    clear_all_master_data_db()
+    return {
+        "status": "success",
+        "message": "All master students, coaches, batches, and schedules have been wiped cleanly. Ready for scratch setup."
+    }
+

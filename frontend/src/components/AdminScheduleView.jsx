@@ -25,8 +25,7 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
   const getTimeSlotSortMinutes = (timeSlotStr) => {
     if (!timeSlotStr) return 0;
     try {
-      const startPart = timeSlotStr.split('-')[0].trim();
-      const match = startPart.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      const match = timeSlotStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
       if (!match) return 0;
       let hours = parseInt(match[1], 10);
       const minutes = parseInt(match[2], 10);
@@ -337,8 +336,8 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
                     </td>
                     <td>
                       <div style={{ fontWeight: 600, color: '#fff' }}>{cls.student_level}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Batch Type: <strong>{cls.batch_type}</strong>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--accent-gold)', fontWeight: 700 }}>
+                        {cls.batch_name || `Batch ${cls.batch_type}`}
                       </div>
                     </td>
                     <td>
@@ -417,7 +416,7 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
                       </div>
 
                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
-                        {cls.student_level} (Batch {cls.batch_type})
+                        {cls.student_level} — <span style={{ color: 'var(--accent-gold)' }}>{cls.batch_name || `Batch ${cls.batch_type}`}</span>
                       </div>
 
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.3 }}>

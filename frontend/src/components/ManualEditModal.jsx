@@ -4,6 +4,22 @@ import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2 }
 import { validateManualOverride, applyManualEdit, deleteClass } from '../services/api';
 
 export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess, onRefreshSchedule }) {
+  const [coachName, setCoachName] = useState(targetClass?.coach_name || '');
+  const [studentLevel, setStudentLevel] = useState(targetClass?.student_level || 'Basic 1');
+  const [batchType, setBatchType] = useState(targetClass?.batch_type || 'G');
+  const [timeSlot, setTimeSlot] = useState(targetClass?.time_slot || '');
+  const [dateStr, setDateStr] = useState(targetClass?.date || '');
+  
+  // Student Re-Assignment state inside batch
+  const [studentIds, setStudentIds] = useState(targetClass?.student_ids || []);
+  const [studentNames, setStudentNames] = useState(targetClass?.student_names || []);
+  const [newStudentInput, setNewStudentInput] = useState('');
+
+  const [warnings, setWarnings] = useState([]);
+  const [validating, setValidating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [validated, setValidated] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       const originalOverflow = document.body.style.overflow;
@@ -13,29 +29,6 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       };
     }
   }, [isOpen]);
-
-  if (!isOpen || !targetClass) return null;
-
-  const triggerRefresh = () => {
-    if (onSaveSuccess) onSaveSuccess();
-    if (onRefreshSchedule) onRefreshSchedule();
-  };
-
-  const [coachName, setCoachName] = useState(targetClass.coach_name || '');
-  const [studentLevel, setStudentLevel] = useState(targetClass.student_level || 'Basic 1');
-  const [batchType, setBatchType] = useState(targetClass.batch_type || 'G');
-  const [timeSlot, setTimeSlot] = useState(targetClass.time_slot || '');
-  const [dateStr, setDateStr] = useState(targetClass.date || '');
-  
-  // Student Re-Assignment state inside batch
-  const [studentIds, setStudentIds] = useState(targetClass.student_ids || []);
-  const [studentNames, setStudentNames] = useState(targetClass.student_names || []);
-  const [newStudentInput, setNewStudentInput] = useState('');
-
-  const [warnings, setWarnings] = useState([]);
-  const [validating, setValidating] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [validated, setValidated] = useState(false);
 
   useEffect(() => {
     if (targetClass) {
@@ -51,6 +44,13 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       setWarnings([]);
     }
   }, [targetClass]);
+
+  if (!isOpen || !targetClass) return null;
+
+  const triggerRefresh = () => {
+    if (onSaveSuccess) onSaveSuccess();
+    if (onRefreshSchedule) onRefreshSchedule();
+  };
 
   const levels = [
     'Basic 1',
@@ -211,7 +211,7 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
               }}
             >
               <option value="G">G — Group Batch (4–10 students)</option>
-              <option value="L">L — Limited Students Batch (1–3 students)</option>
+              <option value="L">L — Limited Students Batch (1–4 students)</option>
               <option value="I">I — Individual Batch (1 student)</option>
             </select>
           </div>

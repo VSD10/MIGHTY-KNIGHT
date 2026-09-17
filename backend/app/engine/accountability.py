@@ -21,9 +21,13 @@ class AccountabilityTracker:
         if student_id not in self.failure_reasons:
             self.failure_reasons[student_id] = reason
 
+    def clear_failure_reason(self, student_id: str):
+        """Clears failure reason if student becomes scheduled or retry is needed."""
+        self.failure_reasons.pop(student_id, None)
+
     def generate_report(self) -> Tuple[int, int, int, bool, List[UnscheduledRecord]]:
         total_count = len(self.input_students)
-        scheduled_students = set()
+        fully_scheduled_count = 0
         unscheduled_records: List[UnscheduledRecord] = []
 
         for student in self.input_students:
@@ -32,12 +36,15 @@ class AccountabilityTracker:
             req_cnt = student.required_classes
             rem_cnt = max(0, req_cnt - sched_cnt)
 
-            if sched_cnt > 0:
-                scheduled_students.add(s_id)
-
-            if rem_cnt > 0 or sched_cnt == 0:
-                reason = self.failure_reasons.get(s_id, "No suitable coach or time slot available")
-                # Format preferred days summary
+            if rem_cnt == 0 and req_cnt > 0:
+                fully_scheduled_count += 1
+            else:
+                default_reason = (
+                    f"Partially scheduled ({sched_cnt}/{req_cnt} classes). Selected date range limit reached."
+                    if sched_cnt > 0 else "No suitable coach or time slot available on preferred days"
+                )
+                reason = self.failure_reasons.get(s_id, default_reason)
+                
                 pref_days = []
                 for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
                     pref = student.get_day_preference(day)
@@ -60,11 +67,7 @@ class AccountabilityTracker:
                 )
                 unscheduled_records.append(rec)
 
-        scheduled_count = len(scheduled_students)
         unscheduled_count = len(unscheduled_records)
+        accountability_passed = (total_count == fully_scheduled_count + unscheduled_count)
 
-        # Accountability verification
-        # Every student must either be fully/partially scheduled or in unscheduled_records
-        accountability_passed = (total_count == len(set(list(scheduled_students) + [r.student_id for r in unscheduled_records])))
-
-        return total_count, scheduled_count, unscheduled_count, accountability_passed, unscheduled_records
+        return total_count, fully_scheduled_count, unscheduled_count, accountability_passed, unscheduled_records

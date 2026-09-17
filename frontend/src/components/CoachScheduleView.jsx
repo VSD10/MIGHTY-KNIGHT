@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
 import { Copy, Check, MessageSquare, Calendar } from 'lucide-react';
 
+const getTimeSlotSortMinutes = (timeSlotStr) => {
+  if (!timeSlotStr) return 0;
+  try {
+    const match = timeSlotStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!match) return 0;
+    let hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    const ampm = match[3].toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  } catch (e) {
+    return 0;
+  }
+};
+
 export default function CoachScheduleView({ coachScheduleData }) {
   const [copied, setCopied] = useState(false);
 
@@ -60,6 +76,9 @@ export default function CoachScheduleView({ coachScheduleData }) {
         ) : (
           Object.keys(dateGroups).sort().map(dateStr => {
             const group = dateGroups[dateStr];
+            const sortedSlots = [...group.slots].sort(
+              (a, b) => getTimeSlotSortMinutes(a.time_slot) - getTimeSlotSortMinutes(b.time_slot)
+            );
             return (
               <div key={dateStr} className="glass-card" style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
@@ -70,7 +89,7 @@ export default function CoachScheduleView({ coachScheduleData }) {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-                  {group.slots.map((s, idx) => (
+                  {sortedSlots.map((s, idx) => (
                     <div
                       key={idx}
                       style={{

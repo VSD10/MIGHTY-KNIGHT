@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Layers, ShieldAlert, BarChart3, Users, Play, FileSpreadsheet, CheckCircle, Clock, Sparkles, HardDrive, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MessageSquare, Layers, ShieldAlert, BarChart3, GraduationCap, Users, Play, FileSpreadsheet, CheckCircle, Clock, Sparkles, HardDrive, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function Sidebar({
   activeTab,
@@ -161,6 +161,31 @@ export default function Sidebar({
             </span>
           )}
 
+          {/* Dedicated Daily Schedule & Operations Planner Tab (First Item) */}
+          <button
+            onClick={() => setActiveTab('dayPlanner')}
+            title={isCollapsed ? "Daily Schedule Planner" : ""}
+            style={{
+              width: '100%',
+              padding: isCollapsed ? '10px 0' : '9px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: activeTab === 'dayPlanner' ? '1px solid #f59e0b' : '1px solid transparent',
+              background: activeTab === 'dayPlanner' ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.25) 100%)' : 'transparent',
+              color: activeTab === 'dayPlanner' ? '#fff' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'dayPlanner' ? 800 : 600,
+              fontSize: '0.825rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              gap: '10px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <Clock size={16} style={{ color: activeTab === 'dayPlanner' ? '#f59e0b' : 'inherit' }} />
+            {!isCollapsed && <span>Daily Schedule Planner</span>}
+          </button>
+
           {/* Output 1 Tab */}
           <button
             onClick={() => setActiveTab('output1')}
@@ -268,6 +293,31 @@ export default function Sidebar({
             {!isCollapsed && <span>Output 4 — Coach Workload</span>}
           </button>
 
+          {/* Output 5 Tab */}
+          <button
+            onClick={() => setActiveTab('studentSchedules')}
+            title={isCollapsed ? "Output 5 — Student Schedules" : ""}
+            style={{
+              width: '100%',
+              padding: isCollapsed ? '10px 0' : '9px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: activeTab === 'studentSchedules' ? '1px solid #3b82f6' : '1px solid transparent',
+              background: activeTab === 'studentSchedules' ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(29, 78, 216, 0.2) 100%)' : 'transparent',
+              color: activeTab === 'studentSchedules' ? '#fff' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'studentSchedules' ? 800 : 600,
+              fontSize: '0.825rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              gap: '10px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <GraduationCap size={16} style={{ color: activeTab === 'studentSchedules' ? '#3b82f6' : 'inherit' }} />
+            {!isCollapsed && <span>Output 5 — Student Schedules</span>}
+          </button>
+
           {/* Master Data Tab */}
           <button
             onClick={() => setActiveTab('masterData')}
@@ -317,13 +367,22 @@ export default function Sidebar({
               Status: {scheduleStatus}
             </button>
 
-            {/* FULLY VISIBLE SLEEK UPLOAD BUTTON */}
+            {/* SETTINGS ENGINE CONTROLS BUTTON AT BOTTOM */}
             <button
-              onClick={onUploadClick}
+              onClick={() => setActiveTab('settings')}
               className="btn btn-secondary"
-              style={{ width: '100%', padding: '9px', fontSize: '0.8rem', justifyContent: 'center', borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)', fontWeight: 800 }}
+              style={{
+                width: '100%',
+                padding: '9px',
+                fontSize: '0.825rem',
+                justifyContent: 'center',
+                borderColor: 'var(--accent-gold)',
+                color: 'var(--accent-gold)',
+                fontWeight: 800,
+                background: activeTab === 'settings' ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(180, 83, 9, 0.2) 100%)' : 'transparent'
+              }}
             >
-              <FileSpreadsheet size={16} /> Upload Excel Data
+              <Sparkles size={16} /> ⚙️ Engine Settings
             </button>
           </>
         )}

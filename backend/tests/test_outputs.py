@@ -5,6 +5,7 @@ from app.engine.scheduler import run_scheduler
 from app.outputs.coach_schedule import generate_coach_schedule_text
 from app.outputs.admin_schedule import format_admin_schedule
 from app.outputs.attention_report import format_attention_report
+from app.outputs.student_schedule import format_student_schedules
 
 def test_all_three_outputs():
     with open("sample_data/mighty_knight_template.xlsx", "rb") as f:
@@ -31,3 +32,19 @@ def test_all_three_outputs():
     for r in attention_rows:
         assert "student_id" in r
         assert "failure_reason" in r
+
+    # Test Output 5: Student-Wise Schedules
+    master_stu_dicts = [s.model_dump() for s in students]
+    student_schedules = format_student_schedules(result, master_stu_dicts)
+    assert len(student_schedules) > 0
+    for s in student_schedules:
+        assert "student_id" in s
+        assert "student_name" in s
+        assert "sessions" in s
+        for sess in s["sessions"]:
+            assert "date" in sess
+            assert "day" in sess
+            assert "time" in sess
+            assert "coach" in sess
+            assert "session" in sess
+

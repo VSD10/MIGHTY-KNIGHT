@@ -11,7 +11,7 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
     report_rows = []
     
     # Capacity maps per batch type
-    batch_max_capacities = {"G": 10, "L": 3, "I": 1}
+    batch_max_capacities = {"G": 10, "L": 4, "I": 1}
 
     # Pre-calculate daily class counts per coach
     coach_daily_counts = {}

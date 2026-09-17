@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -55,6 +55,11 @@ export const getOutput3 = async (scheduleId) => {
   return res.data;
 };
 
+export const getOutput5 = async (scheduleId) => {
+  const res = await api.get(`/schedule/${scheduleId}/output5`);
+  return res.data;
+};
+
 export const updateScheduleStatus = async (scheduleId, status) => {
   const res = await api.post(`/schedule/${scheduleId}/status`, { status });
   return res.data;
@@ -88,6 +93,11 @@ export const deleteClass = async (scheduleId, classId) => {
   return res.data;
 };
 
+export const createScheduleClass = async (scheduleId, classData) => {
+  const res = await api.post(`/schedule/${scheduleId}/classes`, classData);
+  return res.data;
+};
+
 export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };
@@ -100,6 +110,10 @@ export const getCoachIcsUrl = (scheduleId, coachName) => {
   return `${API_BASE_URL}/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/export-ics`;
 };
 
+export const getStudentIcsUrl = (scheduleId, studentId) => {
+  return `${API_BASE_URL}/schedule/${scheduleId}/student/${encodeURIComponent(studentId)}/export-ics`;
+};
+
 export const getCoachWhatsAppMsg = async (scheduleId, coachName) => {
   const res = await api.get(`/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/whatsapp`);
   return res.data;
@@ -107,6 +121,16 @@ export const getCoachWhatsAppMsg = async (scheduleId, coachName) => {
 
 export const getMasterData = async () => {
   const res = await api.get('/master/data');
+  return res.data;
+};
+
+export const getMasterStudents = async () => {
+  const res = await api.get('/master/students');
+  return res.data;
+};
+
+export const getMasterStats = async () => {
+  const res = await api.get('/master/stats');
   return res.data;
 };
 
@@ -139,3 +163,29 @@ export const getActiveSchedule = async () => {
   const res = await api.get('/schedule/latest/active');
   return res.data;
 };
+
+export const getMasterBatches = async () => {
+  const res = await api.get('/master/batches');
+  return res.data;
+};
+
+export const saveMasterBatch = async (batchData) => {
+  const res = await api.post('/master/batches', batchData);
+  return res.data;
+};
+
+export const deleteMasterBatch = async (batchId) => {
+  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}`);
+  return res.data;
+};
+
+export const importBatchDataset = async () => {
+  const res = await api.post('/master/batches/import-dataset');
+  return res.data;
+};
+
+export const clearAllMasterData = async () => {
+  const res = await api.post('/master/clear-all');
+  return res.data;
+};
+
