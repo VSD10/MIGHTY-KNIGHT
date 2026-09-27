@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -20,6 +20,7 @@ import {
   Filter
 } from 'lucide-react';
 import { deleteClass, applyManualEdit, createScheduleClass, assignStudentToClass } from '../services/api';
+import { OFFICIAL_LEVELS, FILTER_LEVEL_OPTIONS } from '../constants/levels';
 
 const TIME_SLOT_PRESETS = [
   '06:00 AM - 07:00 AM',
@@ -33,17 +34,7 @@ const TIME_SLOT_PRESETS = [
   '09:00 PM - 10:00 PM'
 ];
 
-const LEVEL_OPTIONS = [
-  'Basic 1',
-  'Basic 2',
-  'Beginner 1',
-  'Beginner 2',
-  'Beginner 3',
-  'Early Intermediate 1',
-  'Early Intermediate 2',
-  'Intermediate 1',
-  'Intermediate'
-];
+const LEVEL_OPTIONS = OFFICIAL_LEVELS;
 
 const getTimeSlotSortMinutes = (timeSlotStr) => {
   if (!timeSlotStr || typeof timeSlotStr !== 'string') return 9999;
@@ -103,14 +94,19 @@ export default function DailySchedulePlanner({
     return days;
   }, [startDate, endDate]);
 
-  // Selected date state (default to today if in range, otherwise first day of month)
+  // Selected date state (default to startDate if provided, otherwise 2026-10-01)
   const [selectedDate, setSelectedDate] = useState(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (startDate && endDate && todayStr >= startDate && todayStr <= endDate) {
-      return todayStr;
-    }
-    return startDate || '2026-09-01';
+    return startDate || '2026-10-01';
   });
+
+  // Keep selectedDate synchronized whenever the active month changes
+  useEffect(() => {
+    if (startDate) {
+      if (!selectedDate || selectedDate < startDate || (endDate && selectedDate > endDate)) {
+        setSelectedDate(startDate);
+      }
+    }
+  }, [startDate, endDate]);
 
   // Search & Filter state for classes on selected day
   const [searchFilter, setSearchFilter] = useState('');

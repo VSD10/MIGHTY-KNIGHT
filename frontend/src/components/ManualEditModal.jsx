@@ -1,19 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2 } from 'lucide-react';
-import { validateManualOverride, applyManualEdit, deleteClass } from '../services/api';
+import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2, Search, UserCheck } from 'lucide-react';
+import { validateManualOverride, applyManualEdit, deleteClass, getMasterStudents } from '../services/api';
+import { OFFICIAL_LEVELS } from '../constants/levels';
 
-export default function ManualEditModal({ isOpen, onClose, targetClass, scheduleId, onSaveSuccess, onRefreshSchedule }) {
+export default function ManualEditModal({
+  isOpen,
+  onClose,
+  targetClass,
+  scheduleId,
+  onSaveSuccess,
+  onRefreshSchedule,
+  masterStudents = []
+}) {
   const [coachName, setCoachName] = useState(targetClass?.coach_name || '');
   const [studentLevel, setStudentLevel] = useState(targetClass?.student_level || 'Basic 1');
   const [batchType, setBatchType] = useState(targetClass?.batch_type || 'G');
   const [timeSlot, setTimeSlot] = useState(targetClass?.time_slot || '');
   const [dateStr, setDateStr] = useState(targetClass?.date || '');
-  
+
   // Student Re-Assignment state inside batch
   const [studentIds, setStudentIds] = useState(targetClass?.student_ids || []);
   const [studentNames, setStudentNames] = useState(targetClass?.student_names || []);
-  const [newStudentInput, setNewStudentInput] = useState('');
+
+  // Master students data & selection
+  const [allStudents, setAllStudents] = useState(masterStudents);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [studentSearchTerm, setStudentSearchTerm] = useState('');
+  const [studentError, setStudentError] = useState('');
 
   const [warnings, setWarnings] = useState([]);
   const [validating, setValidating] = useState(false);
@@ -30,6 +44,22 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     }
   }, [isOpen]);
 
+  // Load master students if not passed as prop
+  useEffect(() => {
+    if (masterStudents && masterStudents.length > 0) {
+      setAllStudents(masterStudents);
+    } else if (isOpen) {
+      getMasterStudents()
+        .then(res => {
+          if (res && res.students) {
+            setAllStudents(res.students);
+          }
+        })
+        .catch(err => console.error("Error loading master students:", err));
+    }
+  }, [isOpen, masterStudents]);
+
+  // Sync state when targetClass or allStudents changes
   useEffect(() => {
     if (targetClass) {
       setCoachName(targetClass.coach_name || '');
@@ -37,13 +67,44 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
       setBatchType(targetClass.batch_type || 'G');
       setTimeSlot(targetClass.time_slot || '');
       setDateStr(targetClass.date || '');
-      setStudentIds(targetClass.student_ids || []);
-      setStudentNames(targetClass.student_names || []);
-      setNewStudentInput('');
+
+      const rawIds = targetClass.student_ids || [];
+      setStudentIds(rawIds);
+
+      // Resolve student names from master students if available
+      const resolvedNames = rawIds.map((sid, idx) => {
+        const found = allStudents.find(s => s.student_id === sid);
+        if (found && found.student_name) return found.student_name;
+        if (targetClass.student_names && targetClass.student_names[idx]) return targetClass.student_names[idx];
+        return sid;
+      });
+      setStudentNames(resolvedNames);
+
+      setSelectedStudentId('');
+      setStudentSearchTerm('');
+      setStudentError('');
       setValidated(false);
       setWarnings([]);
     }
-  }, [targetClass]);
+  }, [targetClass, allStudents]);
+
+  // List of all registered students who are NOT already assigned to this batch
+  const availableStudents = useMemo(() => {
+    const assignedSet = new Set(studentIds);
+    return allStudents.filter(s => !assignedSet.has(s.student_id));
+  }, [allStudents, studentIds]);
+
+  // Filtered by user search term (matches name, id, level, or batch)
+  const filteredStudents = useMemo(() => {
+    if (!studentSearchTerm.trim()) return availableStudents;
+    const term = studentSearchTerm.trim().toLowerCase();
+    return availableStudents.filter(s =>
+      (s.student_name || '').toLowerCase().includes(term) ||
+      (s.student_id || '').toLowerCase().includes(term) ||
+      (s.student_level || '').toLowerCase().includes(term) ||
+      (s.batch || s.batch_name || '').toLowerCase().includes(term)
+    );
+  }, [availableStudents, studentSearchTerm]);
 
   if (!isOpen || !targetClass) return null;
 
@@ -52,36 +113,49 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     if (onRefreshSchedule) onRefreshSchedule();
   };
 
-  const levels = [
-    'Basic 1',
-    'Basic 2',
-    'Beginner 1',
-    'Beginner 2',
-    'Beginner 3',
-    'Early Intermediate 1',
-    'Early Intermediate 2',
-    'Intermediate 1',
-    'Intermediate'
-  ];
+  const levels = OFFICIAL_LEVELS;
 
   const handleRemoveStudent = (index) => {
     const updatedIds = studentIds.filter((_, idx) => idx !== index);
     const updatedNames = studentNames.filter((_, idx) => idx !== index);
     setStudentIds(updatedIds);
     setStudentNames(updatedNames);
+    setStudentError('');
     setValidated(false);
   };
 
   const handleAddStudent = () => {
-    if (!newStudentInput.trim()) return;
-    const sId = newStudentInput.trim().toUpperCase();
-    if (studentIds.includes(sId)) {
-      alert(`Student ${sId} is already in this class batch.`);
+    setStudentError('');
+    if (!selectedStudentId) {
+      setStudentError('Please select a student from the dropdown list.');
       return;
     }
-    setStudentIds([...studentIds, sId]);
-    setStudentNames([...studentNames, sId]); // Use ID as fallback name
-    setNewStudentInput('');
+
+    // STRICT CHECK: Student must exist in the master student records
+    const foundStudent = allStudents.find(s => s.student_id === selectedStudentId);
+    if (!foundStudent) {
+      setStudentError(`Selected student '${selectedStudentId}' does not exist in master records. Only registered students can be added.`);
+      return;
+    }
+
+    if (studentIds.includes(foundStudent.student_id)) {
+      setStudentError(`${foundStudent.student_name} (${foundStudent.student_id}) is already assigned to this batch.`);
+      return;
+    }
+
+    // Capacity checking warning / notice
+    const maxCap = batchType === 'I' ? 1 : (batchType === 'L' ? 4 : 10);
+    if (studentIds.length >= maxCap) {
+      if (!window.confirm(`Notice: Adding another student will exceed the standard ${batchType} capacity (${maxCap} max). Do you want to proceed?`)) {
+        return;
+      }
+    }
+
+    setStudentIds([...studentIds, foundStudent.student_id]);
+    setStudentNames([...studentNames, foundStudent.student_name]);
+    setSelectedStudentId('');
+    setStudentSearchTerm('');
+    setStudentError('');
     setValidated(false);
   };
 
@@ -142,19 +216,19 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
     }
   };
 
-  return (
+  const modalContent = (
     <div style={{
       position: 'fixed',
       top: 0, left: 0, right: 0, bottom: 0,
-      background: 'rgba(0, 0, 0, 0.8)',
-      backdropFilter: 'blur(6px)',
+      background: 'rgba(0, 0, 0, 0.82)',
+      backdropFilter: 'blur(8px)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 1000,
       padding: '20px'
     }}>
-      <div className="glass-panel" style={{ width: '100%', maxWidth: '650px', padding: '28px', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div className="glass-panel" style={{ width: '100%', maxWidth: '680px', padding: '28px', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
         <button
           onClick={onClose}
           style={{ position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
@@ -244,58 +318,148 @@ export default function ManualEditModal({ isOpen, onClose, targetClass, schedule
         </div>
 
         {/* STUDENT BATCH RE-ASSIGNMENT PANEL */}
-        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '14px', marginBottom: '16px' }}>
+        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>STUDENTS ASSIGNED TO THIS BATCH ({studentIds.length})</span>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Group Batch Capacity Target: 4–10</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              Batch Target: {batchType === 'I' ? '1 student (Individual)' : (batchType === 'L' ? '1–4 students (Limited)' : '4–10 students (Group)')}
+            </span>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-            {studentIds.map((sId, idx) => (
-              <div
-                key={idx}
+          {/* Current Roster Badges */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px', minHeight: '36px' }}>
+            {studentIds.length === 0 ? (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
+                No students currently assigned to this batch. Select a student below to add.
+              </span>
+            ) : (
+              studentIds.map((sId, idx) => {
+                const sObj = allStudents.find(s => s.student_id === sId);
+                const sName = studentNames[idx] || sObj?.student_name || sId;
+                const sLevel = sObj?.student_level;
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      background: 'rgba(251, 191, 36, 0.12)',
+                      border: '1px solid var(--accent-gold)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '5px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '0.775rem',
+                      color: '#fff'
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{sName}</span>
+                    <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>({sId})</span>
+                    {sLevel && (
+                      <span style={{ fontSize: '0.675rem', background: 'rgba(255, 255, 255, 0.1)', padding: '1px 5px', borderRadius: '4px', color: 'var(--accent-gold)' }}>
+                        {sLevel}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveStudent(idx)}
+                      style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0 2px' }}
+                      title={`Remove ${sName} from this batch`}
+                    >
+                      <UserMinus size={14} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Add Registered Student Selector */}
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                SELECT STUDENT TO ADD ({availableStudents.length} AVAILABLE FROM MASTER DATA)
+              </label>
+              {availableStudents.length > 0 && (
+                <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>
+                  Only registered master students can be enrolled
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: '8px', alignItems: 'center' }}>
+              {/* Quick Search Filter */}
+              <div style={{ position: 'relative' }}>
+                <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input
+                  type="text"
+                  placeholder="Filter name or ID..."
+                  value={studentSearchTerm}
+                  onChange={e => { setStudentSearchTerm(e.target.value); setStudentError(''); }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 8px 8px 26px',
+                    fontSize: '0.75rem',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: '#fff'
+                  }}
+                />
+              </div>
+
+              {/* Master Students Dropdown List */}
+              <select
+                value={selectedStudentId}
+                onChange={e => { setSelectedStudentId(e.target.value); setStudentError(''); }}
                 style={{
-                  background: 'rgba(251, 191, 36, 0.15)',
-                  border: '1px solid var(--accent-gold)',
+                  width: '100%',
+                  padding: '8px 10px',
+                  fontSize: '0.75rem',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-color)',
                   borderRadius: 'var(--radius-sm)',
-                  padding: '4px 8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '0.775rem',
-                  color: '#fff'
+                  color: selectedStudentId ? '#fff' : 'var(--text-muted)',
+                  fontWeight: selectedStudentId ? 600 : 400
                 }}
               >
-                <span>{studentNames[idx] || sId}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveStudent(idx)}
-                  style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                  title="Remove student from this batch"
-                >
-                  <UserMinus size={13} />
-                </button>
-              </div>
-            ))}
-          </div>
+                <option value="">
+                  {filteredStudents.length === 0
+                    ? '-- No matching students available --'
+                    : `-- Select student (${filteredStudents.length} available) --`}
+                </option>
+                {filteredStudents.map(stu => (
+                  <option key={stu.student_id} value={stu.student_id} style={{ color: '#fff', background: '#1e293b' }}>
+                    {stu.student_name} ({stu.student_id}) · {stu.student_level || 'Level'} · Batch: {stu.batch || stu.batch_type || 'G'}
+                  </option>
+                ))}
+              </select>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="text"
-              placeholder="Enter Student ID to add (e.g. MKS00074)..."
-              value={newStudentInput}
-              onChange={e => setNewStudentInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddStudent(); } }}
-              style={{ flex: 1, padding: '6px 10px', fontSize: '0.775rem', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: '#fff' }}
-            />
-            <button
-              type="button"
-              onClick={handleAddStudent}
-              className="btn btn-secondary"
-              style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-            >
-              <UserPlus size={14} /> Add Student
-            </button>
+              {/* Add Student Button */}
+              <button
+                type="button"
+                onClick={handleAddStudent}
+                disabled={!selectedStudentId}
+                className="btn btn-primary"
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '0.75rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  whiteSpace: 'nowrap',
+                  opacity: selectedStudentId ? 1 : 0.5,
+                  cursor: selectedStudentId ? 'pointer' : 'not-allowed'
+                }}
+              >
+                <UserPlus size={14} /> Add Student
+              </button>
+            </div>
+
+            {studentError && (
+              <div style={{ marginTop: '8px', fontSize: '0.725rem', color: '#f43f5e', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <AlertCircle size={13} /> {studentError}
+              </div>
+            )}
           </div>
         </div>
 

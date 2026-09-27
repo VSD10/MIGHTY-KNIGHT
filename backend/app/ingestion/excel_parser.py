@@ -29,28 +29,28 @@ COACH_ALIAS_MAP = {
 STANDARD_COACH_DEFAULTS = {
     "guruvanthana": {
         "coach_name": "Guruvanthana",
-        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Beginner 3", "Early Intermediate 1"],
+        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1"],
         "monthly_capacity_min": 35, "monthly_capacity_max": 40,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Evening (4 PM - 9 PM)"
     },
     "dhaanush": {
         "coach_name": "Dhaanush",
-        "levels_handled": ["Beginner 1", "Beginner 2", "Beginner 3", "Early Intermediate 1", "Early Intermediate 2", "Intermediate"],
+        "levels_handled": ["Beginner 1", "Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2"],
         "monthly_capacity_min": 70, "monthly_capacity_max": 78,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 0,
         "sunday_pref": "No Sunday Tournaments", "preferred_timings": "Midday & Evening"
     },
     "arshath": {
         "coach_name": "Arshath",
-        "levels_handled": ["Early Intermediate 2", "Intermediate"],
+        "levels_handled": ["Early Intermediate 2", "Intermediate 1", "Intermediate 2", "Advanced"],
         "monthly_capacity_min": 16, "monthly_capacity_max": 20,
         "mon_max": 3, "tue_max": 3, "wed_max": 3, "thu_max": 3, "fri_max": 3, "sat_max": 4, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Evening (6 PM - 9 PM)"
     },
     "saravanan": {
         "coach_name": "Saravanan",
-        "levels_handled": ["Beginner 2", "Beginner 3", "Early Intermediate 1", "Early Intermediate 2", "Intermediate"],
+        "levels_handled": ["Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2"],
         "monthly_capacity_min": 0, "monthly_capacity_max": 8,
         "mon_max": 3, "tue_max": 3, "wed_max": 3, "thu_max": 3, "fri_max": 3, "sat_max": 4, "sun_max": 0,
         "sunday_pref": "No Sunday Tournaments", "preferred_timings": "Evening"
@@ -71,7 +71,7 @@ STANDARD_COACH_DEFAULTS = {
     },
     "prakash": {
         "coach_name": "Prakash",
-        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Beginner 3", "Early Intermediate 1", "Early Intermediate 2", "Intermediate"],
+        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2", "Advanced"],
         "monthly_capacity_min": 40, "monthly_capacity_max": 90,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "All Operating Hours"
@@ -171,7 +171,7 @@ def normalize_student_level(raw_level: str, config: SystemConfig) -> str:
     if "early" in raw_clean and "intermediate" in raw_clean:
         return "Early Intermediate 1"
     if "intermediate" in raw_clean:
-        return "Intermediate"
+        return "Intermediate 1"
     if "basic" in raw_clean:
         return "Basic 1"
     if "beginner" in raw_clean:

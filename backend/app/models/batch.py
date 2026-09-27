@@ -11,7 +11,7 @@ class BatchModel(BaseModel):
     batch_id: str = Field(..., description="Unique batch identifier (e.g. BAT_001)")
     batch_name: str = Field(..., description="Human-readable batch name (e.g. G Intermediate 2)")
     batch_type: str = Field("G", description="Batch type: G (Group), L (Limited), I (Individual)")
-    level: str = Field("Beginner", description="Student skill level (e.g. Basic 1, Beginner, Intermediate)")
+    level: str = Field("Beginner 1", description="Student skill level (e.g. Basic 1, Beginner 1, Intermediate 1)")
     
     capacity_min: int = Field(4, ge=1, description="Minimum capacity required for batch")
     capacity_max: int = Field(10, ge=1, description="Maximum capacity allowed for batch")

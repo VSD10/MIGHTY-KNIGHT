@@ -222,7 +222,7 @@ class MasterBatchRequest(BaseModel):
     batch_id: str
     batch_name: str
     batch_type: str = "G"
-    level: str = "Beginner"
+    level: str = "Beginner 1"
     capacity_min: Optional[int] = 4
     capacity_max: Optional[int] = 10
     fixed_trainer: Optional[str] = "Unassigned"
@@ -423,10 +423,9 @@ def trigger_scheduling_run(req: ScheduleRequest):
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
     else:
-        today = date.today()
-        _, last_day = calendar.monthrange(today.year, today.month)
-        s_date = date(today.year, today.month, 1)
-        e_date = date(today.year, today.month, last_day)
+        # Default to October 2026 reference month
+        s_date = date(2026, 10, 1)
+        e_date = date(2026, 10, 31)
 
     if s_date > e_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date.")
@@ -494,11 +493,9 @@ def get_active_or_latest_schedule():
             needs_regeneration = True
 
     if needs_regeneration:
-        today = date.today()
-        s_date = date(today.year, today.month, 1)
-        import calendar
-        _, last_day = calendar.monthrange(today.year, today.month)
-        e_date = date(today.year, today.month, last_day)
+        # Default to October 2026 reference month
+        s_date = date(2026, 10, 1)
+        e_date = date(2026, 10, 31)
 
         if latest and latest.get("start_date") and latest.get("end_date"):
             try:
@@ -791,6 +788,15 @@ def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
     is_valid, violations = validate_schedule_state(
         temp_sched, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG
     )
+
+    # Validate that only registered students can be added
+    if req.student_ids is not None:
+        valid_student_ids = {s["student_id"] for s in ACTIVE_DATA.get("students", [])}
+        invalid_ids = [sid for sid in req.student_ids if sid not in valid_student_ids]
+        if invalid_ids:
+            is_valid = False
+            violations.insert(0, f"Cannot assign unregistered student(s): {', '.join(invalid_ids)}. Only existing master students can be added.")
+
     return {
         "valid": is_valid,
         "warnings": violations
@@ -817,6 +823,16 @@ def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
 
         if not target_cls:
             raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found in schedule")
+
+        # Validate that only registered master students can be added
+        if req.student_ids is not None:
+            valid_student_ids = {s["student_id"] for s in ACTIVE_DATA.get("students", [])}
+            invalid_ids = [sid for sid in req.student_ids if sid not in valid_student_ids]
+            if invalid_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot assign unregistered student(s): {', '.join(invalid_ids)}. Only existing master students can be added."
+                )
 
         target_cls["coach_name"] = req.coach_name.strip()
         target_cls["date"] = req.date

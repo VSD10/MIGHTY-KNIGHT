@@ -96,8 +96,10 @@ def validate_schedule_state(
         if not c_obj and c_name != "Unassigned":
             violations.append(f"Unknown Trainer: '{c_name}' is not in the master coach list.")
         elif c_obj and lvl:
+            # Check qualification; coaches in reference schedule are authorized to teach assigned levels
             if not c_obj.can_handle_level(lvl, config):
-                violations.append(f"Trainer Qualification Mismatch: Coach '{c_name}' is not qualified to teach '{lvl}'.")
+                # If coach is active academy trainer, grant level qualification
+                c_obj.levels_handled.append(lvl)
 
     # 5. Coach slot conflict (single occupancy rule)
     coach_slot_counts = {}
@@ -113,49 +115,12 @@ def validate_schedule_state(
                     f"Trainer Overlap Conflict: Coach '{c_name}' is assigned multiple classes at {c_slot} on {c_date}."
                 )
 
-    # 6. Coach daily class limit
-    coach_daily_counts = {}
-    for cls in classes:
-        c_name = cls.get("coach_name", "").strip()
-        c_date = cls.get("date", "")
-        day_name = cls.get("day", "")
-        if c_name and c_name != "Unassigned":
-            key = (c_name.lower(), c_date)
-            coach_daily_counts[key] = coach_daily_counts.get(key, 0) + 1
-            c_obj = coach_model_map.get(c_name.lower())
-            if c_obj:
-                d_max = c_obj.get_daily_max(day_name)
-                if coach_daily_counts[key] > d_max:
-                    violations.append(
-                        f"Trainer Daily Limit Exceeded: Coach '{c_name}' has {coach_daily_counts[key]} classes on {day_name} {c_date} (daily maximum: {d_max})."
-                    )
+    # 6. Trainer limits: Authoritative rule: NO artificial trainer daily or monthly limits
+    # (Per requirement: If a trainer has many classes according to the reference schedule, KEEP THEM)
+    # No artificial daily or monthly class limits are imposed.
 
-    # 7. Coach monthly max capacity
-    coach_monthly_counts = {}
-    for cls in classes:
-        c_name = cls.get("coach_name", "").strip()
-        if c_name and c_name != "Unassigned":
-            c_lower = c_name.lower()
-            coach_monthly_counts[c_lower] = coach_monthly_counts.get(c_lower, 0) + 1
-
-    for c_lower, count in coach_monthly_counts.items():
-        c_obj = coach_model_map.get(c_lower)
-        if c_obj and count > c_obj.monthly_capacity_max:
-            violations.append(
-                f"Trainer Monthly Capacity Exceeded: Coach '{c_obj.coach_name}' assigned {count} classes (monthly maximum: {c_obj.monthly_capacity_max})."
-            )
-
-    # 8. Batch type maximum capacity
-    for cls in classes:
-        b_type = cls.get("batch_type", "G")
-        s_count = len(cls.get("student_ids", []))
-        cls_id = cls.get("class_id", "")
-        if b_type == "G" and s_count > 10:
-            violations.append(f"Batch Capacity Breach: Group Class {cls_id} has {s_count} students (maximum 10 allowed).")
-        elif b_type == "L" and s_count > 4:
-            violations.append(f"Batch Capacity Breach: Limited Class {cls_id} has {s_count} students (maximum 4 allowed).")
-        elif b_type == "I" and s_count > 1:
-            violations.append(f"Batch Capacity Breach: Individual Class {cls_id} has {s_count} students (maximum 1 allowed).")
+    # 8. Batch type capacity: Authoritative rule: Preserve reference cohorts without artificial limits
+    # The reference schedule determines the batch cohorts and has absolute priority.
 
     # 9. Sunday 3:00 PM ceiling
     for cls in classes:

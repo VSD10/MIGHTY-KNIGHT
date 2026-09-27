@@ -228,16 +228,17 @@ export default function SettingsView({ config }) {
     'Basic 2': ['Bathrinath', 'Abinaya', 'Manikandan', 'Prakash', 'Guruvanthana'],
     'Beginner 1': ['Bathrinath', 'Guruvanthana', 'Dhaanush', 'Manikandan', 'Abinaya', 'Prakash'],
     'Beginner 2': ['Guruvanthana', 'Dhaanush', 'Bathrinath', 'Prakash', 'Saravanan'],
-    'Beginner 3': ['Guruvanthana', 'Dhaanush', 'Bathrinath', 'Prakash', 'Saravanan'],
     'Early Intermediate 1': ['Dhaanush', 'Saravanan', 'Arshath', 'Prakash', 'Guruvanthana'],
     'Early Intermediate 2': ['Dhaanush', 'Saravanan', 'Arshath', 'Prakash', 'Guruvanthana'],
-    'Intermediate': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan']
+    'Intermediate 1': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan'],
+    'Intermediate 2': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan'],
+    'Advanced': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan']
   };
 
   const sundayRules = config?.sunday_rules || {
     max_end_time: '15:00',
     excluded_tournament_coaches: ['Dhaanush', 'Saravanan'],
-    excluded_tournament_levels: ['Intermediate']
+    excluded_tournament_levels: ['Intermediate 1', 'Intermediate 2', 'Advanced']
   };
 
   const weekdaySlots = config?.weekday_slots || [

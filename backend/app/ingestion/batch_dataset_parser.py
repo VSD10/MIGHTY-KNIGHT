@@ -2,6 +2,7 @@ import os
 import csv
 from collections import defaultdict, Counter
 from typing import Dict, List, Any, Tuple
+from app.constants.levels import normalize_batch_to_level
 
 def parse_monthly_batch_dataset(csv_file_path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
@@ -88,11 +89,17 @@ def parse_monthly_batch_dataset(csv_file_path: str) -> Tuple[List[Dict[str, Any]
         primary_trainer = trainer_counts.most_common(1)[0][0] if trainer_counts else "Unassigned"
 
         batch_type = batch_name[:1].upper() if batch_name and batch_name[:1].upper() in ["G", "L", "I"] else "G"
+        
+        # Derive official level from batch name per Section 3
+        if batch_name:
+            official_lvl, _, _ = normalize_batch_to_level(batch_name, student_id)
+        else:
+            official_lvl = "Beginner 1"
 
         student_dict = {
             "student_id": student_id or f"MKS_{abs(hash(student_name)) % 100000:05d}",
             "student_name": student_name,
-            "student_level": level_str if level_str and level_str.lower() != "na" else "Beginner",
+            "student_level": official_lvl,
             "batch_type": batch_type,
             "batch_name": batch_name or "Unassigned Batch",
             "mkca_rating": rating_str if rating_str and rating_str.lower() != "na" else "-",

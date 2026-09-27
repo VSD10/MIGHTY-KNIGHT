@@ -339,7 +339,7 @@ def save_single_batch_db(b: Dict[str, Any], db_path: Optional[str] = None):
     """, (
         b["batch_id"],
         b.get("batch_name", b["batch_id"]),
-        b.get("level", "Beginner"),
+        b.get("level", "Beginner 1"),
         b.get("batch_type", "G"),
         b.get("fixed_trainer", "Unassigned"),
         b.get("schedule_timings", ""),
@@ -382,7 +382,7 @@ def save_all_master_batches_db(batches: List[Dict[str, Any]], db_path: Optional[
         """, (
             b["batch_id"],
             b.get("batch_name", b["batch_id"]),
-            b.get("level", "Beginner"),
+            b.get("level", "Beginner 1"),
             b.get("batch_type", "G"),
             b.get("fixed_trainer", "Unassigned"),
             b.get("schedule_timings", ""),

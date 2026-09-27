@@ -15,6 +15,7 @@ from app.engine.accountability import AccountabilityTracker
 from app.utils.time_utils import parse_time_slot_sort_key
 from app.storage.database import load_master_batches_db, BASE_DIR
 from app.ingestion.batch_dataset_parser import parse_monthly_batch_dataset
+from app.constants.levels import normalize_batch_to_level
 
 def load_dataset_daily_schedule(csv_path: str) -> Dict[str, List[Dict[str, Any]]]:
     """
@@ -64,8 +65,8 @@ def load_dataset_daily_schedule(csv_path: str) -> Dict[str, List[Dict[str, Any]]
             continue
         name = r[0].strip().replace("\n", " ")
         sid = r[1].strip()
-        lvl = r[3].strip() or "Beginner"
         batch = r[4].strip() or "General"
+        lvl, _, _ = normalize_batch_to_level(batch, sid)
         btype = batch[:1].upper() if batch[:1].upper() in ["G", "L", "I"] else "G"
 
         if not name or name.lower() == "student name":
@@ -175,7 +176,7 @@ def run_batch_based_scheduler(
 
             fixed_trainer = b.get("fixed_trainer", "Unassigned")
             b_name = b.get("batch_name", b.get("batch_id", "Batch"))
-            lvl = b.get("level", "Beginner")
+            lvl, _, _ = normalize_batch_to_level(b_name)
             b_type = b.get("batch_type", "G")
             cap_max = b.get("capacity_max") or b.get("max_capacity") or (1 if b_type == "I" else (4 if b_type == "L" else 10))
 

@@ -12,7 +12,8 @@ from app.engine.validator import validate_schedule_state
 from app.ingestion.excel_parser import parse_excel_file
 from app.outputs.monthly_matrix_excel import generate_monthly_matrix_excel
 
-REFERENCE_EXCEL_PATH = "sample_data/Oct'26 Schedule 30.9.26_sort_fixed.xlsx"
+BASE_TEST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REFERENCE_EXCEL_PATH = os.path.join(BASE_TEST_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
 
 @pytest.fixture
 def reference_data():

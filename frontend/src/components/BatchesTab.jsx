@@ -3,8 +3,49 @@ import { createPortal } from 'react-dom';
 import {
   Layers, Users, Clock, Plus, Edit2, Trash2,
   Search, Check, AlertCircle, X, Save, UserCheck, Shield,
-  ChevronDown, ChevronUp, UserPlus, Filter
+  ChevronDown, ChevronUp, UserPlus, Filter, LayoutGrid, List, Award
 } from 'lucide-react';
+import { OFFICIAL_LEVELS } from '../constants/levels';
+
+const LEVEL_ORDER_MAP = {
+  'basic 1': 1,
+  'basic 2': 2,
+  'beginner 1': 3,
+  'beginner 2': 4,
+  'early intermediate 1': 5,
+  'early intermediate 2': 6,
+  'intermediate 1': 7,
+  'intermediate 2': 8,
+  'advanced': 9
+};
+
+const getLevelRank = (lvl) => {
+  if (!lvl) return 99;
+  const normalized = lvl.toString().toLowerCase().trim().replace(/\s+/g, ' ');
+  if (LEVEL_ORDER_MAP[normalized] !== undefined) {
+    return LEVEL_ORDER_MAP[normalized];
+  }
+  const compact = normalized.replace(/\s+/g, '');
+  for (const [key, rank] of Object.entries(LEVEL_ORDER_MAP)) {
+    if (key.replace(/\s+/g, '') === compact) {
+      return rank;
+    }
+  }
+  if (compact.includes('basic1')) return 1;
+  if (compact.includes('basic2')) return 2;
+  if (compact.includes('basic')) return 1.5;
+  if (compact.includes('beg1') || compact.includes('beginner1')) return 3;
+  if (compact.includes('beg2') || compact.includes('beginner2')) return 4;
+  if (compact.includes('beg') || compact.includes('beginner')) return 3.5;
+  if (compact.includes('earlyinter1') || compact.includes('earlyintermediate1')) return 5;
+  if (compact.includes('earlyinter2') || compact.includes('earlyintermediate2')) return 6;
+  if (compact.includes('earlyinter') || compact.includes('earlyintermediate') || compact.includes('early')) return 5.5;
+  if (compact.includes('inter1') || compact.includes('intermediate1')) return 7;
+  if (compact.includes('inter2') || compact.includes('intermediate2')) return 8;
+  if (compact.includes('inter') || compact.includes('intermediate')) return 7.5;
+  if (compact.includes('adv')) return 9;
+  return 99;
+};
 
 export default function BatchesTab({
   batches = [],
@@ -14,6 +55,8 @@ export default function BatchesTab({
   onDeleteBatch,
   loading = false
 }) {
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
+  const [sortBy, setSortBy] = useState('LEVEL_ASC'); // 'LEVEL_ASC' (Beginner to Advanced) by default!
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'G' | 'L' | 'I'
   const [levelFilter, setLevelFilter] = useState('ALL');
@@ -40,12 +83,12 @@ export default function BatchesTab({
     batches.forEach(b => {
       if (b.level) set.add(b.level);
     });
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => getLevelRank(a) - getLevelRank(b));
   }, [batches]);
 
-  // Filtering Logic
+  // Filtering & Sorting Logic
   const filteredBatches = useMemo(() => {
-    return batches.filter(b => {
+    const list = batches.filter(b => {
       if (typeFilter !== 'ALL' && b.batch_type !== typeFilter) return false;
       if (levelFilter !== 'ALL' && b.level !== levelFilter) return false;
       if (trainerFilter !== 'ALL' && b.fixed_trainer !== trainerFilter) return false;
@@ -64,7 +107,40 @@ export default function BatchesTab({
       }
       return true;
     });
-  }, [batches, typeFilter, levelFilter, trainerFilter, searchQuery]);
+
+    // Sort batches: default is Beginner to Advance ('LEVEL_ASC')
+    return list.sort((a, b) => {
+      if (sortBy === 'LEVEL_ASC') {
+        const diff = getLevelRank(a.level) - getLevelRank(b.level);
+        if (diff !== 0) return diff;
+        // Secondary sort: Type Group (G) -> Limited (L) -> Individual (I)
+        const typeOrder = { G: 1, L: 2, I: 3 };
+        const typeDiff = (typeOrder[a.batch_type] || 9) - (typeOrder[b.batch_type] || 9);
+        if (typeDiff !== 0) return typeDiff;
+        // Tertiary sort: Batch name A-Z
+        return (a.batch_name || '').localeCompare(b.batch_name || '');
+      }
+      if (sortBy === 'LEVEL_DESC') {
+        const diff = getLevelRank(b.level) - getLevelRank(a.level);
+        if (diff !== 0) return diff;
+        return (a.batch_name || '').localeCompare(b.batch_name || '');
+      }
+      if (sortBy === 'NAME_ASC') {
+        return (a.batch_name || '').localeCompare(b.batch_name || '');
+      }
+      if (sortBy === 'CAP_ASC') {
+        const aCount = (a.students || []).length || (a.student_ids || []).length || 0;
+        const bCount = (b.students || []).length || (b.student_ids || []).length || 0;
+        return aCount - bCount;
+      }
+      if (sortBy === 'CAP_DESC') {
+        const aCount = (a.students || []).length || (a.student_ids || []).length || 0;
+        const bCount = (b.students || []).length || (b.student_ids || []).length || 0;
+        return bCount - aCount;
+      }
+      return 0;
+    });
+  }, [batches, typeFilter, levelFilter, trainerFilter, searchQuery, sortBy]);
 
   // Quick inline remove student from batch
   const handleRemoveStudentFromBatch = (batch, studentIdToRemove) => {
@@ -217,6 +293,80 @@ export default function BatchesTab({
             ))}
           </select>
 
+          {/* Sort By Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>Sort:</span>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              style={{
+                padding: '7px 12px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--accent-gold)',
+                color: 'var(--accent-gold)',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="LEVEL_ASC" style={{ background: '#1e293b', color: '#fff' }}>Beginner → Advanced</option>
+              <option value="LEVEL_DESC" style={{ background: '#1e293b', color: '#fff' }}>Advanced → Beginner</option>
+              <option value="NAME_ASC" style={{ background: '#1e293b', color: '#fff' }}>Batch Name (A–Z)</option>
+              <option value="CAP_ASC" style={{ background: '#1e293b', color: '#fff' }}>Capacity: Low → High</option>
+              <option value="CAP_DESC" style={{ background: '#1e293b', color: '#fff' }}>Capacity: High → Low</option>
+            </select>
+          </div>
+
+          {/* View Mode Toggle: Cards vs Table */}
+          <div style={{ display: 'flex', background: 'var(--bg-secondary)', padding: '3px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '5px',
+                border: 'none',
+                background: viewMode === 'cards' ? 'var(--accent-gold)' : 'transparent',
+                color: viewMode === 'cards' ? '#000' : 'var(--text-secondary)',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              title="Cards View"
+            >
+              <LayoutGrid size={15} /> Cards View
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '5px',
+                border: 'none',
+                background: viewMode === 'table' ? 'var(--accent-gold)' : 'transparent',
+                color: viewMode === 'table' ? '#000' : 'var(--text-secondary)',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              title="Table View"
+            >
+              <List size={15} /> Table View
+            </button>
+          </div>
+
+          {/* Group Count Badge */}
+          <span className="badge badge-gold" style={{ fontSize: '0.75rem', padding: '6px 12px', fontWeight: 700 }}>
+            {filteredBatches.length} Groups
+          </span>
+
           {/* Create New Batch Button */}
           <button
             onClick={() => {
@@ -225,7 +375,7 @@ export default function BatchesTab({
                 batch_id: newId,
                 batch_name: '',
                 batch_type: 'G',
-                level: 'Beginner',
+                level: 'Beginner 1',
                 capacity_min: 4,
                 capacity_max: 10,
                 fixed_trainer: 'Unassigned',
@@ -272,7 +422,7 @@ export default function BatchesTab({
                 batch_id: newId,
                 batch_name: '',
                 batch_type: 'G',
-                level: 'Beginner',
+                level: 'Beginner 1',
                 capacity_min: 4,
                 capacity_max: 10,
                 fixed_trainer: 'Unassigned',
@@ -287,6 +437,403 @@ export default function BatchesTab({
           >
             <Plus size={16} /> + Create First Batch
           </button>
+        </div>
+      ) : viewMode === 'cards' ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+            gap: '20px'
+          }}
+        >
+          {filteredBatches.map(batch => {
+            const typeBadge = getBatchTypeBadge(batch.batch_type);
+            const capMin = batch.capacity_min || (batch.batch_type === 'G' ? 4 : 1);
+            const capMax = batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 4 : 10));
+
+            // Resolve complete enrolled student objects
+            const enrolledStudentsList = (batch.students && batch.students.length > 0)
+              ? batch.students
+              : (batch.student_ids || []).map(id => {
+                  const found = allStudents.find(s => s.student_id === id);
+                  return found || { student_id: id, student_name: id, student_level: batch.level };
+                });
+            const enrolled = enrolledStudentsList.length;
+            const percentFilled = Math.min(100, Math.round((enrolled / Math.max(1, capMax)) * 100));
+
+            // Available students to enroll who are not already in this batch
+            const availableStudents = allStudents.filter(
+              s => !enrolledStudentsList.some(es => es.student_id === s.student_id)
+            );
+
+            // Capacity status styling
+            let statusText = 'Optimal';
+            let statusColor = '#10b981';
+            let statusBg = 'rgba(16, 185, 129, 0.15)';
+            let statusBorder = 'rgba(16, 185, 129, 0.4)';
+            let progressGradient = 'linear-gradient(90deg, #10b981 0%, #059669 100%)';
+
+            if (enrolled === 0) {
+              statusText = 'Empty';
+              statusColor = 'var(--text-muted)';
+              statusBg = 'rgba(255, 255, 255, 0.05)';
+              statusBorder = 'rgba(255, 255, 255, 0.1)';
+              progressGradient = 'rgba(255, 255, 255, 0.15)';
+            } else if (enrolled > capMax) {
+              statusText = `Overfilled (+${enrolled - capMax})`;
+              statusColor = '#ef4444';
+              statusBg = 'rgba(239, 68, 68, 0.15)';
+              statusBorder = 'rgba(239, 68, 68, 0.4)';
+              progressGradient = 'linear-gradient(90deg, #ef4444 0%, #dc2626 100%)';
+            } else if (enrolled < capMin) {
+              statusText = `Below Min (${enrolled}/${capMin})`;
+              statusColor = '#f59e0b';
+              statusBg = 'rgba(245, 158, 11, 0.15)';
+              statusBorder = 'rgba(245, 158, 11, 0.4)';
+              progressGradient = 'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)';
+            } else if (enrolled === capMax) {
+              statusText = 'Full Capacity';
+              statusColor = '#60a5fa';
+              statusBg = 'rgba(96, 165, 250, 0.15)';
+              statusBorder = 'rgba(96, 165, 250, 0.4)';
+              progressGradient = 'linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%)';
+            }
+
+            return (
+              <div
+                key={batch.batch_id}
+                className="glass-panel"
+                style={{
+                  padding: '20px',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  borderTop: `4px solid ${typeBadge.border}`,
+                  background: 'rgba(255, 255, 255, 0.025)',
+                  position: 'relative',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+                }}
+              >
+                {/* CARD TOP ROW: BATCH NAME, ID & TYPE BADGE */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>
+                        {batch.batch_name || batch.batch_id}
+                      </h3>
+                      <span
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.725rem',
+                          padding: '2px 7px',
+                          borderRadius: '4px',
+                          background: 'rgba(255, 255, 255, 0.07)',
+                          color: 'var(--text-muted)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)'
+                        }}
+                      >
+                        {batch.batch_id}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          background: 'rgba(234, 179, 8, 0.12)',
+                          color: 'var(--accent-gold)',
+                          border: '1px solid rgba(234, 179, 8, 0.3)'
+                        }}
+                      >
+                        <Award size={12} /> {batch.level || 'Unspecified'}
+                      </span>
+
+                      <span
+                        style={{
+                          fontSize: '0.725rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          background: statusBg,
+                          color: statusColor,
+                          border: `1px solid ${statusBorder}`
+                        }}
+                      >
+                        {statusText}
+                      </span>
+                    </div>
+                  </div>
+
+                  <span
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      background: typeBadge.bg,
+                      color: typeBadge.color,
+                      border: `1px solid ${typeBadge.border}`,
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {typeBadge.label}
+                  </span>
+                </div>
+
+                {/* METADATA CONTAINER: TRAINER & TIMINGS */}
+                <div
+                  style={{
+                    background: 'rgba(0, 0, 0, 0.25)',
+                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '10px 14px',
+                    marginBottom: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}
+                >
+                  {/* Fixed Trainer */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.825rem' }}>
+                    <UserCheck size={15} style={{ color: batch.fixed_trainer && batch.fixed_trainer !== 'Unassigned' ? '#34d399' : '#f87171', flexShrink: 0 }} />
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600, minWidth: '55px' }}>Trainer:</span>
+                    {batch.fixed_trainer && batch.fixed_trainer !== 'Unassigned' ? (
+                      <span style={{ color: '#fff', fontWeight: 700 }}>{batch.fixed_trainer}</span>
+                    ) : (
+                      <span style={{ color: '#f87171', fontStyle: 'italic', fontWeight: 600 }}>Unassigned</span>
+                    )}
+                  </div>
+
+                  {/* Schedule Timings */}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.825rem' }}>
+                    <Clock size={15} style={{ color: 'var(--accent-gold)', marginTop: '2px', flexShrink: 0 }} />
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600, minWidth: '55px' }}>Slots:</span>
+                    <span style={{ color: batch.schedule_timings ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 600, wordBreak: 'break-word' }}>
+                      {batch.schedule_timings || 'No fixed timing schedule assigned'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* CAPACITY INDICATOR WITH VISUAL PROGRESS BAR */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      Enrollment Capacity:
+                    </span>
+                    <span style={{ fontWeight: 800, color: statusColor }}>
+                      {enrolled} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>/ {capMax} max</span>
+                      <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginLeft: '6px' }}>(min {capMin})</span>
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '7px',
+                      borderRadius: '4px',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${percentFilled}%`,
+                        height: '100%',
+                        background: progressGradient,
+                        borderRadius: '4px',
+                        transition: 'width 0.3s ease'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* ENROLLED STUDENTS ROSTER BOX */}
+                <div
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '12px',
+                    marginBottom: '16px',
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Users size={14} /> Enrolled Students ({enrolled})
+                    </span>
+                    {enrolled > 0 && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {enrolled >= capMin ? '✓ Quorum met' : '⚠️ Need more'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Students Chips Scroll Area */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                      maxHeight: '135px',
+                      overflowY: 'auto',
+                      paddingRight: '4px',
+                      marginBottom: '10px',
+                      alignContent: 'flex-start',
+                      minHeight: enrolledStudentsList.length > 0 ? 'auto' : '45px'
+                    }}
+                  >
+                    {enrolledStudentsList.length === 0 ? (
+                      <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '10px 0', width: '100%', textAlign: 'center' }}>
+                        No students currently enrolled in this group.
+                      </div>
+                    ) : (
+                      enrolledStudentsList.map(stu => (
+                        <div
+                          key={stu.student_id}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            background: 'rgba(255, 255, 255, 0.06)',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            fontSize: '0.75rem'
+                          }}
+                        >
+                          <span style={{ fontWeight: 700, color: '#fff' }}>{stu.student_name}</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.675rem', fontFamily: 'monospace' }}>({stu.student_id})</span>
+                          {stu.mkca_rating && stu.mkca_rating !== '-' && (
+                            <span style={{ color: 'var(--accent-gold)', fontSize: '0.675rem', fontWeight: 700 }}>
+                              ⭐{stu.mkca_rating}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStudentFromBatch(batch, stu.student_id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              padding: '1px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              marginLeft: '2px',
+                              borderRadius: '3px',
+                              transition: 'color 0.15s ease'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                            title={`Remove ${stu.student_name} from ${batch.batch_name}`}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Quick Add Student Dropdown */}
+                  <div style={{ marginTop: 'auto', paddingTop: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                    <select
+                      value=""
+                      onChange={e => {
+                        if (e.target.value) {
+                          handleAddStudentToBatch(batch, e.target.value);
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        border: '1px dashed rgba(255, 255, 255, 0.15)',
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.75rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">+ Enroll Student into Group...</option>
+                      {availableStudents.map(s => (
+                        <option key={s.student_id} value={s.student_id} style={{ background: '#1e293b', color: '#fff' }}>
+                          {s.student_name} ({s.student_id}) — {s.student_level}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* CARD FOOTER: ACTIONS */}
+                <div
+                  style={{
+                    marginTop: 'auto',
+                    paddingTop: '12px',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEditingBatch({ ...batch })}
+                    className="btn btn-secondary"
+                    style={{
+                      flex: 1,
+                      padding: '7px 12px',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      background: 'rgba(96, 165, 250, 0.12)',
+                      borderColor: 'rgba(96, 165, 250, 0.35)',
+                      color: '#60a5fa'
+                    }}
+                  >
+                    <Edit2 size={14} /> Edit Group
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Are you sure you want to delete group "${batch.batch_name || batch.batch_id}"?`)) {
+                        onDeleteBatch(batch.batch_id);
+                      }
+                    }}
+                    className="btn btn-secondary"
+                    style={{
+                      padding: '7px 12px',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      borderColor: 'rgba(239, 68, 68, 0.35)',
+                      color: '#ef4444'
+                    }}
+                    title="Delete Group"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="glass-panel" style={{ overflowX: 'auto', padding: '0', borderRadius: 'var(--radius-lg)' }}>
@@ -570,7 +1117,7 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
     batch_id: batch.batch_id || `BAT_${Date.now().toString().slice(-4)}`,
     batch_name: batch.batch_name || '',
     batch_type: batch.batch_type || 'G',
-    level: batch.level || 'Beginner',
+    level: batch.level || 'Beginner 1',
     capacity_min: batch.capacity_min || (batch.batch_type === 'G' ? 4 : 1),
     capacity_max: batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 4 : 10)),
     fixed_trainer: batch.fixed_trainer || 'Unassigned',
@@ -770,7 +1317,7 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
                 onChange={e => setFormData({ ...formData, level: e.target.value })}
                 style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
               >
-                {['Basic 1', 'Basic 2', 'Beginner', 'Beginner 1', 'Beginner 2', 'Beginner 3', 'Early Intermediate 1', 'Early Intermediate 2', 'Intermediate', 'Intermediate 1', 'Advanced'].map(l => (
+                {OFFICIAL_LEVELS.map(l => (
                   <option key={l} value={l}>{l}</option>
                 ))}
               </select>

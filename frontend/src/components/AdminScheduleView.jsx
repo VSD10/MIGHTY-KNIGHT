@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Calendar, X, Download, CheckCircle, ShieldCheck, FileSpreadsheet } from 'lucide-react';
 import { applyManualEdit, assignStudentToClass, getMonthlyMatrixExcelUrl, validateSchedule } from '../services/api';
+import { OFFICIAL_LEVELS } from '../constants/levels';
 
 export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit, scheduleId, onRefreshSchedule }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,17 +54,7 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
     }
   };
 
-  const STANDARD_STUDENT_LEVELS = [
-    'Basic 1',
-    'Basic 2',
-    'Beginner 1',
-    'Beginner 2',
-    'Beginner 3',
-    'Early Intermediate 1',
-    'Early Intermediate 2',
-    'Intermediate 1',
-    'Intermediate'
-  ];
+  const STANDARD_STUDENT_LEVELS = OFFICIAL_LEVELS;
 
   // Extract unique Coaches and Levels for Dropdown Filters
   const rawCoaches = Array.from(new Set(classes.map(c => c.coach_name).filter(Boolean))).sort();

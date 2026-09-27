@@ -8,7 +8,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
     coaches_data = [
         {
             "Coach Name": "Guruvanthana",
-            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Beginner 3, Early Intermediate 1",
+            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Early Intermediate 1",
             "Monthly Class Capacity": "60 - 90",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 2,
             "Sunday Preference": "Available",
@@ -18,7 +18,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         },
         {
             "Coach Name": "Dhaanush",
-            "Levels Handled": "Beginner 1, Beginner 2, Beginner 3, Early Intermediate 1, Early Intermediate 2, Intermediate",
+            "Levels Handled": "Beginner 1, Beginner 2, Early Intermediate 1, Early Intermediate 2, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "70 - 78",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 0,
             "Sunday Preference": "No Sunday Tournaments",
@@ -28,7 +28,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         },
         {
             "Coach Name": "Arshath",
-            "Levels Handled": "Early Intermediate 2, Intermediate",
+            "Levels Handled": "Early Intermediate 2, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "35 - 40",
             "Monday Max": 3, "Tuesday Max": 3, "Wednesday Max": 3, "Thursday Max": 3, "Friday Max": 3, "Saturday Max": 4, "Sunday Max": 2,
             "Sunday Preference": "Available",
@@ -38,7 +38,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         },
         {
             "Coach Name": "Saravanan",
-            "Levels Handled": "Beginner 2, Beginner 3, Early Intermediate 1, Intermediate",
+            "Levels Handled": "Beginner 2, Early Intermediate 1, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "30 - 60",
             "Monday Max": 3, "Tuesday Max": 3, "Wednesday Max": 3, "Thursday Max": 3, "Friday Max": 3, "Saturday Max": 4, "Sunday Max": 0,
             "Sunday Preference": "No Sunday Tournaments",
@@ -68,7 +68,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         },
         {
             "Coach Name": "Prakash",
-            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Beginner 3, Early Intermediate 1, Early Intermediate 2, Intermediate",
+            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Early Intermediate 1, Early Intermediate 2, Intermediate 1, Intermediate 2, Advanced",
             "Monthly Class Capacity": "30 - 100",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 2,
             "Sunday Preference": "Available",
@@ -88,7 +88,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         }
     ]
 
-    # 2. Sample Students Data (Realistic coverage across 8 levels and batch types)
+    # 2. Sample Students Data (Realistic coverage across official levels and batch types)
     students_data = [
         # Basic 1 - Group Batch
         {"Student ID": "STU001", "Student Name": "Aarav Sharma", "Student Level": "Basic 1", "Batch Type": "G", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "05:00 PM – 09:00 PM", "Tuesday": "Not Available", "Wednesday": "05:00 PM – 09:00 PM", "Thursday": "Not Available", "Friday": "05:00 PM – 09:00 PM", "Saturday": "No Preference", "Sunday": "Not Available", "Tournament Preference": "No", "Additional Comments": ""},
@@ -109,16 +109,16 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         {"Student ID": "STU012", "Student Name": "Tara Sen", "Student Level": "Beginner 1", "Batch Type": "L", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "04:00 PM – 06:00 PM", "Tuesday": "04:00 PM – 06:00 PM", "Wednesday": "No Preference", "Thursday": "No Preference", "Friday": "Not Available", "Saturday": "No Preference", "Sunday": "09:00 AM – 12:00 PM", "Tournament Preference": "Yes", "Additional Comments": ""},
         {"Student ID": "STU013", "Student Name": "Varun Rao", "Student Level": "Beginner 1", "Batch Type": "L", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "04:00 PM – 06:00 PM", "Tuesday": "04:00 PM – 06:00 PM", "Wednesday": "No Preference", "Thursday": "No Preference", "Friday": "Not Available", "Saturday": "No Preference", "Sunday": "09:00 AM – 12:00 PM", "Tournament Preference": "Yes", "Additional Comments": ""},
 
-        # Beginner 2 & 3
+        # Beginner 2
         {"Student ID": "STU014", "Student Name": "Nikhil Deshmukh", "Student Level": "Beginner 2", "Batch Type": "G", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "07:00 PM – 09:00 PM", "Tuesday": "07:00 PM – 09:00 PM", "Wednesday": "07:00 PM – 09:00 PM", "Thursday": "No Preference", "Friday": "No Preference", "Saturday": "05:00 PM – 09:00 PM", "Sunday": "Not Available", "Tournament Preference": "No", "Additional Comments": ""},
-        {"Student ID": "STU015", "Student Name": "Prisha Kapoor", "Student Level": "Beginner 3", "Batch Type": "L", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "No Preference", "Tuesday": "05:00 PM – 07:00 PM", "Wednesday": "No Preference", "Thursday": "05:00 PM – 07:00 PM", "Friday": "No Preference", "Saturday": "05:00 PM – 09:00 PM", "Sunday": "09:00 AM – 01:00 PM", "Tournament Preference": "Yes", "Additional Comments": ""},
+        {"Student ID": "STU015", "Student Name": "Prisha Kapoor", "Student Level": "Beginner 2", "Batch Type": "L", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "No Preference", "Tuesday": "05:00 PM – 07:00 PM", "Wednesday": "No Preference", "Thursday": "05:00 PM – 07:00 PM", "Friday": "No Preference", "Saturday": "05:00 PM – 09:00 PM", "Sunday": "09:00 AM – 01:00 PM", "Tournament Preference": "Yes", "Additional Comments": ""},
 
         # Early Intermediate 1 & 2
         {"Student ID": "STU016", "Student Name": "Devansh Saxena", "Student Level": "Early Intermediate 1", "Batch Type": "G", "Region/TimeZone": "IST", "Required Classes": 8, "Monday": "06:00 PM – 08:00 PM", "Tuesday": "Not Available", "Wednesday": "06:00 PM – 08:00 PM", "Thursday": "Not Available", "Friday": "06:00 PM – 08:00 PM", "Saturday": "05:00 PM – 09:00 PM", "Sunday": "Not Available", "Tournament Preference": "No", "Additional Comments": ""},
         {"Student ID": "STU017", "Student Name": "Riya Banerjee", "Student Level": "Early Intermediate 2", "Batch Type": "I", "Region/TimeZone": "IST", "Required Classes": 4, "Monday": "07:00 PM – 09:00 PM", "Tuesday": "07:00 PM – 09:00 PM", "Wednesday": "Not Available", "Thursday": "Not Available", "Friday": "Not Available", "Saturday": "No Preference", "Sunday": "Not Available", "Tournament Preference": "No", "Additional Comments": "Individual training request"},
 
-        # Intermediate
-        {"Student ID": "STU018", "Student Name": "Vihaan Agarwal", "Student Level": "Intermediate", "Batch Type": "I", "Region/TimeZone": "IST", "Required Classes": 4, "Monday": "08:00 PM – 09:00 PM", "Tuesday": "Not Available", "Wednesday": "08:00 PM – 09:00 PM", "Thursday": "Not Available", "Friday": "08:00 PM – 09:00 PM", "Saturday": "07:00 PM – 09:00 PM", "Sunday": "Not Available", "Tournament Preference": "No", "Additional Comments": "Master preparation batch"}
+        # Intermediate 1
+        {"Student ID": "STU018", "Student Name": "Vihaan Agarwal", "Student Level": "Intermediate 1", "Batch Type": "I", "Region/TimeZone": "IST", "Required Classes": 4, "Monday": "08:00 PM – 09:00 PM", "Tuesday": "Not Available", "Wednesday": "08:00 PM – 09:00 PM", "Thursday": "Not Available", "Friday": "08:00 PM – 09:00 PM", "Saturday": "07:00 PM – 09:00 PM", "Sunday": "Not Available", "Tournament Preference": "No", "Additional Comments": "Master preparation batch"}
     ]
 
     df_coaches = pd.DataFrame(coaches_data)

@@ -13,7 +13,7 @@ class SundayConfig(BaseModel):
     start_time: str = "09:00"
     max_end_time: str = "15:00"
     excluded_tournament_coaches: List[str] = ["Dhaanush", "Saravanan"]
-    excluded_tournament_levels: List[str] = ["Intermediate"]
+    excluded_tournament_levels: List[str] = ["Intermediate 1", "Intermediate 2", "Advanced"]
 
 class ConstraintRule(BaseModel):
     rule_id: str
@@ -64,7 +64,7 @@ def get_default_rules_registry() -> List[ConstraintRule]:
             params={
                 "max_end_time": "15:00",
                 "excluded_tournament_coaches": ["Dhaanush", "Saravanan"],
-                "excluded_tournament_levels": ["Intermediate"]
+                "excluded_tournament_levels": ["Intermediate 1", "Intermediate 2", "Advanced"]
             }
         ),
         ConstraintRule(
@@ -81,10 +81,11 @@ def get_default_rules_registry() -> List[ConstraintRule]:
                     "Basic 2": ["Bathrinath", "Abinaya", "Manikandan", "Prakash", "Guruvanthana"],
                     "Beginner 1": ["Bathrinath", "Guruvanthana", "Dhaanush", "Manikandan", "Abinaya", "Prakash"],
                     "Beginner 2": ["Guruvanthana", "Dhaanush", "Bathrinath", "Prakash", "Saravanan"],
-                    "Beginner 3": ["Guruvanthana", "Dhaanush", "Bathrinath", "Prakash", "Saravanan"],
                     "Early Intermediate 1": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
                     "Early Intermediate 2": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
-                    "Intermediate": ["Arshath", "Dhaanush", "Prakash", "Saravanan"]
+                    "Intermediate 1": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
+                    "Intermediate 2": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
+                    "Advanced": ["Arshath", "Dhaanush", "Prakash", "Saravanan"]
                 }
             }
         ),
@@ -182,10 +183,11 @@ class SystemConfig(BaseModel):
         "Basic 2",
         "Beginner 1",
         "Beginner 2",
-        "Beginner 3",
         "Early Intermediate 1",
         "Early Intermediate 2",
-        "Intermediate"
+        "Intermediate 1",
+        "Intermediate 2",
+        "Advanced"
     ]
     
     level_groups: Dict[str, int] = {
@@ -193,10 +195,11 @@ class SystemConfig(BaseModel):
         "Basic 2": 2,
         "Beginner 1": 3,
         "Beginner 2": 4,
-        "Beginner 3": 5,
-        "Early Intermediate 1": 6,
-        "Early Intermediate 2": 7,
-        "Intermediate": 8
+        "Early Intermediate 1": 5,
+        "Early Intermediate 2": 6,
+        "Intermediate 1": 7,
+        "Intermediate 2": 8,
+        "Advanced": 9
     }
 
     coach_priority: Dict[str, List[str]] = {
@@ -204,10 +207,11 @@ class SystemConfig(BaseModel):
         "Basic 2": ["Bathrinath", "Abinaya", "Manikandan", "Prakash", "Guruvanthana"],
         "Beginner 1": ["Bathrinath", "Guruvanthana", "Dhaanush", "Manikandan", "Abinaya", "Prakash"],
         "Beginner 2": ["Guruvanthana", "Dhaanush", "Bathrinath", "Prakash", "Saravanan"],
-        "Beginner 3": ["Guruvanthana", "Dhaanush", "Bathrinath", "Prakash", "Saravanan"],
         "Early Intermediate 1": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
         "Early Intermediate 2": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
-        "Intermediate": ["Arshath", "Dhaanush", "Prakash", "Saravanan"]
+        "Intermediate 1": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
+        "Intermediate 2": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
+        "Advanced": ["Arshath", "Dhaanush", "Prakash", "Saravanan"]
     }
 
     batch_types: Dict[str, BatchConfig] = {

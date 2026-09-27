@@ -10,11 +10,9 @@ import {
   clearAllMasterData
 } from '../services/api';
 import BatchesTab from './BatchesTab';
+import { OFFICIAL_LEVELS } from '../constants/levels';
 
-const STANDARD_LEVELS = [
-  'Basic 1', 'Basic 2', 'Beginner', 'Beginner 1', 'Beginner 2', 'Beginner 3',
-  'Early Intermediate 1', 'Early Intermediate 2', 'Intermediate', 'Intermediate 1', 'Advanced'
-];
+const STANDARD_LEVELS = OFFICIAL_LEVELS;
 
 export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
   const [activeSubTab, setActiveSubTab] = useState('batches'); // 'batches' | 'students' | 'coaches'
@@ -365,7 +363,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
             transition: 'all 0.15s ease'
           }}
         >
-          <Layers size={18} /> Batches ({batches.length})
+          <Layers size={18} /> Groups / Batches ({batches.length})
         </button>
 
         <button
@@ -504,7 +502,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                   setEditingStudent({
                     student_id: newId,
                     student_name: '',
-                    student_level: 'Beginner',
+                    student_level: 'Beginner 1',
                     batch_type: 'G',
                     required_classes: 8,
                     region_timezone: 'IST',
@@ -556,7 +554,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                   setEditingStudent({
                     student_id: newId,
                     student_name: '',
-                    student_level: 'Beginner',
+                    student_level: 'Beginner 1',
                     batch_type: 'G',
                     required_classes: 8,
                     region_timezone: 'IST',
@@ -818,7 +816,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                 onClick={() => {
                   setEditingCoach({
                     coach_name: '',
-                    levels_handled: ['Beginner', 'Basic 1', 'Basic 2'],
+                    levels_handled: ['Basic 1', 'Basic 2', 'Beginner 1'],
                     monthly_capacity_min: 20,
                     monthly_capacity_max: 60,
                     mon_max: 4,
@@ -868,7 +866,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                 onClick={() => {
                   setEditingCoach({
                     coach_name: '',
-                    levels_handled: ['Beginner', 'Basic 1'],
+                    levels_handled: ['Basic 1', 'Beginner 1'],
                     monthly_capacity_min: 20,
                     monthly_capacity_max: 60,
                     mon_max: 4,
@@ -1056,7 +1054,7 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
     student_id: student.student_id || `STU_${Date.now().toString().slice(-4)}`,
     student_name: student.student_name || '',
     mkca_rating: student.mkca_rating ?? '',
-    student_level: student.student_level || 'Beginner',
+    student_level: student.student_level || 'Beginner 1',
     batch_type: student.batch_type || 'G',
     required_classes: student.required_classes ?? 8,
     region_timezone: student.region_timezone || 'IST',
@@ -1448,7 +1446,7 @@ function buildTimingsStringFromDays(dayMap, currentFormData) {
 function CoachEditModal({ coach, onSave, onClose }) {
   const [formData, setFormData] = useState({
     coach_name: coach.coach_name || '',
-    levels_handled: Array.isArray(coach.levels_handled) ? coach.levels_handled : ['Beginner', 'Basic 1'],
+    levels_handled: Array.isArray(coach.levels_handled) ? coach.levels_handled : ['Basic 1', 'Beginner 1'],
     monthly_capacity_min: coach.monthly_capacity_min ?? 20,
     monthly_capacity_max: coach.monthly_capacity_max ?? 60,
     mon_max: coach.mon_max ?? 4,

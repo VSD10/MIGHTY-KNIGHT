@@ -39,7 +39,10 @@ class CoachModel(BaseModel):
 
     def can_handle_level(self, level: str, config: Optional[Any] = None) -> bool:
         normalized_handled = [l.strip().lower() for l in self.levels_handled]
-        if level.strip().lower() in normalized_handled:
+        lvl_clean = level.strip().lower()
+        if lvl_clean in normalized_handled:
+            return True
+        if any(h.startswith(lvl_clean) or lvl_clean.startswith(h) for h in normalized_handled):
             return True
         if config and hasattr(config, "coach_priority"):
             p_list = [p.strip().lower() for p in config.coach_priority.get(level, [])]

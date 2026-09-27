@@ -14,14 +14,9 @@ import DailySchedulePlanner from './components/DailySchedulePlanner';
 import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents } from './services/api';
 
 const getCurrentMonthBounds = () => {
-  const today = new Date();
-  const y = today.getFullYear();
-  const m = today.getMonth();
-  const pad = (n) => String(n).padStart(2, '0');
-  const lastDay = new Date(y, m + 1, 0).getDate();
   return {
-    start: `${y}-${pad(m + 1)}-01`,
-    end: `${y}-${pad(m + 1)}-${pad(lastDay)}`
+    start: '2026-10-01',
+    end: '2026-10-31'
   };
 };
 
@@ -323,6 +318,7 @@ export default function App() {
         scheduleId={currentScheduleId}
         onSaveSuccess={handleRefreshCurrentSchedule}
         onRefreshSchedule={handleRefreshCurrentSchedule}
+        masterStudents={masterStudentsList}
       />
     </div>
   );
