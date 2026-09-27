@@ -109,6 +109,70 @@ def get_default_rules_registry() -> List[ConstraintRule]:
                     "12:00 PM – 01:00 PM", "01:00 PM – 02:00 PM", "02:00 PM – 03:00 PM"
                 ]
             }
+        ),
+        ConstraintRule(
+            rule_id="RULE_STUDENT_MONTHLY_QUOTA",
+            name="Student Monthly Quota & Weekly Pacing",
+            description="Enforces exact monthly student required_classes (e.g. 16, 8, 4). Spreads sessions evenly across weeks with controlled catch-up relaxation.",
+            category="Quota & Pacing",
+            constraint_type="HARD_CONSTRAINT",
+            enabled=True,
+            priority=1,
+            params={
+                "quota_enforcement": "Hard Cap (Never schedule beyond required_classes)",
+                "pacing_strategy": "Approx 4/wk for 16, 2/wk for 8, 1/wk for 4 with late-month relaxation"
+            }
+        ),
+        ConstraintRule(
+            rule_id="RULE_BATCH_CAPACITY_POOLS",
+            name="Flexible Capacity Pools & Soft Group Min",
+            description="Master batches act as flexible capacity templates. Group max 10, Limited max 4, Individual 1 are hard limits. Group min 4 is a soft warning.",
+            category="Capacity Pools",
+            constraint_type="HARD_CONSTRAINT",
+            enabled=True,
+            priority=1,
+            params={
+                "group_max": 10, "group_min_behavior": "Soft Warning (never leave students unscheduled)",
+                "limited_max": 4, "individual_cap": 1
+            }
+        ),
+        ConstraintRule(
+            rule_id="RULE_FAIRNESS_OPTIMIZATION",
+            name="Lexicographical Fairness Optimization",
+            description="Prioritizes valid assignments, maximizes full quota completions, minimizes largest remaining student deficits, preventing high-quota students from starving low-quota students.",
+            category="Optimization Strategy",
+            constraint_type="SOFT_CONSTRAINT",
+            enabled=True,
+            priority=2,
+            params={
+                "priority_order": "1. Hard feasibility → 2. Maximize quota fulfillment → 3. Minimize deficit gaps → 4. Preferences & Continuity"
+            }
+        ),
+        ConstraintRule(
+            rule_id="RULE_TRANSACTIONAL_VALIDATION",
+            name="Unified Server-Side Validation & Transactional Commits",
+            description="All manual edits, adds, assignments, and deletions validate the complete schedule state first, recomputing outputs and persisting atomically only if 100% valid.",
+            category="Manual Editing",
+            constraint_type="HARD_CONSTRAINT",
+            enabled=True,
+            priority=1,
+            params={
+                "enforcement_mode": "Strict Server Rejection (HTTP 400 with detail on violation)",
+                "zero_partial_state": True
+            }
+        ),
+        ConstraintRule(
+            rule_id="RULE_FINGERPRINT_INVALIDATION",
+            name="Master Data Fingerprinting & Finalized Schedule Guard",
+            description="Automatically invalidates Draft schedules on master data or config changes. Marks Finalized schedules as stale and requires an explicit re-run.",
+            category="Cache Integrity",
+            constraint_type="HARD_CONSTRAINT",
+            enabled=True,
+            priority=1,
+            params={
+                "algorithm": "SHA-256 State Fingerprint",
+                "finalized_protection": "Mark is_stale = True, require explicit re-run"
+            }
         )
     ]
 

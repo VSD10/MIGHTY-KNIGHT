@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Calendar, X } from 'lucide-react';
-import { applyManualEdit, assignStudentToClass } from '../services/api';
+import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Calendar, X, Download, CheckCircle, ShieldCheck, FileSpreadsheet } from 'lucide-react';
+import { applyManualEdit, assignStudentToClass, getMonthlyMatrixExcelUrl, validateSchedule } from '../services/api';
 
 export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit, scheduleId, onRefreshSchedule }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -11,6 +11,21 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
   const [sortBy, setSortBy] = useState('DATE');
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'board'
   const [dragOverClassId, setDragOverClassId] = useState(null);
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState(null);
+
+  const handleValidateSchedule = async () => {
+    if (!scheduleId) return;
+    try {
+      setValidating(true);
+      const res = await validateSchedule(scheduleId);
+      setValidationResult(res);
+    } catch (err) {
+      console.error("Validation failed:", err);
+    } finally {
+      setValidating(false);
+    }
+  };
 
   if (!adminScheduleData || !adminScheduleData.detailed_classes) {
     return (
@@ -184,6 +199,49 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
               <LayoutGrid size={14} /> Drag & Drop Board
             </button>
           </div>
+
+          {scheduleId && (
+            <a
+              href={getMonthlyMatrixExcelUrl(scheduleId)}
+              download={`Mighty_Knight_Schedule_${minScheduleDate?.substring(0, 7) || 'Monthly'}.xlsx`}
+              className="btn btn-primary"
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#fff',
+                padding: '7px 14px',
+                fontSize: '0.8rem',
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+              }}
+              title="Export full monthly matrix spreadsheet"
+            >
+              <FileSpreadsheet size={15} /> Export Excel
+            </a>
+          )}
+
+          {scheduleId && (
+            <button
+              onClick={handleValidateSchedule}
+              disabled={validating}
+              className="btn btn-secondary"
+              style={{
+                padding: '7px 14px',
+                fontSize: '0.8rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderColor: validationResult?.is_valid ? 'var(--status-success)' : (validationResult ? 'var(--status-danger)' : 'var(--border-color)')
+              }}
+              title="Validate all hard constraints on schedule"
+            >
+              <ShieldCheck size={15} style={{ color: validationResult?.is_valid ? '#10b981' : (validationResult ? '#ef4444' : 'inherit') }} />
+              {validating ? 'Validating...' : (validationResult ? (validationResult.is_valid ? 'Valid (0 Violations)' : `${validationResult.violations_count} Violations`) : 'Validate')}
+            </button>
+          )}
 
           <div style={{ position: 'relative' }}>
             <Search size={16} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />

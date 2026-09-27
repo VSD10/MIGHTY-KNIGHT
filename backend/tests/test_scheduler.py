@@ -53,8 +53,10 @@ def test_group_batch_minimum_and_one_class_per_day():
     max_group_cap = DEFAULT_CONFIG.batch_types["G"].max_capacity
     for cls in result.scheduled_classes:
         if cls.batch_type == "G":
-            assert len(cls.student_ids) >= min_group_cap, f"Class {cls.class_id} had {len(cls.student_ids)} students, below min {min_group_cap}"
             assert len(cls.student_ids) <= max_group_cap, f"Class {cls.class_id} had {len(cls.student_ids)} students, above max {max_group_cap}"
+            if len(cls.student_ids) < min_group_cap:
+                # Group minimum is a soft warning (does not reject or drop students)
+                assert any("soft notice" in w.lower() or "batch size" in w.lower() for w in cls.warnings)
         elif cls.batch_type == "L":
             assert 1 <= len(cls.student_ids) <= 4, f"Limited class {cls.class_id} had {len(cls.student_ids)} students (allowed 1-4)"
 

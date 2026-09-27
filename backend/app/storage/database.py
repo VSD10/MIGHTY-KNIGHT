@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import hashlib
 from typing import Dict, Any, List, Optional
 
 # Local SQLite Database Path inside data/ folder
@@ -171,6 +172,25 @@ def save_master_data_db(
             c.get("monthly_capacity_max", 100),
             json.dumps(c)
         ))
+
+    # Sanitize batches: remove any student IDs that do not exist in the newly uploaded student list
+    new_student_ids = {s["student_id"] for s in students}
+    cursor.execute("SELECT batch_id, data_json FROM batches")
+    rows = cursor.fetchall()
+    for row in rows:
+        try:
+            b = json.loads(row["data_json"])
+            old_s_ids = b.get("student_ids", [])
+            filtered_s_ids = [sid for sid in old_s_ids if sid in new_student_ids]
+            if len(filtered_s_ids) != len(old_s_ids):
+                b["student_ids"] = filtered_s_ids
+                if "students" in b and isinstance(b["students"], list):
+                    b["students"] = [st for st in b["students"] if isinstance(st, dict) and st.get("student_id") in new_student_ids]
+                    b["student_count"] = len(b["students"])
+                cursor.execute("UPDATE batches SET student_ids_json = ?, data_json = ? WHERE batch_id = ?",
+                               (json.dumps(filtered_s_ids), json.dumps(b), row["batch_id"]))
+        except Exception:
+            pass
 
     cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('parsing_errors', ?)", (json.dumps(errors or []),))
     if filename:
@@ -459,13 +479,57 @@ def has_master_data_db(db_path: Optional[str] = None) -> bool:
     conn.close()
     return s_count > 0 and c_count > 0
 
-def save_schedule_db(schedule_dict: Dict[str, Any], db_path: Optional[str] = None):
+def compute_master_data_fingerprint(config_dict: Optional[Dict[str, Any]] = None, db_path: Optional[str] = None) -> str:
     """
-    Saves generated schedule and output views in SQLite schedules table.
-    Also updates latest_schedule_id pointer in active_metadata.
+    Computes a deterministic SHA256 fingerprint representing the entire master data state:
+    students, trainers, batches, and system configuration.
+    Used for schedule cache invalidation and detecting stale finalized schedules.
     """
     target_path = db_path or get_db_path()
     init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT student_id, student_level, batch_type, required_classes FROM students ORDER BY student_id ASC")
+    student_rows = cursor.fetchall()
+    stu_repr = [(r["student_id"], r["student_level"], r["batch_type"], r["required_classes"]) for r in student_rows]
+
+    cursor.execute("SELECT coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max FROM coaches ORDER BY coach_name ASC")
+    coach_rows = cursor.fetchall()
+    coach_repr = [(r["coach_name"], r["levels_handled_json"], r["monthly_capacity_min"], r["monthly_capacity_max"]) for r in coach_rows]
+
+    cursor.execute("SELECT batch_id, level, batch_type, fixed_trainer, schedule_timings, student_ids_json FROM batches ORDER BY batch_id ASC")
+    batch_rows = cursor.fetchall()
+    batch_repr = [(r["batch_id"], r["level"], r["batch_type"], r["fixed_trainer"], r["schedule_timings"], r["student_ids_json"]) for r in batch_rows]
+
+    cfg_val = config_dict
+    if cfg_val is None:
+        cursor.execute("SELECT value FROM active_metadata WHERE key = 'system_config'")
+        cfg_row = cursor.fetchone()
+        cfg_val = json.loads(cfg_row["value"]) if cfg_row else {}
+
+    conn.close()
+
+    raw_payload = json.dumps({
+        "students": stu_repr,
+        "coaches": coach_repr,
+        "batches": batch_repr,
+        "config": cfg_val
+    }, sort_keys=True)
+
+    return hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
+
+def save_schedule_db(schedule_dict: Dict[str, Any], db_path: Optional[str] = None):
+    """
+    Saves generated schedule and output views in SQLite schedules table.
+    Also updates latest_schedule_id pointer and master_data_fingerprint in active_metadata.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+
+    if not schedule_dict.get("master_data_fingerprint"):
+        schedule_dict["master_data_fingerprint"] = compute_master_data_fingerprint(db_path=target_path)
+
     conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("""
@@ -474,7 +538,7 @@ def save_schedule_db(schedule_dict: Dict[str, Any], db_path: Optional[str] = Non
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         schedule_dict["schedule_id"],
-        schedule_dict["status"],
+        schedule_dict.get("status", "Draft"),
         schedule_dict["start_date"],
         schedule_dict["end_date"],
         schedule_dict["total_students_considered"],
@@ -485,6 +549,7 @@ def save_schedule_db(schedule_dict: Dict[str, Any], db_path: Optional[str] = Non
         schedule_dict["created_at"]
     ))
     cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('latest_schedule_id', ?)", (schedule_dict["schedule_id"],))
+    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('latest_schedule_fingerprint', ?)", (schedule_dict["master_data_fingerprint"],))
     conn.commit()
     conn.close()
 

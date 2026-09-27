@@ -293,14 +293,14 @@ export default function BatchesTab({
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Batch Name & ID</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Type</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Level</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Capacity</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Fixed Trainer</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Schedule Timings</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Enrolled Students</th>
-                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center' }}>Actions</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Batch Name & ID</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', minWidth: '110px' }}>Type</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Level</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Capacity</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Fixed Trainer</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Schedule Timings</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Enrolled Students</th>
+                <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center', whiteSpace: 'nowrap' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -321,39 +321,46 @@ export default function BatchesTab({
                       onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                         <div style={{ fontWeight: 800, color: '#fff', fontSize: '0.9rem' }}>{batch.batch_name}</div>
                         <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{batch.batch_id}</div>
                       </td>
 
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                         <span style={{
-                          padding: '3px 8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          whiteSpace: 'nowrap',
+                          padding: '4px 10px',
                           borderRadius: '6px',
                           background: typeBadge.bg,
                           color: typeBadge.color,
                           border: `1px solid ${typeBadge.border}`,
                           fontWeight: 700,
-                          fontSize: '0.725rem'
+                          fontSize: '0.75rem',
+                          letterSpacing: '0.01em',
+                          lineHeight: 1.2
                         }}>
                           {typeBadge.label}
                         </span>
                       </td>
 
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                         <span style={{
                           padding: '3px 9px',
                           borderRadius: '12px',
                           background: 'rgba(255,255,255,0.06)',
                           color: '#e2e8f0',
                           fontSize: '0.75rem',
-                          fontWeight: 600
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap'
                         }}>
                           {batch.level || 'Beginner'}
                         </span>
                       </td>
 
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span style={{
                             fontWeight: 800,
@@ -365,14 +372,15 @@ export default function BatchesTab({
                         </div>
                       </td>
 
-                      <td style={{ padding: '14px 16px' }}>
+                      <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                         <span style={{
                           padding: '4px 10px',
                           borderRadius: '6px',
                           background: batch.fixed_trainer && batch.fixed_trainer !== 'Unassigned' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                           color: batch.fixed_trainer && batch.fixed_trainer !== 'Unassigned' ? '#10b981' : '#f87171',
                           fontWeight: 700,
-                          fontSize: '0.8rem'
+                          fontSize: '0.8rem',
+                          whiteSpace: 'nowrap'
                         }}>
                           {batch.fixed_trainer || 'Unassigned'}
                         </span>

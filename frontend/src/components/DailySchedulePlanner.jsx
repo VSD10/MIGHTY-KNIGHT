@@ -45,6 +45,22 @@ const LEVEL_OPTIONS = [
   'Intermediate'
 ];
 
+const getTimeSlotSortMinutes = (timeSlotStr) => {
+  if (!timeSlotStr || typeof timeSlotStr !== 'string') return 9999;
+  try {
+    const match = timeSlotStr.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+    if (!match) return 9999;
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2] ? parseInt(match[2], 10) : 0;
+    const ampm = match[3].toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  } catch (e) {
+    return 9999;
+  }
+};
+
 export default function DailySchedulePlanner({
   detailedClasses = [],
   scheduleId,
@@ -147,11 +163,12 @@ export default function DailySchedulePlanner({
       );
     }
 
-    // Sort chronologically by time slot
+    // Sort chronologically by time slot from AM to PM, then by coach name
     return list.sort((a, b) => {
-      const aSlot = a.time_slot || '';
-      const bSlot = b.time_slot || '';
-      return aSlot.localeCompare(bSlot);
+      const aMin = getTimeSlotSortMinutes(a.time_slot);
+      const bMin = getTimeSlotSortMinutes(b.time_slot);
+      if (aMin !== bMin) return aMin - bMin;
+      return (a.coach_name || '').localeCompare(b.coach_name || '');
     });
   }, [detailedClasses, selectedDate, coachFilter, searchFilter]);
 
@@ -219,7 +236,7 @@ export default function DailySchedulePlanner({
       if (onRefreshSchedule) onRefreshSchedule();
     } catch (err) {
       console.error('Failed to delete class:', err);
-      showToast('Error deleting class. Please try again.', 'danger');
+      showToast(err.response?.data?.detail || 'Error deleting class. Please try again.', 'danger');
     }
   };
 
@@ -244,7 +261,7 @@ export default function DailySchedulePlanner({
       if (onRefreshSchedule) onRefreshSchedule();
     } catch (err) {
       console.error('Failed to remove student:', err);
-      showToast('Error removing student from class.', 'danger');
+      showToast(err.response?.data?.detail || 'Error removing student from class.', 'danger');
     }
   };
 
@@ -265,7 +282,7 @@ export default function DailySchedulePlanner({
       if (onRefreshSchedule) onRefreshSchedule();
     } catch (err) {
       console.error('Failed to assign student:', err);
-      showToast('Failed to assign student to class.', 'danger');
+      showToast(err.response?.data?.detail || 'Failed to assign student to class.', 'danger');
     }
   };
 

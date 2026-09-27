@@ -1,5 +1,5 @@
-from typing import Optional, Dict
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, Dict, Any
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 class StudentModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -7,7 +7,10 @@ class StudentModel(BaseModel):
     student_id: str = Field(..., description="Unique Student ID")
     student_name: str = Field(..., description="Student Name")
     student_level: str = Field(..., description="Student Level (e.g. Basic 1)")
-    batch_type: str = Field(..., description="Batch Type: G, L, or I")
+    batch_type: str = Field("G", description="Batch Type: G, L, or I")
+    batch: Optional[str] = Field(None, description="Full Batch Name/Identity (e.g. G Beginner1)")
+    mkca_rating: Optional[float] = Field(None, description="MKCA Rating")
+    assigned_batch_id: Optional[str] = Field(None, description="Assigned Master Batch ID")
     region_timezone: Optional[str] = Field("IST", description="Region or Time Zone")
     required_classes: int = Field(..., ge=0, description="Number of required classes")
     
@@ -21,6 +24,29 @@ class StudentModel(BaseModel):
     
     tournament_pref: Optional[str] = Field("No", description="Tournament Preference (Yes/No)")
     additional_comments: Optional[str] = Field("", description="Additional Comments")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_batch_and_level(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            # Infer batch_type and batch
+            raw_batch = values.get("batch") or values.get("batch_type") or "G"
+            raw_batch_str = str(raw_batch).strip()
+            if not values.get("batch") and raw_batch_str:
+                values["batch"] = raw_batch_str
+            
+            # Extract prefix G/L/I
+            prefix = raw_batch_str[:1].upper() if raw_batch_str else "G"
+            if prefix in ["G", "L", "I"]:
+                values["batch_type"] = prefix
+            else:
+                values["batch_type"] = "G"
+        return values
+
+    def get_batch_identity(self) -> str:
+        if self.batch and str(self.batch).strip():
+            return str(self.batch).strip()
+        return f"{self.batch_type} {self.student_level}"
 
     def get_day_preference(self, day_name: str) -> str:
         day_map = {
@@ -42,3 +68,4 @@ class StudentModel(BaseModel):
         if pref in ["not available", "na", "no", "false", "0", "off"]:
             return False
         return True
+

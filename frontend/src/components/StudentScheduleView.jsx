@@ -4,6 +4,22 @@ import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { getStudentIcsUrl } from '../services/api';
 
+const getTimeSlotSortMinutes = (timeSlotStr) => {
+  if (!timeSlotStr || typeof timeSlotStr !== 'string') return 9999;
+  try {
+    const match = timeSlotStr.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+    if (!match) return 9999;
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2] ? parseInt(match[2], 10) : 0;
+    const ampm = match[3].toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return hours * 60 + minutes;
+  } catch (e) {
+    return 9999;
+  }
+};
+
 export default function StudentScheduleView({ studentScheduleData, detailedClasses, scheduleId }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [downloadingId, setDownloadingId] = useState(null);
@@ -64,10 +80,18 @@ export default function StudentScheduleView({ studentScheduleData, detailedClass
       });
     });
 
-    studentSchedules = Object.values(studentMap).map(s => ({
-      ...s,
-      total_sessions: s.sessions.length
-    }));
+    studentSchedules = Object.values(studentMap).map(s => {
+      const sortedSessions = [...s.sessions].sort((a, b) => {
+        const dComp = (a.raw_date || '').localeCompare(b.raw_date || '');
+        if (dComp !== 0) return dComp;
+        return getTimeSlotSortMinutes(a.full_time_slot || a.time) - getTimeSlotSortMinutes(b.full_time_slot || b.time);
+      });
+      return {
+        ...s,
+        sessions: sortedSessions,
+        total_sessions: sortedSessions.length
+      };
+    });
     studentSchedules.sort((a, b) => a.student_name.localeCompare(b.student_name));
   }
 

@@ -124,10 +124,30 @@ def validate_schedule_integrity(
         if c_obj and count > c_obj.monthly_capacity_max:
             violations.append(f"CRITICAL: Coach {c_obj.coach_name} exceeded monthly max capacity ({count}/{c_obj.monthly_capacity_max})")
 
+    # 8. Coach qualification check
+    for cls in result.scheduled_classes:
+        c_obj = coach_map.get(cls.coach_name.strip().lower())
+        if c_obj and not c_obj.can_handle_level(cls.student_level, config):
+            violations.append(f"CRITICAL: Coach {cls.coach_name} not qualified to teach {cls.student_level} in class {cls.class_id}")
+
+    # 9. Sunday operating restrictions check
+    for cls in result.scheduled_classes:
+        if cls.day == "Sunday":
+            _, end_min = parse_slot_range(cls.time_slot)
+            if end_min and end_min > 15 * 60:
+                violations.append(f"CRITICAL: Sunday class {cls.class_id} at {cls.time_slot} ends after 3:00 PM ceiling")
+
+    # 10. Date range check
+    s_dt_str = result.start_date
+    e_dt_str = result.end_date
+    for cls in result.scheduled_classes:
+        if cls.date < s_dt_str or cls.date > e_dt_str:
+            violations.append(f"CRITICAL: Class {cls.class_id} date {cls.date} is outside schedule range {s_dt_str} to {e_dt_str}")
+
     return violations
 
 
-from app.engine.batch_scheduler import run_batch_based_scheduler
+from app.engine.dynamic_scheduler import run_dynamic_scheduler
 
 def run_scheduler(
     students: List[StudentModel],
@@ -139,10 +159,11 @@ def run_scheduler(
 ) -> ScheduleResult:
     """
     Main Mighty Knight scheduling engine:
-    Schedules deterministically based on Master Batches and fixed trainers,
-    eliminating random pooling or ad-hoc coach assignment.
+    Dynamic student-to-class scheduling with qualified trainers selected per session,
+    using existing batches as flexible capacity pools.
+    Deterministic, rule-based, quota-aware scheduling.
     """
-    return run_batch_based_scheduler(
+    res = run_dynamic_scheduler(
         students=students,
         coaches=coaches,
         start_date=start_date,
@@ -150,3 +171,13 @@ def run_scheduler(
         config=config,
         schedule_id=schedule_id
     )
+
+    # Perform integrity verification
+    violations = validate_schedule_integrity(students, coaches, res, config)
+    if violations:
+        print(f"[ENGINE INTEGRITY ALERT] {len(violations)} rule violations detected in run_scheduler:")
+        for v in violations[:5]:
+            print(f"  - {v}")
+
+    return res
+

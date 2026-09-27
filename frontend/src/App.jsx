@@ -191,6 +191,16 @@ export default function App() {
 
   const attentionCount = output3Data?.unscheduled_records?.length || 0;
 
+  const scheduleStats = {
+    totalClasses: output2Data?.detailed_classes?.length || 0,
+    totalCoaches: output2Data?.coach_summaries?.length || (output2Data?.detailed_classes ? new Set(output2Data.detailed_classes.map(c => c.coach_name)).size : 0),
+    totalStudents: output3Data?.total_input_students || masterStudentsList?.length || 0,
+    completedQuota: output3Data?.scheduled_students_count || 0,
+    attentionCount: attentionCount,
+    totalSessions: (output2Data?.detailed_classes || []).reduce((acc, c) => acc + (c.student_ids?.length || 0), 0),
+    hasSchedule: !!currentScheduleId && !!output2Data
+  };
+
   return (
     <div style={{ display: 'flex', gap: '24px', minHeight: '100vh', padding: '24px', maxWidth: '1800px', margin: '0 auto' }}>
       {/* 1. Left Command & Operations Retractable Sidebar */}
@@ -210,7 +220,7 @@ export default function App() {
 
       {/* 2. Main Executive Operations Canvas */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* Top Header & Date Range Selector with Top-Right Upload Action */}
+        {/* Top Header & Date Range Selector with Executive Metrics */}
         <CalendarPicker
           startDate={startDate}
           endDate={endDate}
@@ -218,7 +228,7 @@ export default function App() {
           setEndDate={setEndDate}
           onRunScheduler={handleRunScheduler}
           loading={loading}
-          onUploadClick={() => setIsUploaderOpen(true)}
+          stats={scheduleStats}
         />
 
         {/* Dynamic Canvas Views */}

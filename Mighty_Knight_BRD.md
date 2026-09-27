@@ -189,7 +189,8 @@ Students should normally be grouped according to:
 - Student level
 - Batch type
 - Preferred day
-- Preferred time
+- Preferred tim
+e
 - Required number of classes
 - Applicable scheduling rules
 

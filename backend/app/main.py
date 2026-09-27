@@ -17,12 +17,16 @@ from app.outputs.admin_schedule import format_admin_schedule
 from app.outputs.attention_report import format_attention_report
 from app.outputs.student_schedule import format_student_schedules, generate_student_ics
 from app.utils.time_utils import parse_time_slot_sort_key
+from app.engine.validator import (
+    validate_schedule_state, recompute_schedule_outputs, execute_transactional_mutation
+)
 from app.storage.database import (
     init_db, save_schedule_db, get_schedule_db, get_latest_schedule_db,
     save_master_data_db, load_master_data_db, has_master_data_db,
     save_single_batch_db, delete_single_batch_db, load_master_batches_db, save_all_master_batches_db,
     clear_all_master_data_db, is_master_cleared_db,
     save_system_config_db, load_system_config_db,
+    compute_master_data_fingerprint,
     log_db_status, BASE_DIR
 )
 
@@ -394,20 +398,35 @@ def download_excel_template():
     )
 
 class ScheduleRequest(BaseModel):
-    start_date: str # YYYY-MM-DD
-    end_date: str   # YYYY-MM-DD
+    start_date: Optional[str] = None # YYYY-MM-DD
+    end_date: Optional[str] = None   # YYYY-MM-DD
+    year: Optional[int] = None
+    month: Optional[int] = None
+    random_seed: Optional[int] = 42
 
 @app.post("/api/schedule/run")
+@app.post("/api/schedule/generate")
 def trigger_scheduling_run(req: ScheduleRequest):
     ensure_active_data()
     if not ACTIVE_DATA.get("students") and not ACTIVE_DATA.get("batches"):
         raise HTTPException(status_code=400, detail="No master students or batches exist in Master Data Hub. Please create students and batches first.")
 
-    try:
-        s_date = datetime.strptime(req.start_date, "%Y-%m-%d").date()
-        e_date = datetime.strptime(req.end_date, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    import calendar
+    if req.year and req.month:
+        _, last_day = calendar.monthrange(req.year, req.month)
+        s_date = date(req.year, req.month, 1)
+        e_date = date(req.year, req.month, last_day)
+    elif req.start_date and req.end_date:
+        try:
+            s_date = datetime.strptime(req.start_date, "%Y-%m-%d").date()
+            e_date = datetime.strptime(req.end_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    else:
+        today = date.today()
+        _, last_day = calendar.monthrange(today.year, today.month)
+        s_date = date(today.year, today.month, 1)
+        e_date = date(today.year, today.month, last_day)
 
     if s_date > e_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date.")
@@ -417,6 +436,8 @@ def trigger_scheduling_run(req: ScheduleRequest):
 
     result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
     res_dict = result.model_dump()
+    res_dict["master_data_fingerprint"] = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
+    res_dict["is_stale"] = False
     save_schedule_db(res_dict)
 
     return res_dict
@@ -425,7 +446,10 @@ def trigger_scheduling_run(req: ScheduleRequest):
 def get_active_or_latest_schedule():
     """
     Retrieves the most recent active schedule saved in SQLite for 0-loss state recovery on app launch/refresh.
-    Verifies that the active schedule matches the current master student count in SQLite.
+    Fingerprint invalidation rules:
+    - If master data or config changed and latest schedule is Finalized, marks it as stale with a clear reason
+      and requires an explicit new scheduling run (never silently replaces Finalized schedule).
+    - If latest schedule is Draft (or no schedule exists), automatically regenerates with current master data and config.
     """
     ensure_active_data()
     current_student_count = len(ACTIVE_DATA["students"])
@@ -443,20 +467,59 @@ def get_active_or_latest_schedule():
             "accountability_passed": True
         }
 
+    current_fingerprint = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
     latest = get_latest_schedule_db()
 
-    if not latest or latest.get("total_students_considered") != current_student_count:
-        s_date = date.today()
-        e_date = s_date + timedelta(days=6)
+    needs_regeneration = False
+    if not latest:
+        needs_regeneration = True
+    elif latest.get("master_data_fingerprint") != current_fingerprint:
+        if latest.get("status") == "Finalized":
+            latest["is_stale"] = True
+            latest["stale_reason"] = "Schedule is stale: master data or system configuration has changed since schedule was finalized. Please trigger an explicit new scheduling run."
+            save_schedule_db(latest)
+            return {
+                "schedule_id": latest["schedule_id"],
+                "status": "Finalized",
+                "is_stale": True,
+                "stale_reason": latest["stale_reason"],
+                "start_date": latest.get("start_date", ""),
+                "end_date": latest.get("end_date", ""),
+                "total_students_considered": latest.get("total_students_considered", 0),
+                "successfully_scheduled_students": latest.get("successfully_scheduled_students", 0),
+                "unscheduled_students_count": latest.get("unscheduled_students_count", 0),
+                "accountability_passed": latest.get("accountability_passed", True)
+            }
+        else:
+            needs_regeneration = True
+
+    if needs_regeneration:
+        today = date.today()
+        s_date = date(today.year, today.month, 1)
+        import calendar
+        _, last_day = calendar.monthrange(today.year, today.month)
+        e_date = date(today.year, today.month, last_day)
+
+        if latest and latest.get("start_date") and latest.get("end_date"):
+            try:
+                s_date = datetime.strptime(latest["start_date"], "%Y-%m-%d").date()
+                e_date = datetime.strptime(latest["end_date"], "%Y-%m-%d").date()
+            except Exception:
+                pass
+
         students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
         coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
         result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
         latest = result.model_dump()
+        latest["master_data_fingerprint"] = current_fingerprint
+        latest["is_stale"] = False
         save_schedule_db(latest)
 
     return {
         "schedule_id": latest["schedule_id"],
         "status": latest.get("status", "Draft"),
+        "is_stale": latest.get("is_stale", False),
+        "stale_reason": latest.get("stale_reason", ""),
         "start_date": latest.get("start_date", ""),
         "end_date": latest.get("end_date", ""),
         "total_students_considered": latest.get("total_students_considered", 0),
@@ -521,6 +584,64 @@ def export_individual_coach_excel(schedule_id: str, coach_name: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+from app.outputs.monthly_matrix_excel import generate_monthly_matrix_excel
+
+@app.get("/api/schedule/{schedule_id}/export-monthly-excel")
+def export_monthly_matrix_excel_api(schedule_id: str):
+    """
+    Exports a full monthly Excel schedule following the exact structure of the reference workbook.
+    Dynamically adjusts columns to the exact days of the target month (28, 29, 30, or 31).
+    Validates schedule before export; attaches DRAFT / VALIDATION FAILED banner if any violations occur.
+    """
+    ensure_active_data()
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    result = ScheduleResult(**res_dict)
+    students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
+    coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
+
+    excel_bytes, is_valid, violations = generate_monthly_matrix_excel(
+        result=result,
+        students=students,
+        coaches=coaches,
+        config=CURRENT_CONFIG
+    )
+    s_date_str = result.start_date or "month"
+    filename = f"Mighty_Knight_Schedule_{s_date_str[:7]}.xlsx"
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.get("/api/schedule/{schedule_id}/validate")
+def validate_schedule_endpoint(schedule_id: str):
+    """
+    Authoritative server-side schedule integrity validation.
+    Checks all hard constraints: coach conflicts, student daily uniqueness,
+    batch capacities, coach daily/monthly limits, Sunday 3 PM rule, student quotas.
+    """
+    ensure_active_data()
+    res_dict = get_schedule_db(schedule_id)
+    if not res_dict:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    is_valid, violations = validate_schedule_state(
+        res_dict,
+        ACTIVE_DATA["students"],
+        ACTIVE_DATA["coaches"],
+        CURRENT_CONFIG
+    )
+    return {
+        "schedule_id": schedule_id,
+        "is_valid": is_valid,
+        "status": "Valid" if is_valid else "Validation Failed",
+        "violations_count": len(violations),
+        "violations": violations
+    }
 
 @app.get("/api/schedule/{schedule_id}/coach/{coach_name}/whatsapp")
 def get_individual_coach_whatsapp(schedule_id: str, coach_name: str):
@@ -635,51 +756,43 @@ class ManualOverrideRequest(BaseModel):
 @app.post("/api/schedule/{schedule_id}/validate-override")
 def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
     """
-    Validates manual administrative edit (Section 37) and checks for rule violations before saving.
-    Checks coach overlap, capacity breach, coach capability, Sunday restrictions.
+    Validates manual administrative edit against the complete schedule state.
+    Returns valid boolean and diagnostic list of rule violations.
     """
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    violations = []
-    
-    # Check 1: Coach Overlap at same time
-    for cls in res_dict["scheduled_classes"]:
-        if cls["class_id"] != req.class_id and cls["date"] == req.date and cls["time_slot"] == req.time_slot:
-            if cls["coach_name"].strip().lower() == req.coach_name.strip().lower():
-                violations.append(f"COACH OVERLAP WARNING: Coach '{req.coach_name}' already has a class assigned at {req.time_slot} on {req.date}.")
+    import copy
+    temp_sched = copy.deepcopy(res_dict)
+    target_cls = None
+    for cls in temp_sched["scheduled_classes"]:
+        if cls["class_id"] == req.class_id:
+            target_cls = cls
+            break
 
-    # Check 2: Coach capability check
-    coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
-    target_coach = next((c for c in coaches if c.coach_name.strip().lower() == req.coach_name.strip().lower()), None)
-    if not target_coach:
-        violations.append(f"UNKNOWN COACH: '{req.coach_name}' is not in master coach list.")
-    elif req.student_level:
-        if not target_coach.can_handle_level(req.student_level):
-            violations.append(f"COACH CAPABILITY WARNING: Coach '{req.coach_name}' is not listed as qualified to teach '{req.student_level}'.")
+    if target_cls:
+        target_cls["coach_name"] = req.coach_name.strip()
+        target_cls["date"] = req.date
+        try:
+            d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+            target_cls["day"] = d_obj.strftime("%A")
+        except Exception:
+            pass
+        target_cls["time_slot"] = req.time_slot
+        if req.student_level:
+            target_cls["student_level"] = req.student_level
+        if req.batch_type:
+            target_cls["batch_type"] = req.batch_type
+        if req.student_ids is not None:
+            target_cls["student_ids"] = req.student_ids
 
-    # Check 3: Batch capacity limits
-    if req.batch_type and req.student_ids:
-        cnt = len(req.student_ids)
-        if req.batch_type == "G" and cnt > 10:
-            violations.append(f"BATCH CAPACITY BREACH: Group Batch has {cnt} students (max 10 allowed).")
-        elif req.batch_type == "L" and cnt > 4:
-            violations.append(f"BATCH CAPACITY BREACH: Limited Batch has {cnt} students (max 4 allowed).")
-        elif req.batch_type == "I" and cnt > 1:
-            violations.append(f"BATCH CAPACITY BREACH: Individual Batch has {cnt} students (max 1 allowed).")
-
-    # Check 4: Sunday 3 PM limit
-    try:
-        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
-        if d_obj.strftime("%A") == "Sunday":
-            if any(x in req.time_slot for x in ["03:00 PM", "04:00 PM", "05:00 PM", "06:00 PM"]):
-                violations.append("SUNDAY RESTRICTION WARNING: Sunday classes must normally end by 3:00 PM.")
-    except Exception:
-        pass
-
+    is_valid, violations = validate_schedule_state(
+        temp_sched, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG
+    )
     return {
-        "valid": len(violations) == 0,
+        "valid": is_valid,
         "warnings": violations
     }
 
@@ -687,131 +800,60 @@ def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
 def apply_manual_edit(schedule_id: str, req: ManualOverrideRequest):
     """
     Applies and persists manual administrative edit (Section 37) to the schedule.
-    Updates Output 1 and Output 2 automatically.
+    Enforces transactional execution: mutates temp state, validates 100% of hard constraints,
+    recalculates Output 1 and Output 3, and persists atomically only if valid.
     """
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    target_cls = None
-    for cls in res_dict["scheduled_classes"]:
-        if cls["class_id"] == req.class_id:
-            target_cls = cls
-            break
+    def mutate(temp_sched):
+        target_cls = None
+        for cls in temp_sched["scheduled_classes"]:
+            if cls["class_id"] == req.class_id:
+                target_cls = cls
+                break
 
-    if not target_cls:
-        raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found in schedule")
+        if not target_cls:
+            raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found in schedule")
 
-    # Update class fields
-    target_cls["coach_name"] = req.coach_name.strip()
-    target_cls["date"] = req.date
-    try:
-        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
-        target_cls["day"] = d_obj.strftime("%A")
-    except Exception:
-        pass
-    target_cls["time_slot"] = req.time_slot
-    if req.student_level:
-        target_cls["student_level"] = req.student_level
-    if req.batch_type:
-        target_cls["batch_type"] = req.batch_type
-    
-    if req.student_ids is not None:
-        target_cls["student_ids"] = req.student_ids
-        stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
-        names = [stu_map.get(sid, sid) for sid in req.student_ids]
-        target_cls["student_names"] = names
-        target_cls["students_formatted"] = " · ".join(names)
+        target_cls["coach_name"] = req.coach_name.strip()
+        target_cls["date"] = req.date
+        try:
+            d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+            target_cls["day"] = d_obj.strftime("%A")
+        except Exception:
+            pass
+        target_cls["time_slot"] = req.time_slot
+        if req.student_level:
+            target_cls["student_level"] = req.student_level
+        if req.batch_type:
+            target_cls["batch_type"] = req.batch_type
+        
+        if req.student_ids is not None:
+            target_cls["student_ids"] = req.student_ids
+            stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+            names = [stu_map.get(sid, sid) for sid in req.student_ids]
+            target_cls["student_names"] = names
+            target_cls["students_formatted"] = " · ".join(names)
 
-    target_cls["is_manual_override"] = True
+        target_cls["is_manual_override"] = True
 
-    # Re-calculate Coach Communication Schedule (Output 1)
-    coach_schedule_map = {}
-    for s_cls in res_dict["scheduled_classes"]:
-        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
-        if key not in coach_schedule_map:
-            coach_schedule_map[key] = []
-        if s_cls["coach_name"] not in coach_schedule_map[key]:
-            coach_schedule_map[key].append(s_cls["coach_name"])
-
-    updated_coach_slots = []
-    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
-    for k, coaches_list in sorted_items:
-        dt, dy, ts = k.split("||")
-        updated_coach_slots.append({
-            "date": dt,
-            "day": dy,
-            "time_slot": ts,
-            "coaches": coaches_list
-        })
-
-    res_dict["coach_schedule"] = updated_coach_slots
-
-    # Real-time Sync for Output 3 (Unscheduled / Attention Report)
-    sync_schedule_accountability(res_dict)
-
-    save_schedule_db(res_dict)
-    return {"status": "success", "schedule": res_dict}
+    updated_schedule = execute_transactional_mutation(
+        res_dict, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG, mutate
+    )
+    save_schedule_db(updated_schedule)
+    return {"status": "success", "schedule": updated_schedule}
 
 def sync_schedule_accountability(res_dict: dict):
     """
-    Recalculates Output 3 (Unscheduled / Attention Report) and student accountability
-    in real time whenever Output 2 is manually modified (class deleted or student removed).
-    Guarantees: scheduled_classes + remaining_classes == required_classes for ALL students.
+    Recalculates Output 1 and Output 3 atomically.
+    Kept for backward compatibility; routes directly to recompute_schedule_outputs.
     """
-    students = ACTIVE_DATA.get("students", [])
-    if not students:
-        return
-
-    sch_counts = {s["student_id"]: 0 for s in students}
-    for cls in res_dict.get("scheduled_classes", []):
-        for sid in cls.get("student_ids", []):
-            sch_counts[sid] = sch_counts.get(sid, 0) + 1
-
-    unscheduled_records = []
-    scheduled_count = 0
-    unscheduled_count = 0
-
-    existing_reasons = {r["student_id"]: r.get("failure_reason") for r in res_dict.get("unscheduled_records", [])}
-
-    for s in students:
-        s_id = s["student_id"]
-        req = s.get("required_classes", 8)
-        sch = sch_counts.get(s_id, 0)
-        rem = max(0, req - sch)
-
-        if rem > 0:
-            unscheduled_count += 1
-            reason = existing_reasons.get(s_id) or "Manual removal from class or unassigned remaining classes"
-            pref_days = [f"{d}: {s.get(f'{d[:3].lower()}_pref', 'No Preference')}" for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] if s.get(f"{d[:3].lower()}_pref") != "Not Available"]
-            unscheduled_records.append({
-                "student_id": s_id,
-                "student_name": s["student_name"],
-                "student_level": s["student_level"],
-                "batch_type": s["batch_type"],
-                "preferred_days": ", ".join(pref_days) if pref_days else "Flexible",
-                "preferred_time": s.get("mon_pref") or "Flexible",
-                "required_classes": req,
-                "scheduled_classes": sch,
-                "remaining_classes": rem,
-                "mon_pref": s.get("mon_pref", "No Preference"),
-                "tue_pref": s.get("tue_pref", "No Preference"),
-                "wed_pref": s.get("wed_pref", "No Preference"),
-                "thu_pref": s.get("thu_pref", "No Preference"),
-                "fri_pref": s.get("fri_pref", "No Preference"),
-                "sat_pref": s.get("sat_pref", "No Preference"),
-                "sun_pref": s.get("sun_pref", "No Preference"),
-                "failure_reason": reason,
-                "details": f"Needs {rem} more class(es) to complete requirement"
-            })
-        else:
-            scheduled_count += 1
-
-    res_dict["unscheduled_records"] = unscheduled_records
-    res_dict["unscheduled_students_count"] = unscheduled_count
-    res_dict["successfully_scheduled_students"] = scheduled_count
-    res_dict["total_students_considered"] = len(students)
-    res_dict["accountability_passed"] = (len(students) == scheduled_count + unscheduled_count)
+    recompute_schedule_outputs(
+        res_dict, ACTIVE_DATA.get("students", []), ACTIVE_DATA.get("coaches", []), CURRENT_CONFIG
+    )
 
 class AssignStudentRequest(BaseModel):
     student_id: str
@@ -820,57 +862,33 @@ class AssignStudentRequest(BaseModel):
 @app.post("/api/schedule/{schedule_id}/assign-student")
 def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequest):
     """
-    Drag-and-Drop Unscheduled Resolver: assigns an unscheduled student from Output 3 into a class in Output 2.
-    Updates Output 1, Output 2, and Output 3 atomically.
+    Assigns a student into a class in Output 2.
+    Transactionally validates all hard constraints (daily uniqueness, quota cap, availability,
+    level, and batch capacity) before committing. Updates Output 1, 2, and 3 atomically.
     """
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    target_cls = next((c for c in res_dict["scheduled_classes"] if c["class_id"] == req.class_id), None)
-    if not target_cls:
-        raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found")
+    def mutate(temp_sched):
+        target_cls = next((c for c in temp_sched["scheduled_classes"] if c["class_id"] == req.class_id), None)
+        if not target_cls:
+            raise HTTPException(status_code=404, detail=f"Class ID {req.class_id} not found")
 
-    if req.student_id not in target_cls["student_ids"]:
-        target_cls["student_ids"].append(req.student_id)
-        stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
-        s_name = stu_map.get(req.student_id, req.student_id)
-        target_cls["student_names"].append(s_name)
-        target_cls["students_formatted"] = " · ".join(target_cls["student_names"])
-        target_cls["is_manual_override"] = True
+        if req.student_id not in target_cls["student_ids"]:
+            target_cls["student_ids"].append(req.student_id)
+            stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+            s_name = stu_map.get(req.student_id, req.student_id)
+            target_cls["student_names"].append(s_name)
+            target_cls["students_formatted"] = " · ".join(target_cls["student_names"])
+            target_cls["is_manual_override"] = True
 
-    # Remove from unscheduled_records if present
-    res_dict["unscheduled_records"] = [
-        r for r in res_dict.get("unscheduled_records", []) if r["student_id"] != req.student_id
-    ]
-    res_dict["unscheduled_students_count"] = len(res_dict["unscheduled_records"])
-    res_dict["successfully_scheduled_students"] = max(0, res_dict["total_students_considered"] - res_dict["unscheduled_students_count"])
-    res_dict["accountability_passed"] = (res_dict["total_students_considered"] == res_dict["successfully_scheduled_students"] + res_dict["unscheduled_students_count"])
-
-    # Re-calculate Coach Communication Schedule (Output 1)
-    coach_schedule_map = {}
-    for s_cls in res_dict["scheduled_classes"]:
-        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
-        if key not in coach_schedule_map:
-            coach_schedule_map[key] = []
-        if s_cls["coach_name"] not in coach_schedule_map[key]:
-            coach_schedule_map[key].append(s_cls["coach_name"])
-
-    updated_coach_slots = []
-    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
-    for k, coaches_list in sorted_items:
-        dt, dy, ts = k.split("||")
-        updated_coach_slots.append({
-            "date": dt,
-            "day": dy,
-            "time_slot": ts,
-            "coaches": coaches_list
-        })
-
-    res_dict["coach_schedule"] = updated_coach_slots
-
-    save_schedule_db(res_dict)
-    return {"status": "success", "schedule": res_dict}
+    updated_schedule = execute_transactional_mutation(
+        res_dict, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG, mutate
+    )
+    save_schedule_db(updated_schedule)
+    return {"status": "success", "schedule": updated_schedule}
 
 class CreateClassForStudentRequest(BaseModel):
     student_id: str
@@ -883,73 +901,49 @@ class CreateClassForStudentRequest(BaseModel):
 @app.post("/api/schedule/{schedule_id}/create-class-for-student")
 def create_class_for_unscheduled_student(schedule_id: str, req: CreateClassForStudentRequest):
     """
-    Creates a brand new class assignment in Output 2 for an unscheduled student from Output 3.
-    Instantly updates Output 1, Output 2, Output 3, and Output 4 (Coach Workload) atomically.
+    Creates a brand new class assignment in Output 2 for an unscheduled student.
+    Enforces server-side hard validation before committing.
     """
     import uuid
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
-    s_name = stu_map.get(req.student_id, req.student_id)
-
-    try:
-        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
-        day_name = d_obj.strftime("%A")
-    except Exception:
-        day_name = "Monday"
-
     new_class_id = f"CLS_{uuid.uuid4().hex[:6].upper()}"
-    new_class = {
-        "class_id": new_class_id,
-        "date": req.date,
-        "day": day_name,
-        "time_slot": req.time_slot,
-        "coach_name": req.coach_name.strip(),
-        "student_level": req.student_level or "Basic 1",
-        "batch_type": req.batch_type or "G",
-        "student_ids": [req.student_id],
-        "student_names": [s_name],
-        "students_formatted": f"{s_name} ({req.student_id})",
-        "warnings": ["Manual emergency class assignment created by administrator"],
-        "is_manual_override": True
-    }
 
-    res_dict["scheduled_classes"].append(new_class)
+    def mutate(temp_sched):
+        stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+        s_name = stu_map.get(req.student_id, req.student_id)
 
-    # Remove from unscheduled_records if present
-    res_dict["unscheduled_records"] = [
-        r for r in res_dict.get("unscheduled_records", []) if r["student_id"] != req.student_id
-    ]
-    res_dict["unscheduled_students_count"] = len(res_dict["unscheduled_records"])
-    res_dict["successfully_scheduled_students"] = max(0, res_dict["total_students_considered"] - res_dict["unscheduled_students_count"])
-    res_dict["accountability_passed"] = (res_dict["total_students_considered"] == res_dict["successfully_scheduled_students"] + res_dict["unscheduled_students_count"])
+        try:
+            d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+            day_name = d_obj.strftime("%A")
+        except Exception:
+            day_name = "Monday"
 
-    # Re-calculate Coach Communication Schedule (Output 1)
-    coach_schedule_map = {}
-    for s_cls in res_dict["scheduled_classes"]:
-        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
-        if key not in coach_schedule_map:
-            coach_schedule_map[key] = []
-        if s_cls["coach_name"] not in coach_schedule_map[key]:
-            coach_schedule_map[key].append(s_cls["coach_name"])
+        new_class = {
+            "class_id": new_class_id,
+            "date": req.date,
+            "day": day_name,
+            "time_slot": req.time_slot,
+            "coach_name": req.coach_name.strip(),
+            "student_level": req.student_level or "Basic 1",
+            "batch_type": req.batch_type or "G",
+            "batch_name": f"{req.student_level or 'Basic 1'} - {req.coach_name.strip()}",
+            "student_ids": [req.student_id],
+            "student_names": [s_name],
+            "students_formatted": f"{s_name} ({req.student_id})",
+            "warnings": ["Manual class assignment created by administrator"],
+            "is_manual_override": True
+        }
+        temp_sched["scheduled_classes"].append(new_class)
 
-    updated_coach_slots = []
-    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
-    for k, coaches_list in sorted_items:
-        dt, dy, ts = k.split("||")
-        updated_coach_slots.append({
-            "date": dt,
-            "day": dy,
-            "time_slot": ts,
-            "coaches": coaches_list
-        })
-
-    res_dict["coach_schedule"] = updated_coach_slots
-
-    save_schedule_db(res_dict)
-    return {"status": "success", "schedule": res_dict, "created_class_id": new_class_id}
+    updated_schedule = execute_transactional_mutation(
+        res_dict, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG, mutate
+    )
+    save_schedule_db(updated_schedule)
+    return {"status": "success", "schedule": updated_schedule, "created_class_id": new_class_id}
 
 class CreateClassGeneralRequest(BaseModel):
     coach_name: str
@@ -964,113 +958,75 @@ class CreateClassGeneralRequest(BaseModel):
 def create_custom_schedule_class(schedule_id: str, req: CreateClassGeneralRequest):
     """
     Creates a new custom class on a specific day/slot for detailed daily schedule planning.
-    Instantly updates Output 1, Output 2, Output 3, and SQLite.
+    Transactionally validates that trainer qualification, trainer limits, student limits,
+    availability, and batch capacity are strictly respected.
     """
     import uuid
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    try:
-        d_obj = datetime.strptime(req.date, "%Y-%m-%d")
-        day_name = d_obj.strftime("%A")
-    except Exception:
-        day_name = "Monday"
-
-    stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
-    s_names = [stu_map.get(sid, sid) for sid in (req.student_ids or [])]
-    s_formatted = " · ".join([f"{name} ({sid})" for sid, name in zip(req.student_ids or [], s_names)]) if s_names else "Open / Unassigned"
-
     new_class_id = f"CLS_{uuid.uuid4().hex[:6].upper()}"
-    new_class = {
-        "class_id": new_class_id,
-        "date": req.date,
-        "day": day_name,
-        "time_slot": req.time_slot,
-        "coach_name": req.coach_name.strip(),
-        "student_level": req.student_level or "Basic 1",
-        "batch_type": req.batch_type or "G",
-        "batch_name": req.batch_name or f"{req.student_level or 'Basic 1'} - {req.coach_name.strip()}",
-        "student_ids": req.student_ids or [],
-        "student_names": s_names,
-        "students_formatted": s_formatted,
-        "warnings": ["Manually planned daily class"],
-        "is_manual_override": True
-    }
+    created_class_container = []
 
-    res_dict["scheduled_classes"].append(new_class)
+    def mutate(temp_sched):
+        try:
+            d_obj = datetime.strptime(req.date, "%Y-%m-%d")
+            day_name = d_obj.strftime("%A")
+        except Exception:
+            day_name = "Monday"
 
-    # Re-calculate Coach Communication Schedule (Output 1)
-    coach_schedule_map = {}
-    for s_cls in res_dict["scheduled_classes"]:
-        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
-        if key not in coach_schedule_map:
-            coach_schedule_map[key] = []
-        if s_cls["coach_name"] not in coach_schedule_map[key]:
-            coach_schedule_map[key].append(s_cls["coach_name"])
+        stu_map = {s["student_id"]: s["student_name"] for s in ACTIVE_DATA.get("students", [])}
+        s_names = [stu_map.get(sid, sid) for sid in (req.student_ids or [])]
+        s_formatted = " · ".join([f"{name} ({sid})" for sid, name in zip(req.student_ids or [], s_names)]) if s_names else "Open / Unassigned"
 
-    updated_coach_slots = []
-    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
-    for k, coaches_list in sorted_items:
-        dt, dy, ts = k.split("||")
-        updated_coach_slots.append({
-            "date": dt,
-            "day": dy,
-            "time_slot": ts,
-            "coaches": coaches_list
-        })
+        new_class = {
+            "class_id": new_class_id,
+            "date": req.date,
+            "day": day_name,
+            "time_slot": req.time_slot,
+            "coach_name": req.coach_name.strip(),
+            "student_level": req.student_level or "Basic 1",
+            "batch_type": req.batch_type or "G",
+            "batch_name": req.batch_name or f"{req.student_level or 'Basic 1'} - {req.coach_name.strip()}",
+            "student_ids": req.student_ids or [],
+            "student_names": s_names,
+            "students_formatted": s_formatted,
+            "warnings": ["Manually planned daily class"],
+            "is_manual_override": True
+        }
+        temp_sched["scheduled_classes"].append(new_class)
+        created_class_container.append(new_class)
 
-    res_dict["coach_schedule"] = updated_coach_slots
-
-    # Real-time Sync for Output 3 (Unscheduled / Attention Report)
-    sync_schedule_accountability(res_dict)
-
-    save_schedule_db(res_dict)
-    return {"status": "success", "schedule": res_dict, "created_class": new_class}
+    updated_schedule = execute_transactional_mutation(
+        res_dict, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG, mutate
+    )
+    save_schedule_db(updated_schedule)
+    return {"status": "success", "schedule": updated_schedule, "created_class": created_class_container[0]}
 
 @app.delete("/api/schedule/{schedule_id}/class/{class_id}")
 def delete_class_from_schedule(schedule_id: str, class_id: str):
     """
     Deletes a scheduled class from the schedule.
-    Updates Output 1 and Output 2 automatically.
+    Updates Output 1 and Output 3 accountability automatically in one transaction.
     """
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
-    target_cls = next((c for c in res_dict["scheduled_classes"] if c["class_id"] == class_id), None)
-    if not target_cls:
-        raise HTTPException(status_code=404, detail=f"Class ID {class_id} not found")
+    def mutate(temp_sched):
+        target_cls = next((c for c in temp_sched["scheduled_classes"] if c["class_id"] == class_id), None)
+        if not target_cls:
+            raise HTTPException(status_code=404, detail=f"Class ID {class_id} not found")
+        temp_sched["scheduled_classes"] = [c for c in temp_sched["scheduled_classes"] if c["class_id"] != class_id]
 
-    res_dict["scheduled_classes"] = [c for c in res_dict["scheduled_classes"] if c["class_id"] != class_id]
-
-    # Re-calculate Coach Communication Schedule (Output 1)
-    coach_schedule_map = {}
-    for s_cls in res_dict["scheduled_classes"]:
-        key = f"{s_cls['date']}||{s_cls['day']}||{s_cls['time_slot']}"
-        if key not in coach_schedule_map:
-            coach_schedule_map[key] = []
-        if s_cls["coach_name"] not in coach_schedule_map[key]:
-            coach_schedule_map[key].append(s_cls["coach_name"])
-
-    updated_coach_slots = []
-    sorted_items = sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2]))
-    for k, coaches_list in sorted_items:
-        dt, dy, ts = k.split("||")
-        updated_coach_slots.append({
-            "date": dt,
-            "day": dy,
-            "time_slot": ts,
-            "coaches": coaches_list
-        })
-
-    res_dict["coach_schedule"] = updated_coach_slots
-
-    # Real-time Sync for Output 3 (Unscheduled / Attention Report)
-    sync_schedule_accountability(res_dict)
-
-    save_schedule_db(res_dict)
-    return {"status": "success", "schedule": res_dict}
+    updated_schedule = execute_transactional_mutation(
+        res_dict, ACTIVE_DATA["students"], ACTIVE_DATA["coaches"], CURRENT_CONFIG, mutate
+    )
+    save_schedule_db(updated_schedule)
+    return {"status": "success", "schedule": updated_schedule}
 
 @app.post("/api/master/clear-all")
 @app.delete("/api/master/all")

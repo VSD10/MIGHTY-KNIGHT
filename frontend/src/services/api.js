@@ -102,6 +102,15 @@ export const getDownloadTemplateUrl = () => {
   return `${API_BASE_URL}/download-template`;
 };
 
+export const getMonthlyMatrixExcelUrl = (scheduleId) => {
+  return `${API_BASE_URL}/schedule/${scheduleId}/export-monthly-excel`;
+};
+
+export const validateSchedule = async (scheduleId) => {
+  const res = await api.get(`/schedule/${scheduleId}/validate`);
+  return res.data;
+};
+
 export const getCoachExcelUrl = (scheduleId, coachName) => {
   return `${API_BASE_URL}/schedule/${scheduleId}/coach/${encodeURIComponent(coachName)}/export-excel`;
 };

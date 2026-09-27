@@ -173,9 +173,9 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
     }
   };
 
-  // Filtered Students
+  // Filtered Students (Sorted alphabetically A-Z by student name)
   const filteredStudents = useMemo(() => {
-    return students.filter(s => {
+    const list = students.filter(s => {
       if (studentTypeFilter !== 'ALL' && s.batch_type !== studentTypeFilter) return false;
       if (studentLevelFilter !== 'ALL' && s.student_level !== studentLevelFilter) return false;
       if (studentSearch.trim()) {
@@ -188,6 +188,9 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
       }
       return true;
     });
+
+    // Sort alphabetically by student name
+    return list.sort((a, b) => (a.student_name || '').localeCompare(b.student_name || ''));
   }, [students, studentSearch, studentLevelFilter, studentTypeFilter]);
 
   // Filtered Coaches
@@ -489,6 +492,11 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                 ))}
               </select>
 
+              {/* Student Count Badge (A-Z) */}
+              <span className="badge badge-gold" style={{ fontSize: '0.75rem', padding: '6px 12px', fontWeight: 700 }}>
+                {filteredStudents.length} Students (A–Z)
+              </span>
+
               {/* Add New Student Button */}
               <button
                 onClick={() => {
@@ -567,19 +575,20 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Student Name & ID</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Rating</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Level</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Batch Type</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Req Classes</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Region / TZ</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Assigned Batch</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Weekly Availability</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center' }}>Actions</th>
+                    <th style={{ padding: '14px 12px', fontWeight: 700, color: 'var(--text-secondary)', width: '50px', textAlign: 'center', whiteSpace: 'nowrap' }}>#</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Student Name & ID</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Rating</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Level</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', minWidth: '110px' }}>Batch Type</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Req Classes</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Region / TZ</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Assigned Batch</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Weekly Availability</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center', whiteSpace: 'nowrap' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredStudents.map(student => {
+                  {filteredStudents.map((student, index) => {
                     // Check if student belongs to any batch
                     const assignedBatch = batches.find(b =>
                       (b.student_ids || []).includes(student.student_id) ||
@@ -596,12 +605,31 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                         onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
-                        <td style={{ padding: '14px 16px' }}>
+                        <td style={{ padding: '14px 12px', textAlign: 'center', width: '50px', whiteSpace: 'nowrap' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minWidth: '28px',
+                            height: '24px',
+                            padding: '0 6px',
+                            borderRadius: '6px',
+                            background: 'rgba(255,255,255,0.06)',
+                            color: 'var(--text-muted)',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            fontFamily: 'monospace'
+                          }}>
+                            {index + 1}
+                          </span>
+                        </td>
+
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                           <div style={{ fontWeight: 800, color: '#fff', fontSize: '0.9rem' }}>{student.student_name}</div>
                           <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{student.student_id}</div>
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                           {student.mkca_rating != null && student.mkca_rating !== '' ? (
                             <span style={{
                               padding: '3px 9px',
@@ -611,7 +639,8 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                               fontSize: '0.8rem',
                               fontWeight: 800,
                               fontFamily: 'monospace',
-                              letterSpacing: '0.02em'
+                              letterSpacing: '0.02em',
+                              whiteSpace: 'nowrap'
                             }}>
                               ♟ {student.mkca_rating}
                             </span>
@@ -620,47 +649,54 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
                           )}
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <span style={{ padding: '3px 9px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', fontSize: '0.75rem', fontWeight: 600 }}>
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
+                          <span style={{ padding: '3px 9px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', color: '#e2e8f0', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             {student.student_level || 'Beginner'}
                           </span>
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                           <span style={{
-                            padding: '3px 8px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            whiteSpace: 'nowrap',
+                            padding: '4px 10px',
                             borderRadius: '6px',
                             background: student.batch_type === 'G' ? 'rgba(59, 130, 246, 0.2)' : (student.batch_type === 'L' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(234, 179, 8, 0.2)'),
                             color: student.batch_type === 'G' ? '#60a5fa' : (student.batch_type === 'L' ? '#c084fc' : '#facc15'),
+                            border: `1px solid ${student.batch_type === 'G' ? 'rgba(59, 130, 246, 0.35)' : (student.batch_type === 'L' ? 'rgba(168, 85, 247, 0.35)' : 'rgba(234, 179, 8, 0.35)')}`,
                             fontWeight: 700,
-                            fontSize: '0.725rem'
+                            fontSize: '0.75rem',
+                            letterSpacing: '0.01em',
+                            lineHeight: 1.2
                           }}>
                             {student.batch_type === 'G' ? 'Group (G)' : (student.batch_type === 'L' ? 'Limited (L)' : 'Individual (I)')}
                           </span>
                         </td>
 
-                        <td style={{ padding: '14px 16px', fontWeight: 700, color: '#fff' }}>
+                        <td style={{ padding: '14px 16px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>
                           {student.required_classes ?? 8} / mo
                         </td>
 
-                        <td style={{ padding: '14px 16px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        <td style={{ padding: '14px 16px', color: 'var(--text-secondary)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                           {student.region_timezone || 'IST'}
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
                           {assignedBatch ? (
-                            <span style={{ padding: '3px 8px', borderRadius: '6px', background: 'rgba(234, 179, 8, 0.15)', color: 'var(--accent-gold)', fontWeight: 700, fontSize: '0.75rem' }}>
+                            <span style={{ padding: '3px 8px', borderRadius: '6px', background: 'rgba(234, 179, 8, 0.15)', color: 'var(--accent-gold)', fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                               {assignedBatch.batch_name}
                             </span>
                           ) : (
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic', whiteSpace: 'nowrap' }}>
                               Unassigned
                             </span>
                           )}
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', gap: '3px' }}>
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', gap: '3px', flexWrap: 'nowrap' }}>
                             {days.map((d, dIdx) => {
                               const pref = String(student[dayKeys[dIdx]] || '').toLowerCase();
                               const isOff = ['not available', 'na', 'no', 'false', '0', 'off'].includes(pref);

@@ -40,4 +40,4 @@ def test_accountability_rule_no_silent_drops():
     # Check that S2 (Intermediate) has an explicit failure reason since no Intermediate coach was passed!
     s2_record = next((r for r in result.unscheduled_records if r.student_id == "S2"), None)
     assert s2_record is not None
-    assert "No coach qualified" in s2_record.failure_reason or "No eligible coach" in s2_record.failure_reason
+    assert "No coach qualified" in s2_record.failure_reason or "No eligible coach" in s2_record.failure_reason or "Insufficient compatible trainer capacity" in s2_record.failure_reason

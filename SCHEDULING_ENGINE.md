@@ -1,141 +1,113 @@
 # ♞ Mighty Knight — Scheduling Engine Architecture
 
-## 1. Engine Identification & Overview
+## 1. Engine Overview & Core Principles
 
-The scheduling core of Mighty Knight is a **Priority-Based Constraint Satisfaction Engine** built specifically for complex chess academy logistics. 
+The Mighty Knight scheduler is a **Deterministic Priority-Based Constraint Satisfaction Problem (CSP) Engine** designed for chess academy logistics.
 
-Unlike simple calendar tools or naive random assigners, this engine evaluates multi-dimensional constraints (capabilities, day preferences, time slots, workload caps, and academy policies) to deterministically generate an optimal, conflict-free schedule.
+### Core Architectural Model
+- **Dynamic Student-to-Class Scheduling**: Students are scheduled to class sessions dynamically based on their individual monthly enrolled quotas (`required_classes`, e.g. 16, 8, or 4).
+- **Flexible Capacity Pools**: Master batches serve as **reusable session templates and capacity pools** (defining level, batch type, and recurring weekly time patterns), **not permanently locked student cohorts or fixed trainer ownership**.
+- **Dynamic Qualified Trainer Selection**: Any trainer qualified for the student level who is available and within their daily and monthly workload limits can be selected.
+- **Strict Mathematical Accountability**: Zero students or sessions are lost:
+  $$\text{Required Classes} = \text{Scheduled Classes} + \text{Remaining Deficit}$$
 
 | Attribute | Specification |
 |---|---|
 | **Engine Type** | Deterministic Priority-Based Constraint Satisfaction Problem (CSP) Solver |
 | **Language & Runtime** | Python 3.12 + FastAPI |
-| **Core Modules** | `app.engine.scheduler`, `app.engine.coach_selector`, `app.engine.batch_builder`, `app.engine.accountability` |
-| **Data Integrity Invariant** | `Total Input Students == Scheduled Students + Unscheduled Students` |
-| **Database Storage** | SQLite structured via Pydantic Models (PostgreSQL-ready) |
+| **Core Modules** | `app.engine.dynamic_scheduler`, `app.engine.scheduler`, `app.engine.coach_selector`, `app.engine.validator`, `app.engine.accountability` |
+| **Data Integrity Invariant** | `Total Required Classes == Total Scheduled Classes + Total Unassigned Deficit` |
+| **Persistence Storage** | SQLite (`backend/data/chess_scheduler.db`) with SHA-256 State Fingerprinting |
 
 ---
 
-## 2. Engine Architecture & Component Flow
+## 2. The 5-Stage Scheduling Pipeline
 
 ```
-                             ┌────────────────────────┐
-                             │ Excel Data Ingestion   │
-                             │ (pandas + openpyxl)    │
-                             └───────────┬────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 1: Candidate Session Slot Generation                                       │
+│ • Expands master batches into flexible candidate session slots across the month. │
+│ • Generates fallback candidate slots from operating hours for unmet demand.      │
+│ • Excludes Sunday sessions ending after 3:00 PM (15:00).                         │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
                                          │
                                          ▼
-                             ┌────────────────────────┐
-                             │  ACTIVE_DATA Session   │
-                             │ (Students & Coaches)   │
-                             └───────────┬────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 2: Pass 1 — Strict Weekly Pacing & Fairness Dispatch                       │
+│ • Paces quotas evenly across weeks (~4/wk for 16, ~2/wk for 8, ~1/wk for 4).    │
+│ • Enforces at most 1 class per student per calendar date.                        │
+│ • Prioritizes students with largest relative deficit to prevent starvation.     │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
                                          │
                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      SCHEDULER PIPELINE CONTROLLER                              │
-│                         (app.engine.scheduler)                                  │
-└────────┬───────────────────────────────┬───────────────────────────────┬────────┘
-         │                               │                               │
-         ▼                               ▼                               ▼
-┌─────────────────┐             ┌─────────────────┐             ┌─────────────────┐
-│  Batch Builder  │             │ Coach Selector  │             │ Accountability  │
-│ (batch_builder) │             │(coach_selector) │             │ (accountability)│
-└─────────────────┘             └─────────────────┘             └─────────────────┘
-  • Same Level                    • 5-Step Selection              • Verifies 100%
-  • Same Batch Type               • 7 Hard Constraints             student match
-  • Caps: G (8-10), L(4), I(1)    • Priority Ranking              • Audits errors
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 3: Dynamic Qualified Trainer Selection (Per Session)                       │
+│ • Verifies trainer level qualification against academy priority matrix.          │
+│ • Validates trainer day availability and preferred timing windows.               │
+│ • Enforces single-occupancy (1 coach = 1 class at a time) & daily/monthly caps. │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 4: Pass 2 — Controlled Deficit Catch-up Pass                              │
+│ • Relaxes weekly pacing targets later in the month for students with deficits.   │
+│ • Step 2A: Inserts students into open seats of existing compatible classes.      │
+│ • Step 2B: Schedules supplemental sessions with available qualified trainers.    │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 5: Exact Accountability & Output 3 Diagnosis                               │
+│ • Validates zero-loss invariant for 100% of enrolled students.                   │
+│ • Classifies unassigned sessions into actionable diagnostic root-cause codes.    │
+│ • Computes SHA-256 state fingerprint and persists schedule atomically.           │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. The 5-Step Coach Selection Algorithm (BRD Section 34)
+## 3. Constraint System: Hard Rules vs. Soft Optimization
 
-When a batch of students needs a class on a specific date and time slot, the engine evaluates available coaches using a strict 5-step selection sequence:
+### 3.1 Hard Feasibility Constraints (100% Non-Negotiable)
+These constraints are strictly validated by both the automated scheduler and the pre-commit mutation validator for all manual edits:
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ STEP 1: Level Qualification                                     │
-│ Is the coach listed as qualified for the student's level?       │
-└────────────────────────────────────────┬─────────────────────────┘
-                                         │ YES
-                                         ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ STEP 2: Level-Wise Priority Ranking                              │
-│ Sort qualified coaches according to config priority for level:   │
-│ • Basic 1–2: Guruvanthana -> Dhaanush -> Saravanan...           │
-│ • Intermediate: Prakash -> Saravanan -> Abinaya...              │
-└────────────────────────────────────────┬─────────────────────────┘
-                                         │ RANKED
-                                         ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ STEP 3: Slot Availability & Overlap Guard                       │
-│ Is the coach already assigned to another class at this time?    │
-│ (Enforces 1 Coach = 1 Class Rule)                                │
-└────────────────────────────────────────┬─────────────────────────┘
-                                         │ FREE
-                                         ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ STEP 4: Daily Class Cap Check                                   │
-│ Has the coach reached their daily max class limit?              │
-│ (Mon–Fri max 4, Sat max 5, Sun max 2)                           │
-└────────────────────────────────────────┬─────────────────────────┘
-                                         │ UNDER CAP
-                                         ▼
-┌──────────────────────────────────────────────────────────────────┐
-│ STEP 5: Monthly Capacity Workload Check                          │
-│ Has the coach reached their max monthly target capacity?         │
-└────────────────────────────────────────┬─────────────────────────┘
-                                         │ UNDER CAP
-                                         ▼
-                              🟢 ASSIGN COACH TO CLASS
-```
+1. **Trainer Overlap Guard**: No trainer can teach two classes simultaneously (single occupancy).
+2. **Student Daily Limit**: At most 1 class per student per calendar date (zero same-day duplicates).
+3. **Student Monthly Quota Cap**: A student is never scheduled beyond their enrolled `required_classes`.
+4. **Trainer Level Qualification**: A trainer must be certified to teach the student's level.
+5. **Day Availability**: Both student and trainer must be confirmed available on that calendar day.
+6. **Batch Capacity Ceilings**: Group $\le 10$ students, Limited $\le 4$ students, Individual $= 1$ student.
+7. **Trainer Workload Limits**: Daily class limit per day-of-week and monthly maximum workload hours.
+8. **Sunday Tournament Restrictions**: All Sunday classes must end by 3:00 PM; designated tournament coaches and levels are excluded.
+9. **Unified Server-Side Validation**: All manual planner actions (create, edit, delete, assign) are validated server-side on the entire schedule; violations reject with HTTP 400.
+
+### 3.2 Soft Optimization Targets (Fairness & Preferences)
+These targets are balanced using deterministic scoring without rejecting feasible assignments:
+
+1. **Even Weekly Pacing**: Spreads sessions evenly (~4/wk for 16, ~2/wk for 8, ~1/wk for 4) with controlled late-month relaxation.
+2. **Group Batch Minimum of 4**: Group batches target $\ge 4$ students. If fewer compatible students exist, a soft notice is recorded, but students are **never left unscheduled**.
+3. **Time Slot & Day Preferences**: Favors preferred student and trainer time windows.
+4. **Continuity Scoring**: Soft preference for students who previously trained together or with the template's preferred trainer.
+5. **Trainer Workload Balance**: Distributes sessions across qualified trainers toward their monthly target minimums.
 
 ---
 
-## 4. The 7 Hard Constraint Enforcement Rules (BRD Section 35)
+## 4. Master Data Fingerprinting & Finalized Schedule Guard
 
-The engine strictly validates **7 non-negotiable condition checks** before confirming any class assignment:
-
-1. **Qualification Check**: Coach capability list must include student level.
-2. **Day Availability**: Coach must not be marked off or unavailable on the target date.
-3. **Double-Booking Guard**: A coach cannot teach two classes simultaneously.
-4. **Daily Workload Limit**: Cannot exceed day-specific class cap (`mon_max` to `sun_max`).
-5. **Monthly Workload Limit**: Cannot exceed maximum monthly workload cap (`monthly_capacity_max`).
-6. **Sunday Operating Ceiling**: Sunday classes must finish by **03:00 PM** (unless explicitly overridden).
-7. **Sunday Tournament Exclusion**: If Sunday Preference is `"No Sunday Tournaments"`, coach is excluded from Sunday tournament slots.
+To guarantee that schedules never become silently misaligned with master data:
+1. **SHA-256 Fingerprint**: The system calculates a cryptographic hash over all students, trainers, batches, and system configuration.
+2. **Draft Schedules**: If master data changes, Draft schedules automatically invalidate and re-run on load.
+3. **Finalized Schedules**: Finalized schedules are **never silently overwritten**. If master data changes, the schedule is flagged with `is_stale = True` and a descriptive warning requiring an explicit administrative re-run.
 
 ---
 
-## 5. Batch Building Dynamics (BRD Section 31 & 32)
+## 5. Engine Source Code Reference
 
-Students are grouped into compatible batches before assigning to coaches:
-
-- **Group Batch (`G`)**: Target size 4–10 students. Same level, same batch type.
-- **Limited Batch (`L`)**: Target size 1–4 students.
-- **Individual Batch (`I`)**: Single student (1-on-1 coaching).
-
-If a group batch has fewer than 4 students, the engine schedules the batch but attaches a diagnostic warning flag (*Group batch size below target minimum 4*) for administrative review.
-
----
-
-## 6. Mandatory Accountability Tracker Engine (BRD Section 40)
-
-To guarantee that **zero students are lost or forgotten**, the engine executes a mandatory audit check at the end of every run:
-
-$$\text{Total Input Students} = \text{Successfully Scheduled Students} + \text{Unscheduled Students Count}$$
-
-If a student cannot be assigned a complete schedule:
-1. They are placed in **Output 3 (Unscheduled / Administrator Attention Report)**.
-2. The engine logs the **exact diagnostic reason** (e.g. *No qualified coach available for Basic 1 at 05:00 PM*, *Coach daily cap reached*, *Student marked unavailable*).
-
----
-
-## 7. Engine Source Code Index
-
-| Module Path | Primary Responsibility | Key Functions |
-|---|---|---|
-| [scheduler.py](file:///d:/CODESPACE/chess/backend/app/engine/scheduler.py) | Main pipeline orchestrator | `run_scheduler()` |
-| [coach_selector.py](file:///d:/CODESPACE/chess/backend/app/engine/coach_selector.py) | 5-step coach selection & 7 constraints | `select_coach_for_batch()`, `can_coach_teach_slot()` |
-| [batch_builder.py](file:///d:/CODESPACE/chess/backend/app/engine/batch_builder.py) | Student batching & capacity caps | `group_students_for_slot()`, `BatchGroup` |
-| [accountability.py](file:///d:/CODESPACE/chess/backend/app/engine/accountability.py) | Data integrity audit & math invariant | `audit_student_accountability()` |
-| [time_utils.py](file:///d:/CODESPACE/chess/backend/app/engine/time_utils.py) | Time slot parsing & Sunday rules | `parse_time_slot()`, `is_sunday_afternoon_violation()` |
+| Module Path | Primary Responsibility |
+|---|---|
+| [dynamic_scheduler.py](file:///d:/CODESPACE/chess/backend/app/engine/dynamic_scheduler.py) | Dynamic candidate generation, 2-pass pacing, fairness scoring, and deficit catch-up |
+| [scheduler.py](file:///d:/CODESPACE/chess/backend/app/engine/scheduler.py) | Main pipeline entry point and global schedule integrity validation |
+| [coach_selector.py](file:///d:/CODESPACE/chess/backend/app/engine/coach_selector.py) | Trainer level qualification, slot conflict checks, and workload limits |
+| [validator.py](file:///d:/CODESPACE/chess/backend/app/engine/validator.py) | Authoritative server-side validator for 10 hard constraints and atomic output recomputation |
+| [accountability.py](file:///d:/CODESPACE/chess/backend/app/engine/accountability.py) | Data integrity audit, math invariant verification, and Output 3 diagnostics |
+| [database.py](file:///d:/CODESPACE/chess/backend/app/storage/database.py) | SQLite persistence, master data sanitization, and SHA-256 state fingerprinting |

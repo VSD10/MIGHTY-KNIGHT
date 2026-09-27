@@ -1,7 +1,28 @@
 import React, { useState } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, FileSpreadsheet, Play, Loader2, ChevronUp, ChevronDown } from 'lucide-react';
+import {
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Loader2,
+  ChevronUp,
+  ChevronDown,
+  Layers,
+  CheckCircle,
+  Users,
+  AlertCircle,
+  ShieldCheck
+} from 'lucide-react';
 
-export default function CalendarPicker({ startDate, endDate, setStartDate, setEndDate, onRunScheduler, loading, onUploadClick }) {
+export default function CalendarPicker({
+  startDate,
+  endDate,
+  setStartDate,
+  setEndDate,
+  onRunScheduler,
+  loading,
+  stats
+}) {
   const [isShrunk, setIsShrunk] = useState(false);
 
   // Helper to get month bounds (YYYY-MM-01 to YYYY-MM-lastDay)
@@ -75,7 +96,9 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
           background: 'rgba(15, 23, 42, 0.85)',
           backdropFilter: 'blur(12px)',
           border: '1px solid var(--border-color)',
-          borderRadius: 'var(--radius-lg)'
+          borderRadius: 'var(--radius-lg)',
+          flexWrap: 'wrap',
+          gap: '12px'
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -87,6 +110,30 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
             ({startDate} to {endDate})
           </span>
         </div>
+
+        {/* Shrunk Mini Dashboard Stats */}
+        {stats && stats.hasSchedule && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.775rem' }}>
+            <span style={{ color: 'var(--accent-gold)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Layers size={14} />
+              {stats.totalClasses} Classes
+            </span>
+            <span style={{ color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <CheckCircle size={14} />
+              {stats.completedQuota} / {stats.totalStudents} Quotas Met
+            </span>
+            <span style={{ color: '#60a5fa', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Users size={14} />
+              {stats.totalSessions} Seats
+            </span>
+            {stats.attentionCount > 0 && (
+              <span style={{ color: '#f43f5e', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <AlertCircle size={14} />
+                {stats.attentionCount} Incomplete
+              </span>
+            )}
+          </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {onRunScheduler && (
@@ -108,16 +155,6 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
             </button>
           )}
 
-          {onUploadClick && (
-            <button
-              onClick={onUploadClick}
-              className="btn btn-secondary"
-              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-            >
-              <FileSpreadsheet size={14} /> Upload Excel
-            </button>
-          )}
-
           <button
             onClick={() => setIsShrunk(false)}
             className="btn btn-secondary"
@@ -134,7 +171,9 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
   // FULL EXPANDED VIEW
   return (
     <div className="glass-panel" style={{ padding: '18px 24px', marginBottom: '24px', transition: 'all 0.3s ease' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+      
+      {/* 1. TOP ROW: Month Info Title on Left + Live Dashboard Stats on Right */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '16px' }}>
         
         {/* Left: Monthly Title & Active Date Span */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -154,21 +193,169 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.01em', margin: 0 }}>
                 {currentMonthInfo.monthName} {currentMonthInfo.year} Schedule
               </h3>
               <span className="badge badge-gold" style={{ fontSize: '0.65rem', padding: '2px 8px', fontWeight: 800 }}>
                 Monthly Mode
               </span>
             </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px', marginBottom: 0 }}>
               Scheduling Cycle: <strong style={{ color: 'var(--accent-gold)' }}>{startDate}</strong> &rarr; <strong style={{ color: 'var(--accent-gold)' }}>{endDate}</strong> ({currentMonthInfo.daysCount} Days)
             </p>
           </div>
         </div>
 
-        {/* Right: Month Switcher & Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        {/* Right: Live Schedule Dashboard Stats Cluster */}
+        {stats && stats.hasSchedule && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            
+            {/* Stat 1: Total Classes */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.75)',
+              border: '1px solid rgba(251, 191, 36, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              padding: '7px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: 'rgba(251, 191, 36, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--accent-gold)'
+              }}>
+                <Layers size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#ffffff', lineHeight: 1.1 }}>
+                  {stats.totalClasses}
+                </div>
+                <div style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Total Classes
+                </div>
+              </div>
+            </div>
+
+            {/* Stat 2: Quotas Completed */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.75)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              padding: '7px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: 'rgba(16, 185, 129, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#10b981'
+              }}>
+                <CheckCircle size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
+                  {stats.completedQuota} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>/ {stats.totalStudents}</span>
+                </div>
+                <div style={{ fontSize: '0.625rem', color: '#6ee7b7', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Quotas Completed
+                </div>
+              </div>
+            </div>
+
+            {/* Stat 3: Total Student Sessions / Seats */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.75)',
+              border: '1px solid rgba(59, 130, 246, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              padding: '7px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: 'rgba(59, 130, 246, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#60a5fa'
+              }}>
+                <Users size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#ffffff', lineHeight: 1.1 }}>
+                  {stats.totalSessions}
+                </div>
+                <div style={{ fontSize: '0.625rem', color: '#93c5fd', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Student Seats
+                </div>
+              </div>
+            </div>
+
+            {/* Stat 4: Attention Needed / Deficit */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.75)',
+              border: stats.attentionCount > 0 ? '1px solid rgba(244, 63, 94, 0.35)' : '1px solid rgba(16, 185, 129, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              padding: '7px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
+                background: stats.attentionCount > 0 ? 'rgba(244, 63, 94, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: stats.attentionCount > 0 ? '#f43f5e' : '#10b981'
+              }}>
+                {stats.attentionCount > 0 ? <AlertCircle size={16} /> : <ShieldCheck size={16} />}
+              </div>
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: stats.attentionCount > 0 ? '#f43f5e' : '#10b981', lineHeight: 1.1 }}>
+                  {stats.attentionCount}
+                </div>
+                <div style={{ fontSize: '0.625rem', color: stats.attentionCount > 0 ? '#fda4af' : '#6ee7b7', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {stats.attentionCount > 0 ? 'Need Attention' : 'Zero Deficit'}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+      </div>
+
+      {/* 2. BOTTOM ROW: Month Switcher & Engine Run Controls */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderTop: '1px solid var(--border-color)',
+        paddingTop: '14px',
+        flexWrap: 'wrap',
+        gap: '12px'
+      }}>
+        
+        {/* Left Side: Month Presets & Month Picker */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           
           {/* Quick Month Navigator Bar */}
           <div style={{
@@ -250,8 +437,10 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
               }}
             />
           </div>
+        </div>
 
-          {/* PRIMARY ACTION: Run Monthly Engine */}
+        {/* Right Side: Run Monthly Engine & Shrink (Upload Excel Removed) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {onRunScheduler && (
             <button
               onClick={onRunScheduler}
@@ -276,17 +465,6 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
             </button>
           )}
 
-          {/* SECONDARY ACTION: Upload Excel */}
-          {onUploadClick && (
-            <button
-              onClick={onUploadClick}
-              className="btn btn-secondary"
-              style={{ padding: '8px 14px', fontSize: '0.8rem' }}
-            >
-              <FileSpreadsheet size={16} /> Upload Excel
-            </button>
-          )}
-
           {/* SHRINK / COLLAPSE BUTTON */}
           <button
             onClick={() => setIsShrunk(true)}
@@ -297,6 +475,7 @@ export default function CalendarPicker({ startDate, endDate, setStartDate, setEn
             <ChevronUp size={16} /> Shrink
           </button>
         </div>
+
       </div>
     </div>
   );
