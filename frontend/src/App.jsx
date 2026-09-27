@@ -11,7 +11,7 @@ import MasterDataView from './components/MasterDataView';
 import SettingsView from './components/SettingsView';
 import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
-import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents } from './services/api';
+import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches } from './services/api';
 
 const getCurrentMonthBounds = () => {
   return {
@@ -41,6 +41,7 @@ export default function App() {
   const [output5Data, setOutput5Data] = useState(null);
   const [systemConfig, setSystemConfig] = useState(null);
   const [masterStudentsList, setMasterStudentsList] = useState([]);
+  const [masterBatchesList, setMasterBatchesList] = useState([]);
 
   // Manual edit modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -51,7 +52,17 @@ export default function App() {
     loadInitialActiveSchedule();
     fetchSystemConfig();
     fetchMasterStudentsList();
+    fetchMasterBatchesList();
   }, []);
+
+  const fetchMasterBatchesList = async () => {
+    try {
+      const res = await getMasterBatches();
+      if (res && res.batches) setMasterBatchesList(res.batches);
+    } catch (err) {
+      console.error("Failed to fetch master batches:", err);
+    }
+  };
 
   const fetchMasterStudentsList = async () => {
     try {
@@ -319,6 +330,7 @@ export default function App() {
         onSaveSuccess={handleRefreshCurrentSchedule}
         onRefreshSchedule={handleRefreshCurrentSchedule}
         masterStudents={masterStudentsList}
+        masterBatches={masterBatchesList}
       />
     </div>
   );

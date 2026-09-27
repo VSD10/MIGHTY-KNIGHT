@@ -13,6 +13,16 @@ def get_db_path() -> str:
     env_path = os.environ.get("CHESS_DB_PATH")
     if env_path:
         return os.path.abspath(env_path)
+    # Vercel serverless environment: root filesystem is read-only, copy to /tmp for write access
+    if os.environ.get("VERCEL"):
+        tmp_db = "/tmp/chess_scheduler.db"
+        if not os.path.exists(tmp_db) and os.path.exists(DEFAULT_DB_PATH):
+            import shutil
+            try:
+                shutil.copy2(DEFAULT_DB_PATH, tmp_db)
+            except Exception as e:
+                print("Notice: Could not copy DB to /tmp:", e)
+        return tmp_db
     return DEFAULT_DB_PATH
 
 def log_db_status(context: str, db_path: Optional[str] = None):

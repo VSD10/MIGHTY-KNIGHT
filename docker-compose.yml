@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mighty-knight:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mighty_knight_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist SQLite database and uploaded schedules across container restarts
+      - ./backend/data:/app/backend/data
+    environment:
+      - PORT=8000

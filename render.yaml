@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: mighty-knight-scheduler
+    runtime: docker
+    plan: free
+    region: oregon
+    envVars:
+      - key: PORT
+        value: 8000
+    disk:
+      name: sqlite-data
+      mountPath: /app/backend/data
+      sizeGB: 1

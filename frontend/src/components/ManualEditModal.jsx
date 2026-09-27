@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2, Search, UserCheck } from 'lucide-react';
-import { validateManualOverride, applyManualEdit, deleteClass, getMasterStudents } from '../services/api';
+import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2, Search, UserCheck, Sparkles, Award } from 'lucide-react';
+import { validateManualOverride, applyManualEdit, deleteClass, getMasterStudents, getMasterBatches } from '../services/api';
 import { OFFICIAL_LEVELS } from '../constants/levels';
 
 export default function ManualEditModal({
@@ -11,7 +11,8 @@ export default function ManualEditModal({
   scheduleId,
   onSaveSuccess,
   onRefreshSchedule,
-  masterStudents = []
+  masterStudents = [],
+  masterBatches = []
 }) {
   const [coachName, setCoachName] = useState(targetClass?.coach_name || '');
   const [studentLevel, setStudentLevel] = useState(targetClass?.student_level || 'Basic 1');
@@ -23,8 +24,9 @@ export default function ManualEditModal({
   const [studentIds, setStudentIds] = useState(targetClass?.student_ids || []);
   const [studentNames, setStudentNames] = useState(targetClass?.student_names || []);
 
-  // Master students data & selection
+  // Master students & batches data
   const [allStudents, setAllStudents] = useState(masterStudents);
+  const [allBatches, setAllBatches] = useState(masterBatches);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [studentError, setStudentError] = useState('');
@@ -58,6 +60,21 @@ export default function ManualEditModal({
         .catch(err => console.error("Error loading master students:", err));
     }
   }, [isOpen, masterStudents]);
+
+  // Load master batches if not passed as prop
+  useEffect(() => {
+    if (masterBatches && masterBatches.length > 0) {
+      setAllBatches(masterBatches);
+    } else if (isOpen) {
+      getMasterBatches()
+        .then(res => {
+          if (res && res.batches) {
+            setAllBatches(res.batches);
+          }
+        })
+        .catch(err => console.error("Error loading master batches:", err));
+    }
+  }, [isOpen, masterBatches]);
 
   // Sync state when targetClass or allStudents changes
   useEffect(() => {
@@ -94,17 +111,72 @@ export default function ManualEditModal({
     return allStudents.filter(s => !assignedSet.has(s.student_id));
   }, [allStudents, studentIds]);
 
-  // Filtered by user search term (matches name, id, level, or batch)
-  const filteredStudents = useMemo(() => {
-    if (!studentSearchTerm.trim()) return availableStudents;
+  // Resolve matching batch object from master batches
+  const currentBatchObj = useMemo(() => {
+    if (!targetClass) return null;
+    const bName = (targetClass.batch_name || '').toLowerCase().trim();
+    return allBatches.find(b =>
+      (b.batch_name || '').toLowerCase().trim() === bName ||
+      (b.batch_id || '').toLowerCase().trim() === bName
+    ) || null;
+  }, [allBatches, targetClass]);
+
+  // Enrolled student IDs for this batch
+  const batchEnrolledIds = useMemo(() => {
+    if (!currentBatchObj) return new Set();
+    const ids = currentBatchObj.student_ids || [];
+    return new Set(ids);
+  }, [currentBatchObj]);
+
+  // Group available students into:
+  // 1. Batch Enrolled (highest priority suggestions)
+  // 2. Level Match (matching skill level)
+  // 3. Other Available Students
+  const { suggestedEnrolled, suggestedLevelMatch, otherStudents } = useMemo(() => {
+    const enrolled = [];
+    const levelMatch = [];
+    const others = [];
+
+    const targetLvl = (studentLevel || targetClass?.student_level || '').toLowerCase().trim();
+
+    availableStudents.forEach(stu => {
+      // 1. Is this student explicitly enrolled in this batch?
+      if (batchEnrolledIds.has(stu.student_id) || (stu.batch && currentBatchObj && stu.batch.toLowerCase() === currentBatchObj.batch_name?.toLowerCase())) {
+        enrolled.push(stu);
+      }
+      // 2. Or is student's level matching this class?
+      else if (stu.student_level && stu.student_level.toLowerCase().trim() === targetLvl) {
+        levelMatch.push(stu);
+      }
+      // 3. Otherwise other registered students
+      else {
+        others.push(stu);
+      }
+    });
+
+    return {
+      suggestedEnrolled: enrolled,
+      suggestedLevelMatch: levelMatch,
+      otherStudents: others
+    };
+  }, [availableStudents, batchEnrolledIds, currentBatchObj, studentLevel, targetClass]);
+
+  // Filter lists by search term
+  const filterListByTerm = (list) => {
+    if (!studentSearchTerm.trim()) return list;
     const term = studentSearchTerm.trim().toLowerCase();
-    return availableStudents.filter(s =>
+    return list.filter(s =>
       (s.student_name || '').toLowerCase().includes(term) ||
       (s.student_id || '').toLowerCase().includes(term) ||
       (s.student_level || '').toLowerCase().includes(term) ||
       (s.batch || s.batch_name || '').toLowerCase().includes(term)
     );
-  }, [availableStudents, studentSearchTerm]);
+  };
+
+  const filteredSuggestedEnrolled = useMemo(() => filterListByTerm(suggestedEnrolled), [suggestedEnrolled, studentSearchTerm]);
+  const filteredSuggestedLevelMatch = useMemo(() => filterListByTerm(suggestedLevelMatch), [suggestedLevelMatch, studentSearchTerm]);
+  const filteredOtherStudents = useMemo(() => filterListByTerm(otherStudents), [otherStudents, studentSearchTerm]);
+  const totalFilteredCount = filteredSuggestedEnrolled.length + filteredSuggestedLevelMatch.length + filteredOtherStudents.length;
 
   if (!isOpen || !targetClass) return null;
 
@@ -124,26 +196,25 @@ export default function ManualEditModal({
     setValidated(false);
   };
 
-  const handleAddStudent = () => {
+  // Unified add student logic
+  const addStudentById = (studentId) => {
     setStudentError('');
-    if (!selectedStudentId) {
-      setStudentError('Please select a student from the dropdown list.');
+    if (!studentId) {
+      setStudentError('Please select a student from the dropdown list or suggestions.');
       return;
     }
 
-    // STRICT CHECK: Student must exist in the master student records
-    const foundStudent = allStudents.find(s => s.student_id === selectedStudentId);
+    const foundStudent = allStudents.find(s => s.student_id === studentId);
     if (!foundStudent) {
-      setStudentError(`Selected student '${selectedStudentId}' does not exist in master records. Only registered students can be added.`);
+      setStudentError(`Selected student '${studentId}' does not exist in master records.`);
       return;
     }
 
     if (studentIds.includes(foundStudent.student_id)) {
-      setStudentError(`${foundStudent.student_name} (${foundStudent.student_id}) is already assigned to this batch.`);
+      setStudentError(`${foundStudent.student_name} (${foundStudent.student_id}) is already assigned to this batch session.`);
       return;
     }
 
-    // Capacity checking warning / notice
     const maxCap = batchType === 'I' ? 1 : (batchType === 'L' ? 4 : 10);
     if (studentIds.length >= maxCap) {
       if (!window.confirm(`Notice: Adding another student will exceed the standard ${batchType} capacity (${maxCap} max). Do you want to proceed?`)) {
@@ -157,6 +228,14 @@ export default function ManualEditModal({
     setStudentSearchTerm('');
     setStudentError('');
     setValidated(false);
+  };
+
+  const handleAddStudent = () => {
+    addStudentById(selectedStudentId);
+  };
+
+  const handleAddSuggestedStudent = (stu) => {
+    addStudentById(stu.student_id);
   };
 
   const handleValidate = async () => {
@@ -373,6 +452,106 @@ export default function ManualEditModal({
             )}
           </div>
 
+          {/* SMART BATCH SUGGESTIONS PANEL */}
+          <div
+            style={{
+              marginBottom: '14px',
+              background: 'rgba(234, 179, 8, 0.06)',
+              border: '1px solid rgba(234, 179, 8, 0.25)',
+              borderRadius: 'var(--radius-md)',
+              padding: '12px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={14} style={{ color: 'var(--accent-gold)' }} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-gold)' }}>
+                  Suggested for this Batch ({targetClass.batch_name || targetClass.student_level}):
+                </span>
+                {suggestedEnrolled.length > 0 && (
+                  <span style={{ fontSize: '0.7rem', padding: '2px 7px', borderRadius: '4px', background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', fontWeight: 700 }}>
+                    {suggestedEnrolled.length} Enrolled in Batch
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                Click any student below to immediately add
+              </span>
+            </div>
+
+            {suggestedEnrolled.length === 0 && suggestedLevelMatch.length === 0 ? (
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>
+                ✓ All enrolled students for this batch are already in this session.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {/* 1. Primary: Students Enrolled in this Batch */}
+                {suggestedEnrolled.map(stu => (
+                  <button
+                    key={stu.student_id}
+                    type="button"
+                    onClick={() => handleAddSuggestedStudent(stu)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.4)',
+                      color: '#fff',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.3)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)'}
+                    title={`Click to add ${stu.student_name} (Enrolled in ${targetClass.batch_name})`}
+                  >
+                    <UserPlus size={13} style={{ color: '#34d399' }} />
+                    <span style={{ fontWeight: 700 }}>{stu.student_name}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.675rem' }}>({stu.student_id})</span>
+                    <span style={{ fontSize: '0.65rem', background: 'rgba(16, 185, 129, 0.3)', color: '#34d399', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
+                      Batch
+                    </span>
+                  </button>
+                ))}
+
+                {/* 2. Secondary: Level Matching (Show up to 6 quick chips) */}
+                {suggestedLevelMatch.slice(0, 6).map(stu => (
+                  <button
+                    key={stu.student_id}
+                    type="button"
+                    onClick={() => handleAddSuggestedStudent(stu)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      background: 'rgba(59, 130, 246, 0.12)',
+                      border: '1px solid rgba(59, 130, 246, 0.35)',
+                      color: '#fff',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.25)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)'}
+                    title={`Click to add ${stu.student_name} (Level Match: ${stu.student_level})`}
+                  >
+                    <UserPlus size={13} style={{ color: '#60a5fa' }} />
+                    <span style={{ fontWeight: 700 }}>{stu.student_name}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.675rem' }}>({stu.student_id})</span>
+                    <span style={{ fontSize: '0.65rem', background: 'rgba(59, 130, 246, 0.25)', color: '#93c5fd', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
+                      {stu.student_level}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Add Registered Student Selector */}
           <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -407,7 +586,7 @@ export default function ManualEditModal({
                 />
               </div>
 
-              {/* Master Students Dropdown List */}
+              {/* Master Students Dropdown List Grouped by Batch Suggestion */}
               <select
                 value={selectedStudentId}
                 onChange={e => { setSelectedStudentId(e.target.value); setStudentError(''); }}
@@ -423,15 +602,43 @@ export default function ManualEditModal({
                 }}
               >
                 <option value="">
-                  {filteredStudents.length === 0
+                  {totalFilteredCount === 0
                     ? '-- No matching students available --'
-                    : `-- Select student (${filteredStudents.length} available) --`}
+                    : `-- Select student (${totalFilteredCount} available) --`}
                 </option>
-                {filteredStudents.map(stu => (
-                  <option key={stu.student_id} value={stu.student_id} style={{ color: '#fff', background: '#1e293b' }}>
-                    {stu.student_name} ({stu.student_id}) · {stu.student_level || 'Level'} · Batch: {stu.batch || stu.batch_type || 'G'}
-                  </option>
-                ))}
+
+                {/* 1. Group: Enrolled in this Batch */}
+                {filteredSuggestedEnrolled.length > 0 && (
+                  <optgroup label={`⭐ SUGGESTED: ENROLLED IN THIS BATCH (${filteredSuggestedEnrolled.length})`}>
+                    {filteredSuggestedEnrolled.map(stu => (
+                      <option key={stu.student_id} value={stu.student_id} style={{ color: '#34d399', background: '#1e293b', fontWeight: 700 }}>
+                        ★ {stu.student_name} ({stu.student_id}) · {stu.student_level} · Batch: {targetClass.batch_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {/* 2. Group: Level Match */}
+                {filteredSuggestedLevelMatch.length > 0 && (
+                  <optgroup label={`🎯 LEVEL MATCH: ${studentLevel || targetClass.student_level} (${filteredSuggestedLevelMatch.length})`}>
+                    {filteredSuggestedLevelMatch.map(stu => (
+                      <option key={stu.student_id} value={stu.student_id} style={{ color: '#93c5fd', background: '#1e293b' }}>
+                        {stu.student_name} ({stu.student_id}) · {stu.student_level}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {/* 3. Group: Other Master Students */}
+                {filteredOtherStudents.length > 0 && (
+                  <optgroup label={`OTHER REGISTERED STUDENTS (${filteredOtherStudents.length})`}>
+                    {filteredOtherStudents.map(stu => (
+                      <option key={stu.student_id} value={stu.student_id} style={{ color: '#cbd5e1', background: '#1e293b' }}>
+                        {stu.student_name} ({stu.student_id}) · {stu.student_level || 'Level'} · {stu.batch || stu.batch_type || 'G'}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
 
               {/* Add Student Button */}

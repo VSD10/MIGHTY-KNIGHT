@@ -1067,3 +1067,13 @@ def clear_all_master_data():
         "message": "All master students, coaches, batches, and schedules have been wiped cleanly. Ready for scratch setup."
     }
 
+# ----------------------------------------------------
+# Unified Production Deployment: Serve Built React App
+# ----------------------------------------------------
+from fastapi.staticfiles import StaticFiles
+
+_dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+if os.path.exists(_dist_path):
+    app.mount("/", StaticFiles(directory=_dist_path, html=True), name="static")
+
+
