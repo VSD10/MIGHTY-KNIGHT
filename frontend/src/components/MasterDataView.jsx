@@ -14,7 +14,7 @@ import { OFFICIAL_LEVELS } from '../constants/levels';
 
 const STANDARD_LEVELS = OFFICIAL_LEVELS;
 
-export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
+export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRefreshSchedule }) {
   const [activeSubTab, setActiveSubTab] = useState('batches'); // 'batches' | 'students' | 'coaches'
   const [students, setStudents] = useState([]);
   const [coaches, setCoaches] = useState([]);
@@ -81,6 +81,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
       showNotification(`Saved student ${studentData.student_name} (${studentData.student_id})`);
       setEditingStudent(null);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to save student: ' + err.message);
     }
@@ -95,6 +96,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule }) {
       showNotification(`Deleted student ${studentId}`);
       // Then sync full data from server
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       console.error('Delete failed:', err);
       alert('Failed to delete student: ' + (err?.response?.data?.detail || err.message));

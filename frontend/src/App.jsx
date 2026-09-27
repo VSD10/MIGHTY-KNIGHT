@@ -195,7 +195,7 @@ export default function App() {
     setIsEditModalOpen(true);
   };
 
-  const attentionCount = output3Data?.unscheduled_records?.length || 0;
+  const attentionCount = output3Data?.attention_records?.length ?? output3Data?.unscheduled_records?.length ?? output3Data?.unscheduled_count ?? 0;
 
   const scheduleStats = {
     totalClasses: output2Data?.detailed_classes?.length || 0,
@@ -253,7 +253,7 @@ export default function App() {
               onOpenManualEdit={handleOpenManualEdit}
               coaches={output2Data?.coach_summaries || []}
               masterStudents={masterStudentsList}
-              unscheduledStudents={output3Data?.unscheduled_records || []}
+              unscheduledStudents={output3Data?.attention_records || output3Data?.unscheduled_records || []}
             />
           )}
 
@@ -296,6 +296,7 @@ export default function App() {
             <MasterDataView
               onReRunScheduler={handleRunScheduler}
               onClearSchedule={handleClearOutputs}
+              onRefreshSchedule={handleRefreshCurrentSchedule}
             />
           )}
 

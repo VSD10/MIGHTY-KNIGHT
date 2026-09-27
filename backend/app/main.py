@@ -339,6 +339,17 @@ def save_master_student(req: MasterStudentRequest):
                     b["student_count"] = len(s_ids)
                     save_single_batch_db(b)
 
+    # Synchronize the active schedule in SQLite so newly added students immediately reflect in Output 3
+    latest_sched = get_latest_schedule_db()
+    if latest_sched:
+        recompute_schedule_outputs(
+            latest_sched,
+            ACTIVE_DATA["students"],
+            ACTIVE_DATA.get("coaches", []),
+            CURRENT_CONFIG
+        )
+        save_schedule_db(latest_sched)
+
     return {"status": "success", "student": s_dict}
 
 @app.delete("/api/master/students/{student_id}")
@@ -347,6 +358,18 @@ def delete_master_student(student_id: str):
     ACTIVE_DATA["students"] = [s for s in ACTIVE_DATA["students"] if s["student_id"] != student_id]
     from app.storage.database import delete_single_student_db
     delete_single_student_db(student_id)
+
+    # Synchronize the active schedule in SQLite
+    latest_sched = get_latest_schedule_db()
+    if latest_sched:
+        recompute_schedule_outputs(
+            latest_sched,
+            ACTIVE_DATA["students"],
+            ACTIVE_DATA.get("coaches", []),
+            CURRENT_CONFIG
+        )
+        save_schedule_db(latest_sched)
+
     return {"status": "success", "deleted_student_id": student_id}
 
 class MasterCoachRequest(BaseModel):
@@ -677,17 +700,29 @@ def export_individual_coach_ics(schedule_id: str, coach_name: str):
 
 @app.get("/api/schedule/{schedule_id}/output3")
 def get_output3_attention_report(schedule_id: str):
+    ensure_active_data()
     res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Automatically synchronize accountability with all current master students
+    recompute_schedule_outputs(
+        res_dict,
+        ACTIVE_DATA.get("students", []),
+        ACTIVE_DATA.get("coaches", []),
+        CURRENT_CONFIG
+    )
+    save_schedule_db(res_dict)
+
     res = ScheduleResult(**res_dict)
     attention_rows = format_attention_report(res)
     return {
         "schedule_id": schedule_id,
         "accountability_passed": res.accountability_passed,
         "total_students_considered": res.total_students_considered,
-        "unscheduled_count": res.unscheduled_students_count,
-        "attention_records": attention_rows
+        "unscheduled_count": len(attention_rows),
+        "attention_records": attention_rows,
+        "unscheduled_records": attention_rows
     }
 
 @app.get("/api/schedule/{schedule_id}/output5")
