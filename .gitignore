@@ -28,6 +28,7 @@ htmlcov/
 *.sqlite3
 *.db
 mighty_knight.db
+!backend/data/chess_scheduler.db
 
 # Node / React
 node_modules/
