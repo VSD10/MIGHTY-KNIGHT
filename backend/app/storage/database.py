@@ -221,10 +221,10 @@ def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
         INSERT OR REPLACE INTO students (student_id, student_name, student_level, batch_type, region_timezone, required_classes, data_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
-        s["student_id"],
-        s["student_name"],
-        s["student_level"],
-        s["batch_type"],
+        s.get("student_id", ""),
+        s.get("student_name", ""),
+        s.get("student_level", "Basic 1"),
+        s.get("batch_type", "G"),
         s.get("region_timezone", "IST"),
         s.get("required_classes", 8),
         json.dumps(s)

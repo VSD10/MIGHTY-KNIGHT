@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2, Search, UserCheck, Sparkles, Award } from 'lucide-react';
 import { validateManualOverride, applyManualEdit, deleteClass, getMasterStudents, getMasterBatches } from '../services/api';
 import { OFFICIAL_LEVELS } from '../constants/levels';
+import { trackDeletedClassLocal } from '../utils/storageSync';
 
 export default function ManualEditModal({
   isOpen,
@@ -285,6 +286,7 @@ export default function ManualEditModal({
     if (!window.confirm(`Are you sure you want to remove Class ${targetClass.class_id} (${targetClass.coach_name} - ${targetClass.time_slot}) from Output 2?`)) return;
     setSaving(true);
     try {
+      trackDeletedClassLocal(targetClass.class_id);
       await deleteClass(scheduleId, targetClass.class_id);
       triggerRefresh();
       onClose();
