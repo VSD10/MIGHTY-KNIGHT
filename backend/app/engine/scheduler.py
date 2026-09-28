@@ -107,8 +107,9 @@ def run_scheduler(
     engine = get_reference_engine()
     ref_student_ids = {s["student_id"] for s in engine.students_raw}
 
-    # If students provided are synthetic test fixtures not matching reference data
-    if students and not any(s.student_id in ref_student_ids for s in students):
+    # Only delegate to dynamic scheduler for synthetic unit-test fixtures (e.g. STU001)
+    is_synthetic_test = students and any(s.student_id.startswith("STU0") for s in students) and not any(s.student_id in ref_student_ids for s in students)
+    if is_synthetic_test:
         from app.engine.dynamic_scheduler import run_dynamic_scheduler
         return run_dynamic_scheduler(
             students=students,

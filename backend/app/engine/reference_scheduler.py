@@ -1,4 +1,5 @@
 import os
+import json
 import openpyxl
 import datetime
 import calendar
@@ -36,14 +37,93 @@ class ReferenceScheduleEngine:
         self.is_loaded = False
         self.load_reference()
 
+    def _build_models(self):
+        # Build StudentModel list
+        self.student_models = []
+        for s in self.students_raw:
+            p_days = s.get("recurring_slots", {})
+            self.student_models.append(StudentModel(
+                student_id=s["student_id"],
+                student_name=s["student_name"],
+                student_level=s["student_level"],
+                batch_type=s.get("batch_type", "G"),
+                required_classes=s.get("required_classes", 12),
+                mkca_rating=s.get("mkca_rating"),
+                mon_pref="Available" if "Monday" in p_days else "Not Available",
+                tue_pref="Available" if "Tuesday" in p_days else "Not Available",
+                wed_pref="Available" if "Wednesday" in p_days else "Not Available",
+                thu_pref="Available" if "Thursday" in p_days else "Not Available",
+                fri_pref="Available" if "Friday" in p_days else "Not Available",
+                sat_pref="Available" if "Saturday" in p_days else "Not Available",
+                sun_pref="Available" if "Sunday" in p_days else "Not Available",
+                additional_comments=s.get("additional_comments", "")
+            ))
+
+        # Build CoachModel list
+        self.coach_models = []
+        for c_name in self.coaches_list:
+            self.coach_models.append(CoachModel(
+                coach_name=c_name,
+                levels_handled=OFFICIAL_LEVELS,
+                monthly_capacity_min=0,
+                monthly_capacity_max=200,
+                mon_max=20, tue_max=20, wed_max=20, thu_max=20, fri_max=20, sat_max=20, sun_max=15,
+                sunday_pref="Available",
+                preferred_timings="All Operating Hours"
+            ))
+
     def load_reference(self, custom_path: Optional[str] = None):
         if custom_path:
             self.excel_path = custom_path
-            
-        if not os.path.exists(self.excel_path):
-            print(f"[REFERENCE_ENGINE] File not found: {self.excel_path}")
+
+        # 1. First priority: Check pre-compiled JSON reference (instant & 100% reliable in serverless)
+        candidate_json_paths = [
+            os.path.join(os.path.dirname(__file__), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(BASE_DIR, "backend", "data", "reference_oct_schedule.json"),
+            os.path.join(BASE_DIR, "data", "reference_oct_schedule.json")
+        ]
+
+        for j_path in candidate_json_paths:
+            if j_path and os.path.exists(j_path):
+                try:
+                    with open(j_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.students_raw = data.get("students_raw", [])
+                    self.coaches_list = data.get("coaches_list", [])
+                    self.oct_exact_classes_by_date = defaultdict(list, data.get("oct_exact_classes_by_date", {}))
+                    self.weekday_templates = defaultdict(list, data.get("weekday_templates", {}))
+                    dr = data.get("oct_date_range", ["2026-10-01", "2026-10-31"])
+                    self.oct_date_range = (
+                        datetime.datetime.strptime(dr[0], "%Y-%m-%d").date(),
+                        datetime.datetime.strptime(dr[1], "%Y-%m-%d").date()
+                    )
+                    self._build_models()
+                    self.is_loaded = True
+                    total_cls = sum(len(v) for v in self.oct_exact_classes_by_date.values())
+                    print(f"[REFERENCE_ENGINE] Instantly loaded {len(self.students_raw)} students, {len(self.coaches_list)} coaches, {total_cls} exact October classes from JSON: {j_path}")
+                    return
+                except Exception as e:
+                    print(f"[REFERENCE_ENGINE] Could not load JSON cache: {e}")
+
+        # 2. Second priority: Find Excel file across candidate locations
+        candidate_excel_paths = [
+            self.excel_path,
+            os.path.join(os.path.dirname(__file__), "..", "..", "data", "Oct'26 Schedule_FRESH-1.xlsx"),
+            os.path.join(BASE_DIR, "backend", "data", "Oct'26 Schedule_FRESH-1.xlsx"),
+            os.path.join(BASE_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
+        ]
+
+        target_excel = None
+        for p in candidate_excel_paths:
+            if p and os.path.exists(p):
+                target_excel = p
+                break
+
+        if not target_excel:
+            print(f"[REFERENCE_ENGINE] Reference file not found in any candidate path!")
             return
 
+        self.excel_path = target_excel
         wb = openpyxl.load_workbook(self.excel_path, data_only=True)
         ws = wb.active
 
@@ -200,43 +280,10 @@ class ReferenceScheduleEngine:
                 "is_manual_override": False
             })
 
-        # Build StudentModel list
-        self.student_models = []
-        for s in self.students_raw:
-            # Day preferences
-            p_days = s.get("recurring_slots", {})
-            self.student_models.append(StudentModel(
-                student_id=s["student_id"],
-                student_name=s["student_name"],
-                student_level=s["student_level"],
-                batch_type=s["batch_type"],
-                required_classes=s["required_classes"],
-                mkca_rating=s.get("mkca_rating"),
-                mon_pref="Available" if "Monday" in p_days else "Not Available",
-                tue_pref="Available" if "Tuesday" in p_days else "Not Available",
-                wed_pref="Available" if "Wednesday" in p_days else "Not Available",
-                thu_pref="Available" if "Thursday" in p_days else "Not Available",
-                fri_pref="Available" if "Friday" in p_days else "Not Available",
-                sat_pref="Available" if "Saturday" in p_days else "Not Available",
-                sun_pref="Available" if "Sunday" in p_days else "Not Available",
-                additional_comments=s.get("additional_comments", "")
-            ))
-
-        # Build CoachModel list
-        self.coach_models = []
-        for c_name in self.coaches_list:
-            self.coach_models.append(CoachModel(
-                coach_name=c_name,
-                levels_handled=OFFICIAL_LEVELS,
-                monthly_capacity_min=0,
-                monthly_capacity_max=200,
-                mon_max=20, tue_max=20, wed_max=20, thu_max=20, fri_max=20, sat_max=20, sun_max=15,
-                sunday_pref="Available",
-                preferred_timings="All Operating Hours"
-            ))
-
+        self._build_models()
         self.is_loaded = True
-        print(f"[REFERENCE_ENGINE] Successfully loaded {len(self.students_raw)} students, {len(self.coaches_list)} coaches, {sum(len(v) for v in self.oct_exact_classes_by_date.values())} exact October classes from {self.excel_path}")
+        total_cls = sum(len(v) for v in self.oct_exact_classes_by_date.values())
+        print(f"[REFERENCE_ENGINE] Successfully loaded {len(self.students_raw)} students, {len(self.coaches_list)} coaches, {total_cls} exact October classes from {self.excel_path}")
 
 _ENGINE = None
 
