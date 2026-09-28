@@ -22,15 +22,25 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
     for rec in result.unscheduled_records:
         recommendations = []
 
+        rec_level_clean = (rec.student_level or "").strip().lower()
+        rec_btype_clean = (rec.batch_type or "G").strip().upper()
+        rec_pref_days = (rec.preferred_days or "").lower()
+
         # Find candidate classes in result.scheduled_classes
         for cls in result.scheduled_classes:
-            # Check level match
-            if cls.student_level.strip().lower() != rec.student_level.strip().lower():
-                continue
+            cls_level_clean = (cls.student_level or "").strip().lower()
+            # Check level match (exact or level normalization)
+            if cls_level_clean != rec_level_clean:
+                # Also check normalized core level
+                from app.constants.levels import normalize_batch_to_level
+                cls_norm = normalize_batch_to_level(cls.student_level)[0].lower() if cls.student_level else ""
+                rec_norm = normalize_batch_to_level(rec.student_level)[0].lower() if rec.student_level else ""
+                if not (cls_norm and rec_norm and cls_norm == rec_norm):
+                    continue
             
             # Check batch type match
-            b_type = cls.batch_type.strip().upper()
-            if b_type != rec.batch_type.strip().upper():
+            b_type = (cls.batch_type or "G").strip().upper()
+            if b_type != rec_btype_clean:
                 continue
 
             # Check student is not already in this class
@@ -39,10 +49,14 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
 
             max_cap = batch_max_capacities.get(b_type, 10)
             current_cnt = len(cls.student_ids)
-            c_day_count = coach_daily_counts.get((cls.coach_name.strip().lower(), cls.date), 0)
+            c_day_count = coach_daily_counts.get(((cls.coach_name or "").strip().lower(), cls.date), 0)
 
             # Check day preference match score
-            day_matched = cls.day.lower() in rec.preferred_days.lower() or rec.preferred_days.lower() in ["all", "any", "all days"]
+            day_matched = (
+                cls.day.lower() in rec_pref_days or
+                any(p in rec_pref_days for p in ["all", "any", "all days", "flexible", "recurring", "no preference", ""]) or
+                not rec_pref_days
+            )
             
             is_overtime = current_cnt >= max_cap
 
