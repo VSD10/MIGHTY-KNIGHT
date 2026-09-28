@@ -94,6 +94,26 @@ def ensure_active_data():
     ACTIVE_DATA["filename"] = data.get("last_filename") or ("Master Data" if (ACTIVE_DATA["students"] or ACTIVE_DATA["batches"]) else "Empty (Clean Slate)")
     ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp") or ""
 
+def sync_active_schedule_master_data():
+    """
+    Synchronizes the active schedule in SQLite with current master students, coaches, and config.
+    Updates the master_data_fingerprint so the schedule is never considered stale or regenerated on refresh,
+    and updates Output 1 and Output 3 accountability so all newly added or modified students
+    appear in Output 3 without destroying any classes or manual overrides.
+    """
+    latest_sched = get_latest_schedule_db()
+    if latest_sched:
+        new_fp = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
+        latest_sched["master_data_fingerprint"] = new_fp
+        latest_sched["is_stale"] = False
+        recompute_schedule_outputs(
+            latest_sched,
+            ACTIVE_DATA.get("students", []),
+            ACTIVE_DATA.get("coaches", []),
+            CURRENT_CONFIG
+        )
+        save_schedule_db(latest_sched)
+
 @app.on_event("startup")
 def startup_event():
     ensure_active_data()
@@ -117,6 +137,7 @@ def update_system_config(config_data: Dict[str, Any]):
         new_cfg.sync_to_rules_registry()
         CURRENT_CONFIG = new_cfg
         save_system_config_db(CURRENT_CONFIG.model_dump())
+        sync_active_schedule_master_data()
         return {"status": "success", "config": CURRENT_CONFIG.model_dump()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
@@ -261,6 +282,7 @@ def save_master_batch(req: MasterBatchRequest):
     ACTIVE_DATA["batches"] = [b for b in ACTIVE_DATA.get("batches", []) if b["batch_id"] != req.batch_id]
     ACTIVE_DATA["batches"].append(b_dict)
     save_single_batch_db(b_dict)
+    sync_active_schedule_master_data()
     return {"status": "success", "batch": b_dict}
 
 @app.delete("/api/master/batches/{batch_id:path}")
@@ -268,6 +290,7 @@ def delete_master_batch(batch_id: str):
     ensure_active_data()
     ACTIVE_DATA["batches"] = [b for b in ACTIVE_DATA.get("batches", []) if b["batch_id"] != batch_id]
     delete_single_batch_db(batch_id)
+    sync_active_schedule_master_data()
     return {"status": "success", "deleted_batch_id": batch_id}
 
 @app.post("/api/master/batches/import-dataset")
@@ -340,15 +363,7 @@ def save_master_student(req: MasterStudentRequest):
                     save_single_batch_db(b)
 
     # Synchronize the active schedule in SQLite so newly added students immediately reflect in Output 3
-    latest_sched = get_latest_schedule_db()
-    if latest_sched:
-        recompute_schedule_outputs(
-            latest_sched,
-            ACTIVE_DATA["students"],
-            ACTIVE_DATA.get("coaches", []),
-            CURRENT_CONFIG
-        )
-        save_schedule_db(latest_sched)
+    sync_active_schedule_master_data()
 
     return {"status": "success", "student": s_dict}
 
@@ -360,15 +375,7 @@ def delete_master_student(student_id: str):
     delete_single_student_db(student_id)
 
     # Synchronize the active schedule in SQLite
-    latest_sched = get_latest_schedule_db()
-    if latest_sched:
-        recompute_schedule_outputs(
-            latest_sched,
-            ACTIVE_DATA["students"],
-            ACTIVE_DATA.get("coaches", []),
-            CURRENT_CONFIG
-        )
-        save_schedule_db(latest_sched)
+    sync_active_schedule_master_data()
 
     return {"status": "success", "deleted_student_id": student_id}
 
@@ -398,6 +405,7 @@ def save_master_coach(req: MasterCoachRequest):
     ACTIVE_DATA["coaches"].append(c_dict)
     from app.storage.database import save_single_coach_db
     save_single_coach_db(c_dict)
+    sync_active_schedule_master_data()
     return {"status": "success", "coach": c_dict}
 
 @app.delete("/api/master/coaches/{coach_name}")
@@ -406,6 +414,7 @@ def delete_master_coach(coach_name: str):
     ACTIVE_DATA["coaches"] = [c for c in ACTIVE_DATA["coaches"] if c["coach_name"].strip().lower() != coach_name.strip().lower()]
     from app.storage.database import delete_single_coach_db
     delete_single_coach_db(coach_name)
+    sync_active_schedule_master_data()
     return {"status": "success", "deleted_coach_name": coach_name}
 
 @app.get("/api/download-template")
@@ -492,41 +501,28 @@ def get_active_or_latest_schedule():
     current_fingerprint = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
     latest = get_latest_schedule_db()
 
-    needs_regeneration = False
-    if not latest:
-        needs_regeneration = True
-    elif latest.get("master_data_fingerprint") != current_fingerprint:
-        if latest.get("status") == "Finalized":
-            latest["is_stale"] = True
-            latest["stale_reason"] = "Schedule is stale: master data or system configuration has changed since schedule was finalized. Please trigger an explicit new scheduling run."
-            save_schedule_db(latest)
-            return {
-                "schedule_id": latest["schedule_id"],
-                "status": "Finalized",
-                "is_stale": True,
-                "stale_reason": latest["stale_reason"],
-                "start_date": latest.get("start_date", ""),
-                "end_date": latest.get("end_date", ""),
-                "total_students_considered": latest.get("total_students_considered", 0),
-                "successfully_scheduled_students": latest.get("successfully_scheduled_students", 0),
-                "unscheduled_students_count": latest.get("unscheduled_students_count", 0),
-                "accountability_passed": latest.get("accountability_passed", True)
-            }
-        else:
-            needs_regeneration = True
-
-    if needs_regeneration:
-        # Default to October 2026 reference month
+    if latest:
+        # Schedule already exists! Do NOT wipe classes or regenerate from scratch!
+        if latest.get("master_data_fingerprint") != current_fingerprint:
+            if latest.get("status") == "Finalized":
+                latest["is_stale"] = True
+                latest["stale_reason"] = "Schedule is stale: master data or system configuration has changed since schedule was finalized. Please trigger an explicit new scheduling run."
+                save_schedule_db(latest)
+            else:
+                # Synchronize accountability (Output 1 & 3) without wiping any scheduled classes or overrides!
+                recompute_schedule_outputs(
+                    latest,
+                    ACTIVE_DATA["students"],
+                    ACTIVE_DATA.get("coaches", []),
+                    CURRENT_CONFIG
+                )
+                latest["master_data_fingerprint"] = current_fingerprint
+                latest["is_stale"] = False
+                save_schedule_db(latest)
+    else:
+        # Initial run only when database has 0 schedules
         s_date = date(2026, 10, 1)
         e_date = date(2026, 10, 31)
-
-        if latest and latest.get("start_date") and latest.get("end_date"):
-            try:
-                s_date = datetime.strptime(latest["start_date"], "%Y-%m-%d").date()
-                e_date = datetime.strptime(latest["end_date"], "%Y-%m-%d").date()
-            except Exception:
-                pass
-
         students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
         coaches = [CoachModel(**c) for c in ACTIVE_DATA["coaches"]]
         result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
@@ -720,6 +716,7 @@ def get_output3_attention_report(schedule_id: str):
         "schedule_id": schedule_id,
         "accountability_passed": res.accountability_passed,
         "total_students_considered": res.total_students_considered,
+        "total_input_students": res.total_students_considered,
         "unscheduled_count": len(attention_rows),
         "attention_records": attention_rows,
         "unscheduled_records": attention_rows
