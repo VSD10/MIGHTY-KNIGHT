@@ -193,14 +193,34 @@ export default function App() {
     }
   };
 
-  const handleRefreshCurrentSchedule = async (sId = currentScheduleId) => {
-    if (!sId) return;
+  const handleRefreshCurrentSchedule = async (sId = currentScheduleId, newStudent = null) => {
+    let targetId = sId;
+    if (!targetId) {
+      try {
+        const active = await getActiveSchedule();
+        if (active?.schedule_id) {
+          targetId = active.schedule_id;
+          setCurrentScheduleId(targetId);
+        }
+      } catch (e) {
+        console.warn("Could not resolve active schedule:", e);
+      }
+    }
+
+    if (newStudent) {
+      setMasterStudentsList(prev => [
+        newStudent,
+        ...prev.filter(s => s.student_id !== newStudent.student_id)
+      ]);
+    }
+
+    if (!targetId) return;
     try {
       setLoading(true);
-      const o1 = await getOutput1(sId);
-      const o2 = await getOutput2(sId);
-      const o3 = await getOutput3(sId);
-      const o5 = await getOutput5(sId).catch(() => null);
+      const o1 = await getOutput1(targetId);
+      const o2 = await getOutput2(targetId);
+      const o3 = await getOutput3(targetId);
+      const o5 = await getOutput5(targetId).catch(() => null);
 
       setOutput1Data(o1);
       setOutput2Data(o2);
@@ -322,7 +342,7 @@ export default function App() {
             <MasterDataView
               onReRunScheduler={handleRunScheduler}
               onClearSchedule={handleClearOutputs}
-              onRefreshSchedule={handleRefreshCurrentSchedule}
+              onRefreshSchedule={(newStu) => handleRefreshCurrentSchedule(currentScheduleId, newStu)}
             />
           )}
 

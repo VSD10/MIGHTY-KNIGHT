@@ -44,7 +44,11 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
     try {
       const data = await getMasterData();
       if (data) {
-        setStudents(data.students || []);
+        const localCustom = getCustomStudentsLocal();
+        const studentMap = new Map();
+        (data.students || []).forEach(s => studentMap.set(s.student_id, s));
+        localCustom.forEach(s => studentMap.set(s.student_id, s));
+        setStudents(Array.from(studentMap.values()));
         setCoaches(data.coaches || []);
         setBatches(data.batches || []);
       }
@@ -79,13 +83,20 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
   const handleSaveStudent = async (studentData) => {
     try {
       saveCustomStudentLocal(studentData);
-      await saveMasterStudent(studentData);
-      showNotification(`Saved student ${studentData.student_name} (${studentData.student_id})`);
+      // Optimistically update local students list immediately so UI updates with 0 latency
+      setStudents(prev => {
+        const filtered = prev.filter(s => s.student_id !== studentData.student_id);
+        return [studentData, ...filtered];
+      });
       setEditingStudent(null);
+      showNotification(`Saved student ${studentData.student_name} (${studentData.student_id})`);
+
+      await saveMasterStudent(studentData);
       await fetchMasterData();
-      if (onRefreshSchedule) await onRefreshSchedule();
+      if (onRefreshSchedule) await onRefreshSchedule(studentData);
     } catch (err) {
       alert('Failed to save student: ' + err.message);
+      await fetchMasterData();
     }
   };
 
