@@ -11,6 +11,7 @@ import {
 } from '../services/api';
 import BatchesTab from './BatchesTab';
 import { OFFICIAL_LEVELS } from '../constants/levels';
+import { saveCustomStudentLocal, deleteCustomStudentLocal, clearCustomStorageLocal } from '../utils/storageSync';
 
 const STANDARD_LEVELS = OFFICIAL_LEVELS;
 
@@ -77,6 +78,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
   // ----------------------------------------------------
   const handleSaveStudent = async (studentData) => {
     try {
+      saveCustomStudentLocal(studentData);
       await saveMasterStudent(studentData);
       showNotification(`Saved student ${studentData.student_name} (${studentData.student_id})`);
       setEditingStudent(null);
@@ -90,6 +92,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
   const handleDeleteStudent = async (studentId) => {
     if (!window.confirm(`Delete student ${studentId}? This will also unlink them from any enrolled batches.`)) return;
     try {
+      deleteCustomStudentLocal(studentId);
       await deleteMasterStudent(studentId);
       // Optimistically remove from local state immediately so UI feels instant
       setStudents(prev => prev.filter(s => s.student_id !== studentId));
@@ -160,6 +163,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
     }
     setLoading(true);
     try {
+      clearCustomStorageLocal();
       await clearAllMasterData();
       showNotification('All Master Data cleared! You are starting completely from scratch.');
       await fetchMasterData();

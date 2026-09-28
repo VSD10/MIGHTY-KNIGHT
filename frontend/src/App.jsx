@@ -11,7 +11,8 @@ import MasterDataView from './components/MasterDataView';
 import SettingsView from './components/SettingsView';
 import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
-import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches } from './services/api';
+import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent } from './services/api';
+import { getCustomStudentsLocal } from './utils/storageSync';
 
 const getCurrentMonthBounds = () => {
   return {
@@ -66,7 +67,30 @@ export default function App() {
 
   const fetchMasterStudentsList = async () => {
     try {
-      const res = await getMasterStudents();
+      let res = await getMasterStudents();
+      const serverStudents = res?.students || [];
+
+      // Check if localStorage has custom students missing from the backend (e.g. serverless cold-start)
+      const localCustom = getCustomStudentsLocal();
+      if (localCustom && localCustom.length > 0) {
+        const serverIds = new Set(serverStudents.map(s => s.student_id));
+        let syncedAny = false;
+        for (const s of localCustom) {
+          if (!serverIds.has(s.student_id)) {
+            try {
+              console.log(`[STATE SYNC] Syncing custom student ${s.student_id} to backend...`);
+              await saveMasterStudent(s);
+              syncedAny = true;
+            } catch (syncErr) {
+              console.warn(`Failed to sync student ${s.student_id}:`, syncErr);
+            }
+          }
+        }
+        if (syncedAny) {
+          res = await getMasterStudents();
+        }
+      }
+
       if (res && res.students) setMasterStudentsList(res.students);
     } catch (err) {
       console.error("Failed to fetch master students:", err);
@@ -183,6 +207,8 @@ export default function App() {
       setOutput3Data(o3);
       if (o5) setOutput5Data(o5);
       await fetchActiveFileInfo();
+      await fetchMasterStudentsList();
+      await fetchMasterBatchesList();
     } catch (err) {
       console.error('Failed to refresh schedule outputs:', err);
     } finally {
@@ -200,7 +226,7 @@ export default function App() {
   const scheduleStats = {
     totalClasses: output2Data?.detailed_classes?.length || 0,
     totalCoaches: output2Data?.coach_summaries?.length || (output2Data?.detailed_classes ? new Set(output2Data.detailed_classes.map(c => c.coach_name)).size : 0),
-    totalStudents: output3Data?.total_input_students || masterStudentsList?.length || 0,
+    totalStudents: output3Data?.total_students_considered || output3Data?.total_input_students || masterStudentsList?.length || 0,
     completedQuota: output3Data?.scheduled_students_count || 0,
     attentionCount: attentionCount,
     totalSessions: (output2Data?.detailed_classes || []).reduce((acc, c) => acc + (c.student_ids?.length || 0), 0),

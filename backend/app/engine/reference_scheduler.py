@@ -366,13 +366,47 @@ def generate_reference_schedule(
                 ))
     else:
         # MODE B: Day-Based Recurring Generation for Future Months
+        # Build dynamic recurring templates from active schedule so future months inherit modifications
+        dynamic_weekday_templates = defaultdict(list)
+        try:
+            from app.storage.database import get_latest_schedule_db
+            active_sched = get_latest_schedule_db()
+            if active_sched and active_sched.get("scheduled_classes"):
+                seen_student_days = set()
+                for cls_item in active_sched["scheduled_classes"]:
+                    d_name = cls_item.get("day")
+                    t_slot = cls_item.get("time_slot")
+                    c_name = cls_item.get("coach_name")
+                    b_name = cls_item.get("batch_name", "G Basic1")
+                    s_lvl = cls_item.get("student_level", "Basic 1")
+                    b_typ = cls_item.get("batch_type", "G")
+                    c_sids = cls_item.get("student_ids", [])
+                    c_snames = cls_item.get("student_names", [])
+                    for s_idx, sid in enumerate(c_sids):
+                        s_name = c_snames[s_idx] if s_idx < len(c_snames) else sid
+                        if (sid, d_name) not in seen_student_days:
+                            seen_student_days.add((sid, d_name))
+                            dynamic_weekday_templates[d_name].append({
+                                "student_id": sid,
+                                "student_name": s_name,
+                                "time_slot": t_slot,
+                                "coach_name": c_name,
+                                "batch_name": b_name,
+                                "student_level": s_lvl,
+                                "batch_type": b_typ
+                            })
+        except Exception as e:
+            print(f"[REFERENCE_ENGINE] Error building dynamic weekday template: {e}")
+
+        active_weekday_templates = dynamic_weekday_templates if dynamic_weekday_templates else engine.weekday_templates
+
         # Group students sharing (date, time, trainer)
         for d_obj in target_dates:
             day_name = d_obj.strftime("%A")
             date_str = d_obj.strftime("%Y-%m-%d")
 
             # Look up recurring templates for this weekday
-            entries = engine.weekday_templates.get(day_name, [])
+            entries = active_weekday_templates.get(day_name, [])
             grouped = defaultdict(lambda: {
                 "student_ids": [],
                 "student_names": [],
