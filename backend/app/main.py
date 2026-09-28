@@ -371,8 +371,28 @@ def save_master_student(req: MasterStudentRequest):
 def delete_master_student(student_id: str):
     ensure_active_data()
     ACTIVE_DATA["students"] = [s for s in ACTIVE_DATA["students"] if s["student_id"] != student_id]
+    
+    # Cascade unlink from in-memory batches
+    for b in ACTIVE_DATA.get("batches", []):
+        s_ids = b.get("student_ids", [])
+        if student_id in s_ids:
+            b["student_ids"] = [sid for sid in s_ids if sid != student_id]
+            b["students"] = [s for s in b.get("students", []) if s.get("student_id") != student_id]
+            b["student_count"] = len(b["students"])
+
     from app.storage.database import delete_single_student_db
     delete_single_student_db(student_id)
+
+    # Remove student from any scheduled classes in the latest active schedule
+    latest_sched = get_latest_schedule_db()
+    if latest_sched:
+        modified_sched = False
+        for cls in latest_sched.get("scheduled_classes", []):
+            if student_id in cls.get("student_ids", []):
+                cls["student_ids"] = [sid for sid in cls["student_ids"] if sid != student_id]
+                modified_sched = True
+        if modified_sched:
+            save_schedule_db(latest_sched)
 
     # Synchronize the active schedule in SQLite
     sync_active_schedule_master_data()

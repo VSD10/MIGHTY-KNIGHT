@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView';
 import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
 import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent } from './services/api';
-import { getCustomStudentsLocal } from './utils/storageSync';
+import { getCustomStudentsLocal, getDeletedStudentsLocal, getDeletedClassesLocal, trackDeletedClassLocal } from './utils/storageSync';
 
 const getCurrentMonthBounds = () => {
   return {
@@ -56,6 +56,42 @@ export default function App() {
     fetchMasterBatchesList();
   }, []);
 
+  // Filters to guarantee deleted classes and deleted students stay deleted even across serverless cold starts
+  const filterDeletedClasses = (o2) => {
+    if (!o2 || !o2.detailed_classes) return o2;
+    const deleted = new Set(getDeletedClassesLocal());
+    if (deleted.size === 0) return o2;
+    return {
+      ...o2,
+      detailed_classes: o2.detailed_classes.filter(c => !deleted.has(c.class_id))
+    };
+  };
+
+  const filterDeletedFromOutput3 = (o3) => {
+    if (!o3) return o3;
+    const deleted = new Set(getDeletedStudentsLocal());
+    if (deleted.size === 0) return o3;
+    const filteredRecords = (o3.attention_records || []).filter(r => !deleted.has(r.student_id));
+    const filteredUnscheduled = (o3.unscheduled_records || []).filter(r => !deleted.has(r.student_id));
+    return {
+      ...o3,
+      attention_records: filteredRecords,
+      unscheduled_records: filteredUnscheduled,
+      unscheduled_count: filteredRecords.length
+    };
+  };
+
+  const handleDeleteClassOptimistic = (classId) => {
+    trackDeletedClassLocal(classId);
+    setOutput2Data(prev => {
+      if (!prev || !prev.detailed_classes) return prev;
+      return {
+        ...prev,
+        detailed_classes: prev.detailed_classes.filter(c => c.class_id !== classId)
+      };
+    });
+  };
+
   const fetchMasterBatchesList = async () => {
     try {
       const res = await getMasterBatches();
@@ -69,14 +105,15 @@ export default function App() {
     try {
       let res = await getMasterStudents();
       const serverStudents = res?.students || [];
+      const deletedIds = new Set(getDeletedStudentsLocal());
 
       // Check if localStorage has custom students missing from the backend (e.g. serverless cold-start)
-      const localCustom = getCustomStudentsLocal();
+      const localCustom = getCustomStudentsLocal().filter(s => !deletedIds.has(s.student_id));
       if (localCustom && localCustom.length > 0) {
         const serverIds = new Set(serverStudents.map(s => s.student_id));
         let syncedAny = false;
         for (const s of localCustom) {
-          if (!serverIds.has(s.student_id)) {
+          if (!serverIds.has(s.student_id) && !deletedIds.has(s.student_id)) {
             try {
               console.log(`[STATE SYNC] Syncing custom student ${s.student_id} to backend...`);
               await saveMasterStudent(s);
@@ -91,7 +128,9 @@ export default function App() {
         }
       }
 
-      if (res && res.students) setMasterStudentsList(res.students);
+      if (res && res.students) {
+        setMasterStudentsList(res.students.filter(s => !deletedIds.has(s.student_id)));
+      }
     } catch (err) {
       console.error("Failed to fetch master students:", err);
     }
@@ -143,8 +182,8 @@ export default function App() {
         const o5 = await getOutput5(sId).catch(() => null);
 
         setOutput1Data(o1);
-        setOutput2Data(o2);
-        setOutput3Data(o3);
+        setOutput2Data(filterDeletedClasses(o2));
+        setOutput3Data(filterDeletedFromOutput3(o3));
         if (o5) setOutput5Data(o5);
       } else {
         handleClearOutputs();
@@ -171,8 +210,8 @@ export default function App() {
       const o5 = await getOutput5(sId).catch(() => null);
 
       setOutput1Data(o1);
-      setOutput2Data(o2);
-      setOutput3Data(o3);
+      setOutput2Data(filterDeletedClasses(o2));
+      setOutput3Data(filterDeletedFromOutput3(o3));
       if (o5) setOutput5Data(o5);
       await fetchActiveFileInfo();
     } catch (err) {
@@ -208,10 +247,13 @@ export default function App() {
     }
 
     if (newStudent) {
-      setMasterStudentsList(prev => [
-        newStudent,
-        ...prev.filter(s => s.student_id !== newStudent.student_id)
-      ]);
+      const deletedIds = new Set(getDeletedStudentsLocal());
+      if (!deletedIds.has(newStudent.student_id)) {
+        setMasterStudentsList(prev => [
+          newStudent,
+          ...prev.filter(s => s.student_id !== newStudent.student_id)
+        ]);
+      }
     }
 
     if (!targetId) return;
@@ -223,8 +265,8 @@ export default function App() {
       const o5 = await getOutput5(targetId).catch(() => null);
 
       setOutput1Data(o1);
-      setOutput2Data(o2);
-      setOutput3Data(o3);
+      setOutput2Data(filterDeletedClasses(o2));
+      setOutput3Data(filterDeletedFromOutput3(o3));
       if (o5) setOutput5Data(o5);
       await fetchActiveFileInfo();
       await fetchMasterStudentsList();
@@ -297,6 +339,7 @@ export default function App() {
               endDate={endDate}
               onRefreshSchedule={handleRefreshCurrentSchedule}
               onOpenManualEdit={handleOpenManualEdit}
+              onDeleteClassOptimistic={handleDeleteClassOptimistic}
               coaches={output2Data?.coach_summaries || []}
               masterStudents={masterStudentsList}
               unscheduledStudents={output3Data?.attention_records || output3Data?.unscheduled_records || []}

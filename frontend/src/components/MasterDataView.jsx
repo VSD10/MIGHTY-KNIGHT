@@ -11,7 +11,14 @@ import {
 } from '../services/api';
 import BatchesTab from './BatchesTab';
 import { OFFICIAL_LEVELS } from '../constants/levels';
-import { saveCustomStudentLocal, deleteCustomStudentLocal, clearCustomStorageLocal } from '../utils/storageSync';
+import {
+  saveCustomStudentLocal,
+  deleteCustomStudentLocal,
+  clearCustomStorageLocal,
+  getCustomStudentsLocal,
+  trackDeletedStudentLocal,
+  getDeletedStudentsLocal
+} from '../utils/storageSync';
 
 const STANDARD_LEVELS = OFFICIAL_LEVELS;
 
@@ -44,9 +51,14 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
     try {
       const data = await getMasterData();
       if (data) {
-        const localCustom = getCustomStudentsLocal();
+        const deletedIds = new Set(getDeletedStudentsLocal());
+        const localCustom = getCustomStudentsLocal().filter(s => !deletedIds.has(s.student_id));
         const studentMap = new Map();
-        (data.students || []).forEach(s => studentMap.set(s.student_id, s));
+        (data.students || []).forEach(s => {
+          if (!deletedIds.has(s.student_id)) {
+            studentMap.set(s.student_id, s);
+          }
+        });
         localCustom.forEach(s => studentMap.set(s.student_id, s));
         setStudents(Array.from(studentMap.values()));
         setCoaches(data.coaches || []);
@@ -103,18 +115,19 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
   const handleDeleteStudent = async (studentId) => {
     if (!window.confirm(`Delete student ${studentId}? This will also unlink them from any enrolled batches.`)) return;
     try {
+      trackDeletedStudentLocal(studentId);
       deleteCustomStudentLocal(studentId);
-      await deleteMasterStudent(studentId);
       // Optimistically remove from local state immediately so UI feels instant
       setStudents(prev => prev.filter(s => s.student_id !== studentId));
       showNotification(`Deleted student ${studentId}`);
-      // Then sync full data from server
+      // Send delete to server
+      await deleteMasterStudent(studentId);
+      // Re-sync full data from server
       await fetchMasterData();
       if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       console.error('Delete failed:', err);
-      alert('Failed to delete student: ' + (err?.response?.data?.detail || err.message));
-      // Re-sync in case of partial failure
+      // Keep student removed locally even if server returns an error
       await fetchMasterData();
     }
   };

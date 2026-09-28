@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { deleteClass, applyManualEdit, createScheduleClass, assignStudentToClass } from '../services/api';
 import { OFFICIAL_LEVELS, FILTER_LEVEL_OPTIONS } from '../constants/levels';
+import { trackDeletedClassLocal, getDeletedClassesLocal } from '../utils/storageSync';
 
 const TIME_SLOT_PRESETS = [
   '06:00 AM - 07:00 AM',
@@ -59,10 +60,20 @@ export default function DailySchedulePlanner({
   endDate,
   onRefreshSchedule,
   onOpenManualEdit,
+  onDeleteClassOptimistic,
   coaches = [],
   masterStudents = [],
   unscheduledStudents = []
 }) {
+  // Local state for instant optimistic class removals (0ms latency UI updates)
+  const [optimisticDeletedClassIds, setOptimisticDeletedClassIds] = useState(new Set());
+
+  // Active classes excluding deleted ones (both in-memory optimistic and localStorage persistent)
+  const activeDetailedClasses = useMemo(() => {
+    const deletedStored = new Set(getDeletedClassesLocal());
+    return (detailedClasses || []).filter(cls => !deletedStored.has(cls.class_id) && !optimisticDeletedClassIds.has(cls.class_id));
+  }, [detailedClasses, optimisticDeletedClassIds]);
+
   // Determine all calendar dates in the active month
   const monthDays = useMemo(() => {
     if (!startDate || !endDate) return [];
@@ -131,17 +142,17 @@ export default function DailySchedulePlanner({
   // Map of classes count per date for the ribbon badges
   const classesPerDate = useMemo(() => {
     const map = {};
-    (detailedClasses || []).forEach(cls => {
+    activeDetailedClasses.forEach(cls => {
       if (cls.date) {
         map[cls.date] = (map[cls.date] || 0) + 1;
       }
     });
     return map;
-  }, [detailedClasses]);
+  }, [activeDetailedClasses]);
 
   // Filter classes for the currently selected date
   const classesForSelectedDay = useMemo(() => {
-    let list = (detailedClasses || []).filter(cls => cls.date === selectedDate);
+    let list = activeDetailedClasses.filter(cls => cls.date === selectedDate);
     
     if (coachFilter !== 'All') {
       list = list.filter(cls => cls.coach_name?.toLowerCase() === coachFilter.toLowerCase());
@@ -166,7 +177,7 @@ export default function DailySchedulePlanner({
       if (aMin !== bMin) return aMin - bMin;
       return (a.coach_name || '').localeCompare(b.coach_name || '');
     });
-  }, [detailedClasses, selectedDate, coachFilter, searchFilter]);
+  }, [activeDetailedClasses, selectedDate, coachFilter, searchFilter]);
 
   // Selected date info
   const selectedDayInfo = useMemo(() => {
@@ -186,11 +197,11 @@ export default function DailySchedulePlanner({
   const availableCoaches = useMemo(() => {
     if (coaches && coaches.length > 0) return coaches;
     const set = new Set();
-    (detailedClasses || []).forEach(cls => {
+    activeDetailedClasses.forEach(cls => {
       if (cls.coach_name) set.add(cls.coach_name);
     });
     return Array.from(set).map(name => ({ coach_name: name }));
-  }, [coaches, detailedClasses]);
+  }, [coaches, activeDetailedClasses]);
 
   // Handle Quick Day Navigation
   const handlePrevDay = () => {
@@ -222,17 +233,36 @@ export default function DailySchedulePlanner({
 
   // Delete a class directly from this day
   const handleDeleteClass = async (cls) => {
-    if (!scheduleId) return;
+    if (!cls?.class_id) return;
     const confirmMsg = `Cancel and delete class on ${cls.date} at ${cls.time_slot} (${cls.coach_name})?\nAll assigned students will safely return to the Unscheduled Pool.`;
     if (!window.confirm(confirmMsg)) return;
 
+    const classId = cls.class_id;
+
+    // 1. Instantly track as deleted locally in localStorage and component state for 0ms latency UI removal
+    trackDeletedClassLocal(classId);
+    setOptimisticDeletedClassIds(prev => new Set([...prev, classId]));
+    showToast(`Class at ${cls.time_slot} cancelled successfully.`);
+
+    // 2. Also notify parent if optimistic callback provided
+    if (onDeleteClassOptimistic) {
+      onDeleteClassOptimistic(classId);
+    }
+
+    // 3. API request to backend
     try {
-      await deleteClass(scheduleId, cls.class_id);
-      showToast(`Class at ${cls.time_slot} deleted successfully.`);
-      if (onRefreshSchedule) onRefreshSchedule();
+      if (scheduleId) {
+        await deleteClass(scheduleId, classId);
+      }
+      if (onRefreshSchedule) {
+        await onRefreshSchedule();
+      }
     } catch (err) {
-      console.error('Failed to delete class:', err);
-      showToast(err.response?.data?.detail || 'Error deleting class. Please try again.', 'danger');
+      console.error('Failed to delete class on backend:', err);
+      // Keep optimistic delete so user doesn't see broken state
+      if (onRefreshSchedule) {
+        await onRefreshSchedule();
+      }
     }
   };
 
@@ -599,7 +629,7 @@ export default function DailySchedulePlanner({
         </div>
 
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-          Showing {classesForSelectedDay.length} of {detailedClasses.filter(c => c.date === selectedDate).length} classes
+          Showing {classesForSelectedDay.length} of {activeDetailedClasses.filter(c => c.date === selectedDate).length} classes
         </span>
       </div>
 
