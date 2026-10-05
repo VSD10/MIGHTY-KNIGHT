@@ -737,6 +737,8 @@ def get_output3_attention_report(schedule_id: str):
         "accountability_passed": res.accountability_passed,
         "total_students_considered": res.total_students_considered,
         "total_input_students": res.total_students_considered,
+        "scheduled_students_count": res.successfully_scheduled_students,
+        "successfully_scheduled_students": res.successfully_scheduled_students,
         "unscheduled_count": len(attention_rows),
         "attention_records": attention_rows,
         "unscheduled_records": attention_rows

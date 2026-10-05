@@ -186,6 +186,7 @@ export default function App() {
         setOutput3Data(filterDeletedFromOutput3(o3));
         if (o5) setOutput5Data(o5);
       } else {
+        clearCustomStorageLocal();
         handleClearOutputs();
       }
     } catch (err) {
@@ -289,7 +290,7 @@ export default function App() {
     totalClasses: output2Data?.detailed_classes?.length || 0,
     totalCoaches: output2Data?.coach_summaries?.length || (output2Data?.detailed_classes ? new Set(output2Data.detailed_classes.map(c => c.coach_name)).size : 0),
     totalStudents: output3Data?.total_students_considered || output3Data?.total_input_students || masterStudentsList?.length || 0,
-    completedQuota: output3Data?.scheduled_students_count || 0,
+    completedQuota: output3Data?.scheduled_students_count ?? output3Data?.successfully_scheduled_students ?? (output3Data?.total_students_considered ? Math.max(0, output3Data.total_students_considered - (output3Data.unscheduled_count || 0)) : (activeScheduleInfo?.successfully_scheduled_students || 0)),
     attentionCount: attentionCount,
     totalSessions: (output2Data?.detailed_classes || []).reduce((acc, c) => acc + (c.student_ids?.length || 0), 0),
     hasSchedule: !!currentScheduleId && !!output2Data
