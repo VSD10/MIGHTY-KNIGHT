@@ -33,6 +33,7 @@ export default function App() {
   // Active Schedule State
   const [currentScheduleId, setCurrentScheduleId] = useState(null);
   const [scheduleStatus, setScheduleStatus] = useState('Draft');
+  const [activeScheduleInfo, setActiveScheduleInfo] = useState(null);
   const [activeFileInfo, setActiveFileInfo] = useState(null);
   
   // Output states
@@ -157,6 +158,7 @@ export default function App() {
   const handleClearOutputs = () => {
     setCurrentScheduleId(null);
     setScheduleStatus('Draft');
+    setActiveScheduleInfo(null);
     setOutput1Data(null);
     setOutput2Data(null);
     setOutput3Data(null);
@@ -172,6 +174,7 @@ export default function App() {
       if (active && active.schedule_id) {
         const sId = active.schedule_id;
         setCurrentScheduleId(sId);
+        setActiveScheduleInfo(active);
         setScheduleStatus(active.status || 'Draft');
         if (active.start_date) setStartDate(active.start_date);
         if (active.end_date) setEndDate(active.end_date);
@@ -203,6 +206,7 @@ export default function App() {
       const result = await runSchedule(startDate, endDate);
       const sId = result.schedule_id;
       setCurrentScheduleId(sId);
+      setActiveScheduleInfo(result);
       setScheduleStatus(result.status || 'Draft');
 
       const o1 = await getOutput1(sId);
@@ -241,6 +245,7 @@ export default function App() {
         if (active?.schedule_id) {
           targetId = active.schedule_id;
           setCurrentScheduleId(targetId);
+          setActiveScheduleInfo(active);
         }
       } catch (e) {
         console.warn("Could not resolve active schedule:", e);
