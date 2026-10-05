@@ -731,7 +731,7 @@ def get_output3_attention_report(schedule_id: str):
     save_schedule_db(res_dict)
 
     res = ScheduleResult(**res_dict)
-    attention_rows = format_attention_report(res)
+    attention_rows = format_attention_report(res, ACTIVE_DATA.get("students", []))
     return {
         "schedule_id": schedule_id,
         "accountability_passed": res.accountability_passed,

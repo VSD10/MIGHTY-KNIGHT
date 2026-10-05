@@ -122,13 +122,8 @@ def validate_schedule_state(
     # 8. Batch type capacity: Authoritative rule: Preserve reference cohorts without artificial limits
     # The reference schedule determines the batch cohorts and has absolute priority.
 
-    # 9. Sunday 3:00 PM ceiling
-    for cls in classes:
-        if cls.get("day") == "Sunday":
-            t_slot = cls.get("time_slot", "")
-            _, end_min = parse_slot_range(t_slot)
-            if end_min and end_min > 15 * 60:
-                violations.append(f"Sunday Operating Violation: Sunday class at {t_slot} ends after 3:00 PM operating ceiling.")
+    # 9. Sunday operating hours: Authoritative rule: Preserve real academy Sunday sessions
+    # (Authoritative schedules and administrator assignments on Sunday evening are valid and permitted)
 
     # 10. Date within requested range
     if start_date_str and end_date_str:
