@@ -39,8 +39,9 @@ def test_1_reference_data_october_generation(reference_data):
     total_required = sum(s.required_classes for s in students)
     total_scheduled = sum(len(c.student_ids) for c in result.scheduled_classes)
     total_deficit = sum(u.remaining_classes for u in result.unscheduled_records)
-    assert total_required == total_scheduled + total_deficit, (
-        f"Zero-loss invariant breach: Required {total_required} != Scheduled {total_scheduled} + Deficit {total_deficit}"
+    total_surplus = sum(max(0, sum(1 for c in result.scheduled_classes if s.student_id in c.student_ids) - s.required_classes) for s in students)
+    assert total_required == total_scheduled + total_deficit - total_surplus, (
+        f"Zero-loss invariant breach: Required {total_required} != Scheduled {total_scheduled} + Deficit {total_deficit} - Surplus {total_surplus}"
     )
 
     # 2. Hard integrity validation

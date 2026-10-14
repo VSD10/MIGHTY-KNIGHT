@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle, X, ShieldAlert, UserPlus, UserMinus, Trash2, Search, UserCheck, Sparkles, Award } from 'lucide-react';
-import { validateManualOverride, applyManualEdit, deleteClass, getMasterStudents, getMasterBatches } from '../services/api';
+import { validateManualOverride, applyManualEdit, deleteClass, getMasterStudents, getMasterBatches, validateException, applyException } from '../services/api';
 import { OFFICIAL_LEVELS } from '../constants/levels';
 import { trackDeletedClassLocal } from '../utils/storageSync';
+import RuleViolationModal from './RuleViolationModal';
 
 export default function ManualEditModal({
   isOpen,
@@ -36,6 +37,8 @@ export default function ManualEditModal({
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [validated, setValidated] = useState(false);
+  const [violationModalOpen, setViolationModalOpen] = useState(false);
+  const [activeViolations, setActiveViolations] = useState([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -216,7 +219,7 @@ export default function ManualEditModal({
       return;
     }
 
-    const maxCap = batchType === 'I' ? 1 : (batchType === 'L' ? 4 : 10);
+    const maxCap = batchType === 'I' ? 1 : (batchType === 'L' ? 3 : 8);
     if (studentIds.length >= maxCap) {
       if (!window.confirm(`Notice: Adding another student will exceed the standard ${batchType} capacity (${maxCap} max). Do you want to proceed?`)) {
         return;
@@ -242,17 +245,24 @@ export default function ManualEditModal({
   const handleValidate = async () => {
     setValidating(true);
     setWarnings([]);
+    const month = dateStr ? dateStr.substring(0, 7) : '2026-10';
     try {
-      const res = await validateManualOverride(scheduleId, {
-        class_id: targetClass.class_id,
+      const res = await validateException({
+        month,
+        date: dateStr,
+        time_slot: timeSlot,
         coach_name: coachName,
         student_level: studentLevel,
         batch_type: batchType,
-        date: dateStr,
-        time_slot: timeSlot,
-        student_ids: studentIds
+        student_ids: studentIds,
+        class_id: targetClass?.class_id,
+        action_type: 'edit'
       });
-      setWarnings(res.warnings || []);
+      if (res?.violations?.length > 0) {
+        setWarnings(res.violations.map(v => `[${v.rule}] ${v.message}`));
+      } else {
+        setWarnings([]);
+      }
       setValidated(true);
     } catch (err) {
       setWarnings(['Failed to validate manual override rules.']);
@@ -261,18 +271,57 @@ export default function ManualEditModal({
     }
   };
 
-  const handleSave = async () => {
+  const saveWithExceptionData = async (subtype = 'manual', reason = 'Manual operational override', violatedRules = []) => {
     setSaving(true);
+    const month = dateStr ? dateStr.substring(0, 7) : '2026-10';
     try {
-      await applyManualEdit(scheduleId, {
-        class_id: targetClass.class_id,
-        coach_name: coachName,
-        student_level: studentLevel,
-        batch_type: batchType,
+      // 1. Commit to Part D Single-Occurrence Exception Overlay (ⓒ)
+      await applyException({
+        month,
         date: dateStr,
         time_slot: timeSlot,
-        student_ids: studentIds
+        coach_name: coachName,
+        class_id: targetClass?.class_id,
+        class_key: `${dateStr}||${timeSlot}||${coachName}`,
+        action_type: 'edit',
+        affected_student_ids: studentIds,
+        before: {
+          coach_name: targetClass?.coach_name,
+          student_level: targetClass?.student_level,
+          batch_type: targetClass?.batch_type,
+          time_slot: targetClass?.time_slot,
+          date: targetClass?.date,
+          student_ids: targetClass?.student_ids
+        },
+        after: {
+          coach_name: coachName,
+          student_level: studentLevel,
+          batch_type: batchType,
+          time_slot: timeSlot,
+          date: dateStr,
+          student_ids: studentIds
+        },
+        subtype,
+        violated_rules: violatedRules,
+        reason,
+        created_by: 'Admin'
       });
+
+      // 2. Also keep legacy backend state updated
+      try {
+        await applyManualEdit(scheduleId, {
+          class_id: targetClass.class_id,
+          coach_name: coachName,
+          student_level: studentLevel,
+          batch_type: batchType,
+          date: dateStr,
+          time_slot: timeSlot,
+          student_ids: studentIds
+        });
+      } catch (legacyErr) {
+        console.warn("Legacy manual-edit sync note:", legacyErr);
+      }
+
       triggerRefresh();
       onClose();
     } catch (err) {
@@ -282,12 +331,78 @@ export default function ManualEditModal({
     }
   };
 
-  const handleDeleteClass = async () => {
-    if (!window.confirm(`Are you sure you want to remove Class ${targetClass.class_id} (${targetClass.coach_name} - ${targetClass.time_slot}) from Output 2?`)) return;
+  const handleSave = async () => {
     setSaving(true);
+    const month = dateStr ? dateStr.substring(0, 7) : '2026-10';
+
+    try {
+      // Pre-save validation against Academy Rules (Part D3)
+      const valRes = await validateException({
+        month,
+        date: dateStr,
+        time_slot: timeSlot,
+        coach_name: coachName,
+        student_level: studentLevel,
+        batch_type: batchType,
+        student_ids: studentIds,
+        class_id: targetClass?.class_id,
+        action_type: 'edit'
+      });
+
+      if (valRes && valRes.has_violations && valRes.violations.length > 0) {
+        // Violations found! Launch Rule Violation Pop-up per Part D3
+        setActiveViolations(valRes.violations);
+        setViolationModalOpen(true);
+        setSaving(false);
+        return;
+      }
+
+      // No violations: Clean standard manual save
+      await saveWithExceptionData('manual', 'Manual operational edit', []);
+    } catch (err) {
+      console.warn("Rule check note:", err);
+      // Fallback clean save
+      await saveWithExceptionData('manual', 'Manual operational edit', []);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteClass = async () => {
+    if (!window.confirm(`Are you sure you want to remove Class ${targetClass.class_id} (${targetClass.coach_name} - ${targetClass.time_slot}) from the schedule?`)) return;
+    setSaving(true);
+    const month = dateStr ? dateStr.substring(0, 7) : '2026-10';
     try {
       trackDeletedClassLocal(targetClass.class_id);
-      await deleteClass(scheduleId, targetClass.class_id);
+
+      // Part D: Record exception as single-occurrence delete
+      try {
+        await applyException({
+          month,
+          date: dateStr,
+          time_slot: timeSlot,
+          coach_name: coachName,
+          class_id: targetClass.class_id,
+          class_key: `${dateStr}||${timeSlot}||${coachName}`,
+          action_type: 'delete',
+          affected_student_ids: targetClass.student_ids || [],
+          before: targetClass,
+          after: null,
+          subtype: 'manual',
+          violated_rules: [],
+          reason: 'Class removed by Administrator',
+          created_by: 'Admin'
+        });
+      } catch (excErr) {
+        console.warn("Exception deletion record note:", excErr);
+      }
+
+      try {
+        await deleteClass(scheduleId, targetClass.class_id);
+      } catch (legErr) {
+        console.warn("Legacy delete note:", legErr);
+      }
+
       triggerRefresh();
       onClose();
     } catch (err) {
@@ -365,8 +480,8 @@ export default function ManualEditModal({
                 background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 600
               }}
             >
-              <option value="G">G — Group Batch (4–10 students)</option>
-              <option value="L">L — Limited Students Batch (1–4 students)</option>
+              <option value="G">G — Group Batch (4–8 students)</option>
+              <option value="L">L — Limited Students Batch (1–3 students)</option>
               <option value="I">I — Individual Batch (1 student)</option>
             </select>
           </div>
@@ -403,7 +518,7 @@ export default function ManualEditModal({
           <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>STUDENTS ASSIGNED TO THIS BATCH ({studentIds.length})</span>
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              Batch Target: {batchType === 'I' ? '1 student (Individual)' : (batchType === 'L' ? '1–4 students (Limited)' : '4–10 students (Group)')}
+              Batch Target: {batchType === 'I' ? '1 student (Individual)' : (batchType === 'L' ? '1–3 students (Limited)' : '4–8 students (Group)')}
             </span>
           </div>
 
@@ -705,17 +820,31 @@ export default function ManualEditModal({
 
           <div style={{ display: 'flex', gap: '12px' }}>
             <button onClick={onClose} className="btn btn-secondary">Cancel</button>
-            {!validated ? (
-              <button onClick={handleValidate} disabled={validating} className="btn btn-secondary" style={{ borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)' }}>
-                {validating ? 'Checking Rules...' : 'Validate Rules'}
-              </button>
-            ) : (
-              <button onClick={handleSave} disabled={saving} className="btn btn-primary">
-                {saving ? 'Saving...' : 'Acknowledge & Save Override'}
-              </button>
-            )}
+            <button onClick={handleValidate} disabled={validating} className="btn btn-secondary" style={{ borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)' }}>
+              {validating ? 'Checking Rules...' : 'Preview Rules'}
+            </button>
+            <button onClick={handleSave} disabled={saving} className="btn btn-primary" style={{ fontWeight: 800 }}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
           </div>
         </div>
+
+        {/* Pre-save Rule Violation Pop-up (Part D3) */}
+        <RuleViolationModal
+          isOpen={violationModalOpen}
+          onClose={() => setViolationModalOpen(false)}
+          violations={activeViolations}
+          classDetails={{
+            date: dateStr,
+            time_slot: timeSlot,
+            coach_name: coachName,
+            student_level: studentLevel,
+            student_ids: studentIds
+          }}
+          onConfirm={async ({ subtype, reason }) => {
+            await saveWithExceptionData(subtype, reason, activeViolations);
+          }}
+        />
       </div>
     </div>
   );

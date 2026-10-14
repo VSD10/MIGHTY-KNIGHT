@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { Clock, Users, Award, AlertTriangle, CheckCircle2, Search, BarChart2, Download, MessageSquare, ChevronDown, ChevronUp, Copy, Check, Calendar, BookOpen, Share2 } from 'lucide-react';
-import { getCoachExcelUrl, getCoachIcsUrl, getCoachWhatsAppMsg } from '../services/api';
+import {
+  Clock, Users, Award, AlertTriangle, CheckCircle2, Search, BarChart2,
+  Download, MessageSquare, ChevronDown, ChevronUp, Copy, Check, Calendar,
+  BookOpen, Share2, Edit3, Trash2, Plus
+} from 'lucide-react';
+import { getCoachExcelUrl, getCoachIcsUrl, getCoachWhatsAppMsg, deleteClass, applyException } from '../services/api';
 import CoachDispatchModal from './CoachDispatchModal';
 
 const getTimeSlotSortMinutes = (timeSlotStr) => {
@@ -19,7 +23,24 @@ const getTimeSlotSortMinutes = (timeSlotStr) => {
   }
 };
 
-export default function CoachWorkloadView({ coachSummaries, detailedClasses, scheduleId }) {
+const isMatchingCoach = (coachA, coachB) => {
+  if (!coachA || !coachB) return false;
+  const a = coachA.trim().toUpperCase();
+  const b = coachB.trim().toUpperCase();
+  if (a === b) return true;
+  if ((a === 'BATHRI' || a === 'BATHRINATH') && (b === 'BATHRI' || b === 'BATHRINATH')) return true;
+  if ((a === 'GURU' || a === 'GURUVANTHANA') && (b === 'GURU' || b === 'GURUVANTHANA')) return true;
+  if ((a === 'DHAANUSH' || a === 'DHANUSH') && (b === 'DHAANUSH' || b === 'DHANUSH')) return true;
+  return false;
+};
+
+export default function CoachWorkloadView({
+  coachSummaries = [],
+  detailedClasses = [],
+  scheduleId,
+  onOpenManualEdit,
+  onRefreshSchedule
+}) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [expandedCoach, setExpandedCoach] = useState(null);
@@ -36,20 +57,22 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
     );
   }
 
-  // Filter coach summaries
+  // Filter coach summaries safely
   const filteredSummaries = coachSummaries.filter(c => {
-    const matchesSearch = c.coach_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const coachName = c.coach_name || '';
+    const status = c.status || 'Optimal';
+    const matchesSearch = coachName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.levels_taught && c.levels_taught.join(' ').toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesStatus = statusFilter === 'ALL' || c.status.includes(statusFilter);
+    const matchesStatus = statusFilter === 'ALL' || status.includes(statusFilter);
     return matchesSearch && matchesStatus;
   });
 
-  // Global Statistics Calculations
+  // Global Statistics Calculations with safe fallbacks
   const totalCoaches = coachSummaries.length;
-  const totalHours = coachSummaries.reduce((acc, c) => acc + c.total_hours, 0);
-  const totalClasses = coachSummaries.reduce((acc, c) => acc + c.assigned_classes, 0);
+  const totalHours = coachSummaries.reduce((acc, c) => acc + (c.total_hours || 0), 0);
+  const totalClasses = coachSummaries.reduce((acc, c) => acc + (c.assigned_classes || c.classes_scheduled || 0), 0);
   const avgUtilization = Math.round(
-    coachSummaries.reduce((acc, c) => acc + c.utilization_pct, 0) / (totalCoaches || 1)
+    coachSummaries.reduce((acc, c) => acc + (c.utilization_pct || 0), 0) / (totalCoaches || 1)
   );
 
   const toggleExpand = (coachName) => {
@@ -60,28 +83,43 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
     }
   };
 
-  const handleCopyWhatsApp = async (coachName) => {
-    try {
-      const res = await getCoachWhatsAppMsg(scheduleId, coachName);
-      if (res && res.whatsapp_text) {
-        await navigator.clipboard.writeText(res.whatsapp_text);
-        setCopiedCoach(coachName);
-        setTimeout(() => setCopiedCoach(null), 3000);
-      }
-    } catch (err) {
-      alert('Failed to format WhatsApp text: ' + err.message);
-    }
-  };
+  const handleDeleteCoachClass = async (cls) => {
+    if (!cls?.class_id) return;
+    const confirmMsg = `Cancel and delete class on ${cls.date} at ${cls.time_slot} for Coach ${cls.coach_name}?\nAll assigned students will return to Attention Required shortfall immediately.`;
+    if (!window.confirm(confirmMsg)) return;
 
-  const handleOpenWhatsAppWeb = async (coachName) => {
     try {
-      const res = await getCoachWhatsAppMsg(scheduleId, coachName);
-      if (res && res.whatsapp_text) {
-        const encoded = encodeURIComponent(res.whatsapp_text);
-        window.open(`https://wa.me/?text=${encoded}`, '_blank');
+      const month = cls.date ? cls.date.substring(0, 7) : '2026-10';
+      await applyException({
+        month,
+        date: cls.date,
+        time_slot: cls.time_slot,
+        coach_name: cls.coach_name,
+        class_id: cls.class_id,
+        class_key: `${cls.date}||${cls.time_slot}||${cls.coach_name}`,
+        action_type: 'delete',
+        affected_student_ids: cls.student_ids || [],
+        before: cls,
+        after: null,
+        subtype: 'manual',
+        violated_rules: [],
+        reason: 'Class removed from Coach Workload View by Administrator',
+        created_by: 'Admin'
+      });
+    } catch (excErr) {
+      console.warn("Exception deletion note:", excErr);
+    }
+
+    try {
+      if (scheduleId) {
+        await deleteClass(scheduleId, cls.class_id);
       }
-    } catch (err) {
-      alert('Failed to open WhatsApp: ' + err.message);
+    } catch (legErr) {
+      console.warn("Legacy delete note:", legErr);
+    }
+
+    if (onRefreshSchedule) {
+      await onRefreshSchedule();
     }
   };
 
@@ -94,14 +132,14 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
             📊 Individual Coach Portals & Workload Timetables
           </h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Full periodic timetables, student rosters, one-click Excel downloads, and WhatsApp dispatches per coach.
+            Full periodic timetables, interactive CRUD operations, student rosters, one-click Excel downloads, and WhatsApp dispatches per coach.
           </p>
         </div>
 
         {/* Global Metric Cards & Bulk Dispatch */}
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
-            onClick={() => setDispatchCoachName(filteredSummaries[0]?.coach_name || 'BATHRINATH')}
+            onClick={() => setDispatchCoachName(filteredSummaries[0]?.coach_name || 'BATHRI')}
             className="btn btn-primary"
             style={{ padding: '10px 16px', background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#000', fontWeight: 800, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
@@ -175,10 +213,15 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
         {filteredSummaries.map((coach, index) => {
           const isExpanded = expandedCoach === coach.coach_name;
           const isCopied = copiedCoach === coach.coach_name;
+          const status = coach.status || 'Optimal';
+          const statusColor = coach.status_color || '#10b981';
+          const assignedClasses = coach.assigned_classes ?? coach.classes_scheduled ?? 0;
+          const totalCoachHours = coach.total_hours ?? assignedClasses;
+          const utilPct = coach.utilization_pct ?? 0;
 
-          // Find all classes assigned to this coach
+          // Find all classes assigned to this coach using robust matching
           const coachClasses = (detailedClasses || []).filter(
-            cls => (cls.coach_name || '').trim().toLowerCase() === (coach.coach_name || '').trim().toLowerCase()
+            cls => isMatchingCoach(cls.coach_name, coach.coach_name)
           );
 
           // Sort classes chronologically by Date -> Time Slot
@@ -196,7 +239,7 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
               style={{
                 background: 'var(--bg-secondary)',
                 borderRadius: 'var(--radius-md)',
-                border: coach.status.includes('Exceeded')
+                border: status.includes('Exceeded')
                   ? '1px solid #ef4444'
                   : isExpanded
                     ? '1px solid var(--accent-gold)'
@@ -233,7 +276,7 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
                       boxShadow: '0 0 12px rgba(234, 179, 8, 0.4)'
                     }}
                   >
-                    {coach.coach_name.charAt(0).toUpperCase()}
+                    {(coach.coach_name || 'C').charAt(0).toUpperCase()}
                   </div>
 
                   <div>
@@ -244,21 +287,21 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
                       <span
                         className="badge"
                         style={{
-                          background: coach.status_color + '22',
-                          color: coach.status_color,
-                          border: `1px solid ${coach.status_color}`,
+                          background: statusColor + '22',
+                          color: statusColor,
+                          border: `1px solid ${statusColor}`,
                           fontSize: '0.75rem',
                           padding: '3px 10px'
                         }}
                       >
-                        {coach.status}
+                        {status}
                       </span>
                     </div>
 
                     <div style={{ display: 'flex', gap: '16px', marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      <span>📚 Assigned: <strong style={{ color: '#fff' }}>{coach.assigned_classes} classes</strong> ({coach.total_hours} hrs)</span>
-                      <span>👥 Student Reach: <strong style={{ color: 'var(--accent-gold)' }}>{coach.total_student_reach || coach.unique_students} students</strong></span>
-                      <span>Target: <strong style={{ color: '#fff' }}>{coach.monthly_capacity_max} max/wk</strong></span>
+                      <span>📚 Assigned: <strong style={{ color: '#fff' }}>{assignedClasses} classes</strong> ({totalCoachHours} hrs)</span>
+                      <span>👥 Student Reach: <strong style={{ color: 'var(--accent-gold)' }}>{coach.total_student_reach || coach.unique_students || 0} students</strong></span>
+                      <span>Target: <strong style={{ color: '#fff' }}>{coach.monthly_capacity_max || 100} max/mo</strong></span>
                     </div>
                   </div>
                 </div>
@@ -267,22 +310,44 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
                 <div style={{ minWidth: '180px', flex: 1, maxWidth: '260px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>Utilization</span>
-                    <strong style={{ color: coach.status_color }}>{coach.utilization_pct}%</strong>
+                    <strong style={{ color: statusColor }}>{utilPct}%</strong>
                   </div>
                   <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
                     <div
                       style={{
-                        width: `${Math.min(coach.utilization_pct, 100)}%`,
+                        width: `${Math.min(utilPct, 100)}%`,
                         height: '100%',
-                        background: coach.status_color,
+                        background: statusColor,
                         transition: 'width 0.3s ease'
                       }}
                     />
                   </div>
                 </div>
 
-                {/* Right: Actions Bar */}
+                {/* Right: Actions Bar & Interactive CRUD */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {/* + Add Class for this Coach */}
+                  <button
+                    onClick={() => {
+                      if (onOpenManualEdit) {
+                        onOpenManualEdit({
+                          coach_name: coach.coach_name,
+                          date: '2026-10-01',
+                          time_slot: '06:00 PM - 07:00 PM',
+                          student_level: (coach.levels_taught && coach.levels_taught[0]) || 'Beginner 1',
+                          batch_type: 'G',
+                          student_ids: [],
+                          student_names: []
+                        });
+                      }
+                    }}
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 10px', fontSize: '0.775rem', borderColor: 'var(--accent-gold)', color: 'var(--accent-gold)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title={`Create a new class for Coach ${coach.coach_name}`}
+                  >
+                    <Plus size={14} /> Add Class
+                  </button>
+
                   {/* Dispatch Modal Opener */}
                   <button
                     onClick={() => setDispatchCoachName(coach.coach_name)}
@@ -327,60 +392,103 @@ export default function CoachWorkloadView({ coachSummaries, detailedClasses, sch
                 </div>
               </div>
 
-              {/* EXPANDABLE SECTION: Detailed Timetable & Student Rosters */}
+              {/* EXPANDABLE SECTION: Detailed Timetable & Student Rosters with Interactive CRUD */}
               {isExpanded && (
                 <div style={{ padding: '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent-gold)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <BookOpen size={16} /> Detailed Periodic Timetable & Student Rosters for Coach {coach.coach_name}
-                  </h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent-gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <BookOpen size={16} /> Detailed Periodic Timetable & Student Rosters for Coach {coach.coach_name} ({coachClasses.length} sessions)
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Click "Edit Class" to modify or "Cancel Class" to immediately update real-time attendance & Attention Required
+                    </span>
+                  </div>
 
                   {coachClasses.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                      No active class sessions currently assigned to Coach {coach.coach_name}.
+                    <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
+                      No active class sessions currently assigned to Coach {coach.coach_name}. Use "+ Add Class" above to create one.
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '16px' }}>
                       {coachClasses.map((cls, idx) => (
                         <div
-                          key={idx}
+                          key={cls.class_id || idx}
                           style={{
                             background: 'var(--bg-secondary)',
                             borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--border-color)',
-                            padding: '14px'
+                            border: cls.is_compensation ? '1px solid rgba(251, 191, 36, 0.45)' : '1px solid var(--border-color)',
+                            padding: '16px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            gap: '12px'
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff' }}>
-                              {cls.day} ({cls.date})
-                            </span>
-                            <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>
-                              Batch {cls.batch_type}
-                            </span>
-                          </div>
-
-                          <div style={{ fontSize: '0.8rem', color: 'var(--accent-blue)', fontWeight: 600, marginBottom: '6px' }}>
-                            ⏰ {cls.time_slot}
-                          </div>
-
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                            🎓 Level: <strong style={{ color: '#fff' }}>{cls.student_level}</strong>
-                          </div>
-
-                          {/* Student Roster Box */}
-                          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                            <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
-                              <span>STUDENT ROSTER</span>
-                              <span>{cls.student_ids.length} Students</span>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#fff' }}>
+                                {cls.day} ({cls.date})
+                              </span>
+                              <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>
+                                Batch {cls.batch_type}
+                              </span>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {cls.student_names.map((sname, sidx) => (
-                                <div key={sidx} style={{ fontSize: '0.775rem', color: '#fff', display: 'flex', justifyContent: 'space-between' }}>
-                                  <span>• {sname}</span>
-                                  <span style={{ fontSize: '0.7rem', color: 'var(--accent-gold)' }}>ID: {cls.student_ids[sidx]}</span>
-                                </div>
-                              ))}
+
+                            <div style={{ fontSize: '0.825rem', color: 'var(--accent-blue)', fontWeight: 600, marginBottom: '6px' }}>
+                              ⏰ {cls.time_slot}
                             </div>
+
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                              🎓 Level: <strong style={{ color: '#fff' }}>{cls.student_level}</strong>
+                            </div>
+
+                            {/* Student Roster Box */}
+                            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                              <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>STUDENT ROSTER</span>
+                                <span>{(cls.student_ids || []).length} Students</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {(cls.student_names || []).map((sname, sidx) => (
+                                  <div key={sidx} style={{ fontSize: '0.775rem', color: '#fff', display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>• {sname}</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--accent-gold)' }}>ID: {cls.student_ids[sidx]}</span>
+                                  </div>
+                                ))}
+                                {(!cls.student_names || cls.student_names.length === 0) && (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Open / Unassigned</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* INTERACTIVE CLASS CRUD ACTION BUTTONS */}
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+                            <button
+                              onClick={() => onOpenManualEdit && onOpenManualEdit(cls)}
+                              className="btn btn-secondary"
+                              style={{ padding: '5px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                              title="Edit this class session"
+                            >
+                              <Edit3 size={12} /> Edit Class
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCoachClass(cls)}
+                              className="btn"
+                              style={{
+                                padding: '5px 10px',
+                                fontSize: '0.75rem',
+                                background: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid rgba(239, 68, 68, 0.4)',
+                                color: '#f87171',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title="Cancel and remove this class"
+                            >
+                              <Trash2 size={12} /> Cancel Class
+                            </button>
                           </div>
                         </div>
                       ))}

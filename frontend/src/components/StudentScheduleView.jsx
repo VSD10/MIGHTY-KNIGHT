@@ -13,6 +13,7 @@ export default function StudentScheduleView({ studentScheduleData, detailedClass
   const [copiedId, setCopiedId] = useState(null);
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [nativeReport, setNativeReport] = useState(null);
+  const [showCompensationMarkers, setShowCompensationMarkers] = useState(false);
 
   // Load audit & validation report for native schedules
   useEffect(() => {
@@ -249,6 +250,17 @@ export default function StudentScheduleView({ studentScheduleData, detailedClass
             </button>
           ))}
         </div>
+
+        {/* Show ⓒ markers toggle (Part D2) */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#94a3b8', cursor: 'pointer', background: 'rgba(15,23,42,0.8)', padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <input
+            type="checkbox"
+            checked={showCompensationMarkers}
+            onChange={e => setShowCompensationMarkers(e.target.checked)}
+            style={{ accentColor: '#fbbf24', cursor: 'pointer' }}
+          />
+          <span>Show ⓒ markers</span>
+        </label>
 
         {/* Search */}
         <div style={{ position: 'relative', width: '280px' }}>

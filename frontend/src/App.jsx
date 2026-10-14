@@ -11,6 +11,7 @@ import MasterDataView from './components/MasterDataView';
 import SettingsView from './components/SettingsView';
 import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
+import AbsoluteScheduleView from './components/AbsoluteScheduleView';
 import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent } from './services/api';
 import { getCustomStudentsLocal, getDeletedStudentsLocal, getDeletedClassesLocal, trackDeletedClassLocal } from './utils/storageSync';
 
@@ -50,36 +51,48 @@ export default function App() {
 
   // Load existing active schedule and config from SQLite on initial page load / server restart
   useEffect(() => {
+    try {
+      localStorage.removeItem('mk_deleted_classes');
+      localStorage.removeItem('mk_deleted_student_ids');
+    } catch (e) {}
     loadInitialActiveSchedule();
     fetchSystemConfig();
     fetchMasterStudentsList();
     fetchMasterBatchesList();
   }, []);
 
-  // Filters to guarantee deleted classes and deleted students stay deleted even across serverless cold starts
-  const filterDeletedClasses = (o2) => {
-    if (!o2 || !o2.detailed_classes) return o2;
-    const deleted = new Set(getDeletedClassesLocal());
-    if (deleted.size === 0) return o2;
-    return {
-      ...o2,
-      detailed_classes: o2.detailed_classes.filter(c => !deleted.has(c.class_id))
+  // Real-time SSE listener for fire-speed automatic updates (Part A4)
+  useEffect(() => {
+    let eventSource;
+    try {
+      eventSource = new EventSource('/api/events/stream');
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'ScheduleChanged') {
+            console.log('[SSE] ScheduleChanged event received, updating view...', data);
+            handleRefreshCurrentSchedule();
+          }
+        } catch (err) {
+          console.warn('[SSE] Parse error:', err);
+        }
+      };
+      eventSource.onerror = () => {
+        // SSE may drop temporarily on server restart, browser auto-reconnects
+      };
+    } catch (e) {
+      console.warn('[SSE] Failed to establish EventSource:', e);
+    }
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
     };
-  };
+  }, []);
 
-  const filterDeletedFromOutput3 = (o3) => {
-    if (!o3) return o3;
-    const deleted = new Set(getDeletedStudentsLocal());
-    if (deleted.size === 0) return o3;
-    const filteredRecords = (o3.attention_records || []).filter(r => !deleted.has(r.student_id));
-    const filteredUnscheduled = (o3.unscheduled_records || []).filter(r => !deleted.has(r.student_id));
-    return {
-      ...o3,
-      attention_records: filteredRecords,
-      unscheduled_records: filteredUnscheduled,
-      unscheduled_count: filteredRecords.length
-    };
-  };
+  // Pass-through filters: backend Layer 1 + Layer 3 Effective Schedule is the single authoritative source of truth
+  const filterDeletedClasses = (o2) => o2;
+  const filterDeletedFromOutput3 = (o3) => o3;
 
   const handleDeleteClassOptimistic = (classId) => {
     trackDeletedClassLocal(classId);
@@ -328,7 +341,11 @@ export default function App() {
         {/* Dynamic Canvas Views */}
         <main>
           {activeTab === 'output1' && (
-            <CoachScheduleView coachScheduleData={output1Data} />
+            <CoachScheduleView
+              coachScheduleData={output1Data}
+              onRunScheduler={handleRunScheduler}
+              loading={loading}
+            />
           )}
 
           {activeTab === 'dayPlanner' && (
@@ -370,6 +387,8 @@ export default function App() {
               coachSummaries={output2Data?.coach_summaries || []}
               detailedClasses={output2Data?.detailed_classes || []}
               scheduleId={currentScheduleId}
+              onOpenManualEdit={handleOpenManualEdit}
+              onRefreshSchedule={handleRefreshCurrentSchedule}
             />
           )}
 
@@ -386,6 +405,12 @@ export default function App() {
               onReRunScheduler={handleRunScheduler}
               onClearSchedule={handleClearOutputs}
               onRefreshSchedule={(newStu) => handleRefreshCurrentSchedule(currentScheduleId, newStu)}
+            />
+          )}
+
+          {activeTab === 'absoluteSchedule' && (
+            <AbsoluteScheduleView
+              onBaselineActivated={() => handleRefreshCurrentSchedule()}
             />
           )}
 
