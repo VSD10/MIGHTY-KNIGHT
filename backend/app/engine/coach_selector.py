@@ -107,11 +107,7 @@ class CoachSelector:
                     failure_reasons.append(f"{c_name}: Excluded from Sunday tournament assignments")
                     continue
 
-            if day_name == "Sunday":
-                _, end_min = parse_slot_range(time_slot)
-                if end_min and end_min > 15 * 60:
-                    failure_reasons.append(f"{c_name}: Sunday class ends after 3:00 PM ceiling")
-                    continue
+
 
             # Candidate meets all hard rules!
             valid_candidates.append((coach, matches_window, is_substitute_coach(coach)))
