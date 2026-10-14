@@ -50,19 +50,19 @@ def normalize_batch_to_level(batch_str: str, student_id: Optional[str] = None) -
         return ("Beginner 2", False, None)
 
     # 5. Early Intermediate 1
-    if re.search(r'^early\s*intermediate\s*1\b', core_clean) or core_clean == 'early intermediate1':
+    if re.search(r'^early\s*int[e]?rmediate\s*1', core_clean):
         return ("Early Intermediate 1", False, None)
 
     # 6. Early Intermediate 2
-    if re.search(r'^early\s*intermediate\s*2\b', core_clean) or core_clean == 'early intermediate2':
+    if re.search(r'^early\s*int[e]?rmediate\s*2', core_clean):
         return ("Early Intermediate 2", False, None)
 
     # 7. Intermediate 1
-    if re.search(r'^intermediate\s*1\b', core_clean) or core_clean == 'intermediate1':
+    if re.search(r'^int[e]?rmediate\s*1', core_clean):
         return ("Intermediate 1", False, None)
 
     # 8. Intermediate 2
-    if re.search(r'^intermediate\s*2\b', core_clean) or core_clean == 'intermediate2':
+    if re.search(r'^int[e]?rmediate\s*2', core_clean):
         return ("Intermediate 2", False, None)
 
     # 9. Advanced

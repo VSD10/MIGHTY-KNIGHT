@@ -61,22 +61,37 @@ def setup_test_environment():
     """Ensures database and master data are initialized with October 2026 baseline."""
     seed_october_baseline_if_missing()
     ensure_active_data()
+    # Clean up any leftover test exception records
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM exception_records")
+    conn.commit()
+    conn.close()
+
     base = get_active_baseline_db("2026-10")
-    students = base["students_data"] if (base and base.get("students_data")) else ACTIVE_DATA.get("students", [])
-    if not ACTIVE_DATA.get("coaches") or not ACTIVE_DATA.get("students"):
-        coaches = [
-            {
-                "coach_name": name,
-                "levels_handled": data.get("levels", []),
-                "monthly_capacity_min": 10,
-                "monthly_capacity_max": data.get("max_monthly", 120),
-                "max_classes_per_day": data.get("max_daily", 4)
-            }
-            for name, data in COACH_REFERENCE.items()
-        ]
-        save_master_data_db(students, coaches)
-        ensure_active_data()
+    if base and base.get("students_data"):
+        base_sids = {s["student_id"] for s in base["students_data"]}
+        curr_sids = {s.get("student_id") for s in ACTIVE_DATA.get("students", [])}
+        if not curr_sids.intersection(base_sids) or not ACTIVE_DATA.get("coaches"):
+            coaches = [
+                {
+                    "coach_name": name,
+                    "levels_handled": data.get("levels", []),
+                    "monthly_capacity_min": 10,
+                    "monthly_capacity_max": data.get("max_monthly", 120),
+                    "max_classes_per_day": data.get("max_daily", 4)
+                }
+                for name, data in COACH_REFERENCE.items()
+            ]
+            save_master_data_db(base["students_data"], coaches)
+            ensure_active_data()
     yield
+    # Cleanup after test
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM exception_records")
+    conn.commit()
+    conn.close()
 
 # ==============================================================================
 # TEST 1: Baseline Protection
@@ -608,7 +623,8 @@ def test_8_tournament_coach():
     assert "Saravanan" in tier2
 
     # 3. Hema only on tournaments
-    assert COACH_REFERENCE["Hema"].get("tournaments_only") is True
+    hema_ref = COACH_REFERENCE.get("HEMA") or COACH_REFERENCE.get("Hema", {})
+    assert hema_ref.get("tournaments_only") is True
     hema_reg_cls = {
         "class_id": "HEMA_REG",
         "date": "2026-10-05",

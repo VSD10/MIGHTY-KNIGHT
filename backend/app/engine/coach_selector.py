@@ -43,7 +43,7 @@ class CoachSelector:
         def get_priority_rank(coach: CoachModel) -> Tuple[int, int, int]:
             name_lower = coach.coach_name.strip().lower()
             sub_flag = 1 if is_substitute_coach(coach) else 0
-            curr_m = monthly_coach_assignments.get(coach.coach_name.strip(), 0)
+            curr_m = next((v for k, v in monthly_coach_assignments.items() if k.strip().lower() == name_lower), 0)
             target_flag = 0 if curr_m < coach.monthly_capacity_min else 1
             rank = priority_list.index(name_lower) if name_lower in priority_list else 999
             return (sub_flag, target_flag, rank)
@@ -84,19 +84,19 @@ class CoachSelector:
             std_daily_max = coach.get_daily_max(day_name)
             effective_daily_max = min(std_daily_max, pref_daily_max) if (pref_daily_max is not None and pref_daily_max >= 0) else std_daily_max
 
-            current_daily_assigned = daily_coach_assignments.get(target_date_str, {}).get(c_name, 0)
+            current_daily_assigned = next((v for k, v in daily_coach_assignments.get(target_date_str, {}).items() if k.strip().lower() == c_name.lower()), 0)
             if current_daily_assigned >= effective_daily_max:
                 failure_reasons.append(f"{c_name}: Daily class limit reached ({current_daily_assigned}/{effective_daily_max})")
                 continue
 
             # Check 5: Slot Occupancy Guard (1 Coach = 1 Class at a time)
             occupied_coaches = active_time_occupancy.get(target_date_str, {}).get(time_slot, [])
-            if c_name in occupied_coaches:
+            if any(occ.strip().lower() == c_name.lower() for occ in occupied_coaches):
                 failure_reasons.append(f"{c_name}: Already assigned to another class at {time_slot}")
                 continue
 
             # Check 6: Monthly Maximum Capacity
-            current_monthly_assigned = monthly_coach_assignments.get(c_name, 0)
+            current_monthly_assigned = next((v for k, v in monthly_coach_assignments.items() if k.strip().lower() == c_name.lower()), 0)
             if current_monthly_assigned >= coach.monthly_capacity_max:
                 failure_reasons.append(f"{c_name}: Monthly max capacity reached ({current_monthly_assigned}/{coach.monthly_capacity_max})")
                 continue
@@ -107,11 +107,7 @@ class CoachSelector:
                     failure_reasons.append(f"{c_name}: Excluded from Sunday tournament assignments")
                     continue
 
-            if day_name == "Sunday":
-                _, end_min = parse_slot_range(time_slot)
-                if end_min and end_min > 15 * 60:
-                    failure_reasons.append(f"{c_name}: Sunday class ends after 3:00 PM ceiling")
-                    continue
+
 
             # Candidate meets all hard rules!
             valid_candidates.append((coach, matches_window, is_substitute_coach(coach)))

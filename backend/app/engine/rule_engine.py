@@ -252,13 +252,15 @@ def check_intervals_overlap(start1_min: int, start2_min: int, duration_min: int 
     end2_min = start2_min + duration_min
     return max(start1_min, start2_min) < min(end1_min, end2_min)
 
-def check_operating_hours(day_name: str, start_min: int) -> Tuple[bool, str]:
+def check_operating_hours(day_name: str, start_min: Optional[int]) -> Tuple[bool, str]:
     """
     Validates operating hours according to Part B4:
     - Mon – Fri: 4:00 PM – 9:00 PM (last start 8:00 PM / 480 to 1200)
     - Saturday: 6:00 AM – 2:00 PM (last start 1:00 PM / 360 to 780) AND 4:00 PM – 9:00 PM (last start 8:00 PM / 960 to 1200)
     - Sunday: 9:00 AM – 2:30 PM (last start 1:30 PM / 540 to 810)
     """
+    if start_min is None:
+        return False, "Operating hours violation: Invalid or unspecified time slot."
     if day_name in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]:
         if 16 * 60 <= start_min <= 20 * 60:
             return True, ""
@@ -275,8 +277,10 @@ def check_operating_hours(day_name: str, start_min: int) -> Tuple[bool, str]:
         return False, f"Operating hours violation: Sunday operating hours are 9:00 AM – 2:30 PM (last start 1:30 PM). Class starts at {format_minutes_to_time(start_min)}."
     return True, ""
 
-def is_morning_class(day_name: str, start_min: int) -> bool:
+def is_morning_class(day_name: str, start_min: Optional[int]) -> bool:
     """Any class starting before 4:00 PM on Monday to Saturday is morning/daytime (Part B4)."""
+    if start_min is None:
+        return False
     return day_name in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] and start_min < 16 * 60
 
 def check_tournament_eligibility(level: str, batch_type: str, day_name: str) -> Tuple[bool, str]:

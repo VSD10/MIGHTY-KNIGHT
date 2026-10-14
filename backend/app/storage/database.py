@@ -365,7 +365,7 @@ def delete_single_coach_db(coach_name: str, db_path: Optional[str] = None):
     init_db(target_path)
     conn = get_connection(target_path)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM coaches WHERE coach_name = ?", (coach_name,))
+    cursor.execute("DELETE FROM coaches WHERE LOWER(coach_name) = LOWER(?)", (coach_name,))
 
     # Cascade: Unassign coach from master batches
     cursor.execute("SELECT batch_id, data_json FROM batches")

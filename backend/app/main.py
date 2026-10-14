@@ -1075,11 +1075,14 @@ def export_individual_coach_ics(schedule_id: str, coach_name: str):
 @app.get("/api/schedule/{schedule_id}/output3")
 def get_output3_attention_report(schedule_id: str, month: str = Query(default="2026-10")):
     eff = get_effective_schedule(month)
+    scheduled_count = max(0, eff["total_students"] - eff["need_attention"])
     return {
         "schedule_id": schedule_id,
         "accountability_passed": eff["need_attention"] == 0,
         "total_students_considered": eff["total_students"],
         "total_input_students": eff["total_students"],
+        "scheduled_students_count": scheduled_count,
+        "successfully_scheduled_students": scheduled_count,
         "unscheduled_count": eff["need_attention"],
         "attention_records": eff["attention_records"],
         "unscheduled_records": eff["attention_records"]

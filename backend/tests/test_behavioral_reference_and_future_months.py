@@ -13,14 +13,21 @@ from app.ingestion.excel_parser import parse_excel_file
 from app.outputs.monthly_matrix_excel import generate_monthly_matrix_excel
 
 BASE_TEST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-REFERENCE_EXCEL_PATH = os.path.join(BASE_TEST_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
+candidates = [
+    os.path.join(BASE_TEST_DIR, "sample_data", "Oct26_Schedule_Final.xlsx"),
+    os.path.join(BASE_TEST_DIR, "backend", "data", "Oct26_Schedule_Final.xlsx"),
+    os.path.join(BASE_TEST_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx"),
+]
+REFERENCE_EXCEL_PATH = next((p for p in candidates if os.path.exists(p)), candidates[0])
+
+from app.engine.reference_scheduler import get_reference_engine
 
 @pytest.fixture
 def reference_data():
-    assert os.path.exists(REFERENCE_EXCEL_PATH), f"File {REFERENCE_EXCEL_PATH} not found"
-    with open(REFERENCE_EXCEL_PATH, "rb") as f:
-        students, coaches, errors = parse_excel_file(f.read(), DEFAULT_CONFIG)
-    return students, coaches
+    engine = get_reference_engine()
+    if not engine.is_loaded:
+        engine.load_reference()
+    return engine.student_models, engine.coach_models
 
 # -----------------------------------------------------------------------------
 # Test 1: September / Reference Excel Behavioral Simulation & October 2026

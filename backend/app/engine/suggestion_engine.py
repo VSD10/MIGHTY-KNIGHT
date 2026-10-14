@@ -45,9 +45,9 @@ ENGINE_SETTINGS = {
         "Friday": ["05:30 PM"]   # Intermediate 2 only
     },
     "tournament_tiers": {
-        "tier1": ["HEMA", "ABINAYA", "BATHRI", "PRAKASH", "MANIKANDAN", "ARSHATH"],
-        "tier2": ["DHAANUSH", "SARAVANAN"],
-        "excluded": ["GURU"]
+        "tier1": ["HEMA", "ABINAYA", "BATHRI", "PRAKASH", "MANIKANDAN", "ARSHATH", "Hema", "Abinaya", "Bathri", "Prakash", "Manikandan", "Arshath"],
+        "tier2": ["DHAANUSH", "SARAVANAN", "Dhaanush", "Saravanan"],
+        "excluded": ["GURU", "Guru", "Guruvanthana"]
     },
     "flex_trainers": ["BATHRI", "PRAKASH", "DHAANUSH"],
     "new_slot_budget_soft_cap": 25,

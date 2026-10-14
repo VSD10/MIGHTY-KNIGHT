@@ -14,7 +14,7 @@ from app.config import SystemConfig, DEFAULT_CONFIG
 from app.constants.levels import OFFICIAL_LEVELS, normalize_batch_to_level
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DEFAULT_REFERENCE_PATH = os.path.join(BASE_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
+DEFAULT_REFERENCE_PATH = os.path.join(BASE_DIR, "sample_data", "Oct26_Schedule_Final.xlsx")
 
 class ReferenceScheduleEngine:
     _instance = None
@@ -108,9 +108,9 @@ class ReferenceScheduleEngine:
         # 2. Second priority: Find Excel file across candidate locations
         candidate_excel_paths = [
             self.excel_path,
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "Oct'26 Schedule_FRESH-1.xlsx"),
-            os.path.join(BASE_DIR, "backend", "data", "Oct'26 Schedule_FRESH-1.xlsx"),
-            os.path.join(BASE_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
+            os.path.join(BASE_DIR, "sample_data", "Oct26_Schedule_Final.xlsx"),
+            os.path.join(BASE_DIR, "backend", "data", "Oct26_Schedule_Final.xlsx"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "data", "Oct26_Schedule_Final.xlsx")
         ]
 
         target_excel = None
