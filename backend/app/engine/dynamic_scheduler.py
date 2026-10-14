@@ -16,25 +16,25 @@ from app.utils.time_utils import parse_time_slot_sort_key
 from app.storage.database import load_master_batches_db
 
 COACH_ALIAS_MAP = {
-    "bathri": "Bathrinath",
-    "bathrinath": "Bathrinath",
-    "guru": "Guruvanthana",
-    "guruvanthana": "Guruvanthana",
-    "dhaanush": "Dhaanush",
-    "dhanush": "Dhaanush",
-    "arshath": "Arshath",
-    "saravanan": "Saravanan",
-    "abinaya": "Abinaya",
-    "prakash": "Prakash",
-    "manikandan": "Manikandan",
-    "hema": "Hema"
+    "bathri": "BATHRI",
+    "bathrinath": "BATHRI",
+    "guru": "GURU",
+    "guruvanthana": "GURU",
+    "dhaanush": "DHAANUSH",
+    "dhanush": "DHAANUSH",
+    "arshath": "ARSHATH",
+    "saravanan": "SARAVANAN",
+    "abinaya": "ABINAYA",
+    "prakash": "PRAKASH",
+    "manikandan": "MANIKANDAN",
+    "hema": "HEMA"
 }
 
 def resolve_coach_name(name: str) -> str:
     if not name:
         return "Unassigned"
     clean = name.strip().lower()
-    return COACH_ALIAS_MAP.get(clean, name.strip())
+    return COACH_ALIAS_MAP.get(clean, name.strip().upper())
 
 def normalize_slot_string(slot_str: str) -> str:
     """Normalizes slots like '6:00 PM' or '18:00:00' to '06:00 PM – 07:00 PM'."""
@@ -63,7 +63,7 @@ class CandidateSessionSlot:
         batch_type: str,
         preferred_trainer: Optional[str] = None,
         roster_student_ids: Optional[Set[str]] = None,
-        max_capacity: int = 10,
+        max_capacity: int = 8,
         min_capacity: int = 4
     ):
         self.date_str = date_str
@@ -178,7 +178,7 @@ def build_candidate_session_slots(
                 key = (date_str, normalized_t, b_name)
                 if key not in created_slot_keys:
                     created_slot_keys.add(key)
-                    max_cap = 1 if b_type == "I" else (4 if b_type == "L" else 10)
+                    max_cap = 1 if b_type == "I" else (3 if b_type == "L" else 8)
                     min_cap = 1 if b_type in ["I", "L"] else 4
                     slots.append(CandidateSessionSlot(
                         date_str=date_str,
@@ -487,7 +487,7 @@ def run_dynamic_scheduler(
     if deficit_students:
         # Step 2A: Existing Class Reuse (prefer adding compatible students to existing classes with open seats)
         for cls in scheduled_classes:
-            max_cap = 1 if cls.batch_type == "I" else (4 if cls.batch_type == "L" else 10)
+            max_cap = 1 if cls.batch_type == "I" else (3 if cls.batch_type == "L" else 8)
             if len(cls.student_ids) >= max_cap:
                 continue
 

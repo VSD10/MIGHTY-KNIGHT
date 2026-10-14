@@ -165,7 +165,7 @@ export default function SettingsView({ config }) {
     {
       name: 'Batch Capacity Maximum Ceilings',
       category: 'Room & Class Size',
-      description: 'Group classes hold at most 10 students; Limited classes hold at most 4 students; Individual classes hold exactly 1 student.',
+      description: 'Group classes hold at most 8 students; Limited classes hold at most 3 students; Individual classes hold exactly 1 student.',
       enforcement: 'Hard Capacity Limit'
     },
     {
@@ -177,7 +177,7 @@ export default function SettingsView({ config }) {
     {
       name: 'Sunday Tournament & Operating Ceiling',
       category: 'Sunday Policy',
-      description: 'All Sunday sessions must end by 3:00 PM (15:00). Excludes designated tournament coaches (Dhaanush, Saravanan) and Intermediate levels.',
+      description: 'All Sunday sessions must end by 3:00 PM (15:00). Excludes designated tournament coaches (DHAANUSH, SARAVANAN) and Intermediate levels.',
       enforcement: 'Time Window & Trainer Filter'
     },
     {
@@ -224,20 +224,20 @@ export default function SettingsView({ config }) {
 
   // Default coach priorities from config or fallback
   const coachPriorities = config?.coach_priority || {
-    'Basic 1': ['Bathrinath', 'Abinaya', 'Manikandan', 'Prakash', 'Guruvanthana'],
-    'Basic 2': ['Bathrinath', 'Abinaya', 'Manikandan', 'Prakash', 'Guruvanthana'],
-    'Beginner 1': ['Bathrinath', 'Guruvanthana', 'Dhaanush', 'Manikandan', 'Abinaya', 'Prakash'],
-    'Beginner 2': ['Guruvanthana', 'Dhaanush', 'Bathrinath', 'Prakash', 'Saravanan'],
-    'Early Intermediate 1': ['Dhaanush', 'Saravanan', 'Arshath', 'Prakash', 'Guruvanthana'],
-    'Early Intermediate 2': ['Dhaanush', 'Saravanan', 'Arshath', 'Prakash', 'Guruvanthana'],
-    'Intermediate 1': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan'],
-    'Intermediate 2': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan'],
-    'Advanced': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan']
+    'Basic 1': ['BATHRI', 'ABINAYA', 'MANIKANDAN', 'PRAKASH', 'GURU'],
+    'Basic 2': ['BATHRI', 'ABINAYA', 'MANIKANDAN', 'PRAKASH', 'GURU'],
+    'Beginner 1': ['BATHRI', 'GURU', 'DHAANUSH', 'MANIKANDAN', 'ABINAYA', 'PRAKASH'],
+    'Beginner 2': ['GURU', 'DHAANUSH', 'BATHRI', 'PRAKASH', 'SARAVANAN'],
+    'Early Intermediate 1': ['DHAANUSH', 'SARAVANAN', 'ARSHATH', 'PRAKASH', 'GURU'],
+    'Early Intermediate 2': ['DHAANUSH', 'SARAVANAN', 'ARSHATH', 'PRAKASH', 'GURU'],
+    'Intermediate 1': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN'],
+    'Intermediate 2': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN'],
+    'Advanced': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN']
   };
 
   const sundayRules = config?.sunday_rules || {
     max_end_time: '15:00',
-    excluded_tournament_coaches: ['Dhaanush', 'Saravanan'],
+    excluded_tournament_coaches: ['DHAANUSH', 'SARAVANAN'],
     excluded_tournament_levels: ['Intermediate 1', 'Intermediate 2', 'Advanced']
   };
 
@@ -760,7 +760,7 @@ export default function SettingsView({ config }) {
               <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>TOURNAMENT COACH EXCLUSIONS</span>
                 <strong style={{ fontSize: '0.95rem', color: '#fff' }}>
-                  {sundayRules.excluded_tournament_coaches?.join(', ') || 'Dhaanush, Saravanan'}
+                  {sundayRules.excluded_tournament_coaches?.join(', ') || 'DHAANUSH, SARAVANAN'}
                 </strong>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
                   Excluded from Sunday regular classes to arbitrate tournament matches.

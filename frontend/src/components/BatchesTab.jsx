@@ -1157,13 +1157,13 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
 
   const handleTypeChange = (newType) => {
     let minCap = 4;
-    let maxCap = 10;
+    let maxCap = 8;
     if (newType === 'I') {
       minCap = 1;
       maxCap = 1;
     } else if (newType === 'L') {
       minCap = 1;
-      maxCap = 4;
+      maxCap = 3;
     }
     setFormData({
       ...formData,

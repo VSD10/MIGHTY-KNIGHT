@@ -23,6 +23,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.storage.database import compute_master_data_fingerprint, save_schedule_db, get_connection
 from app.config import DEFAULT_CONFIG
+from render_master_schedules import STUDENT_DATA_LIST, normalize_batch_level
 
 # ── DB path ──────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -454,9 +455,17 @@ RAW_SCHEDULE = [
 # ── helpers ──────────────────────────────────────────────────────────────────
 DAY_MAP = {0:"Monday",1:"Tuesday",2:"Wednesday",3:"Thursday",4:"Friday",5:"Saturday",6:"Sunday"}
 
+STUDENT_DATA_MAP = {s["name"].strip(): s for s in STUDENT_DATA_LIST}
+
 def name_to_id(name: str) -> str:
-    """Stable student ID derived from name."""
-    return "STU_" + hashlib.md5(name.strip().lower().encode()).hexdigest()[:8].upper()
+    """Official student ID derived from STUDENT_DATA_LIST."""
+    clean = name.strip()
+    if clean in STUDENT_DATA_MAP:
+        return STUDENT_DATA_MAP[clean]["id"]
+    for k, v in STUDENT_DATA_MAP.items():
+        if k.lower() == clean.lower():
+            return v["id"]
+    return "STU_" + hashlib.md5(clean.lower().encode()).hexdigest()[:8].upper()
 
 def build_classes(raw):
     classes = []
@@ -466,20 +475,35 @@ def build_classes(raw):
         class_id = f"CLS_{date_str}_{coach}_{time_slot.replace(':','').replace(' ','')}"
         student_ids   = [name_to_id(n) for n in names]
         student_names = [n.strip() for n in names]
-        # Decide batch_type: if only 1 student or name contains "Individual" → I, else G
-        if len(names) == 1 or any("individual" in n.lower() for n in names):
-            bt = "I"
-        else:
-            bt = "G"
+        
+        levels = [normalize_batch_level(STUDENT_DATA_MAP.get(n.strip(), {}).get("raw_level", "Basic 1")) for n in names]
+        btypes = []
+        for n in names:
+            raw_lvl = STUDENT_DATA_MAP.get(n.strip(), {}).get("raw_level", "G")
+            first_c = raw_lvl.strip()[:1].upper()
+            if first_c in ("G", "L", "I"):
+                btypes.append(first_c)
+            elif "individual" in n.lower():
+                btypes.append("I")
+            elif "limited" in raw_lvl.lower():
+                btypes.append("L")
+            else:
+                btypes.append("G")
+
+        distinct_levels = sorted(list(set(levels)))
+        primary_level = distinct_levels[0] if len(distinct_levels) == 1 else ("MIXED" if len(distinct_levels) > 1 else "Basic 1")
+        primary_btype = "G" if "G" in btypes else ("L" if "L" in btypes else ("I" if "I" in btypes else "G"))
+        batch_name = f"{primary_btype} {primary_level.replace(' ', '')}"
+
         classes.append({
             "class_id":      class_id,
             "date":          date_str,
             "day":           day,
             "time_slot":     time_slot,
             "coach_name":    coach,
-            "batch_name":    None,
-            "student_level": "General",
-            "batch_type":    bt,
+            "batch_name":    batch_name,
+            "student_level": primary_level,
+            "batch_type":    primary_btype,
             "student_ids":   student_ids,
             "student_names": student_names,
             "warnings":      [],
@@ -488,33 +512,63 @@ def build_classes(raw):
     return classes
 
 def build_students(raw):
-    """Collect every unique student that appears in the schedule."""
-    seen = {}
+    """Build all 118 students from authoritative STUDENT_DATA_LIST."""
+    student_class_counts = {}
     for _, _, _, names in raw:
-        for name in names:
-            sid = name_to_id(name)
-            if sid not in seen:
-                seen[sid] = {
-                    "student_id":     sid,
-                    "student_name":   name.strip(),
-                    "student_level":  "General",
-                    "batch_type":     "G",
-                    "batch":          "G General",
-                    "mkca_rating":    None,
-                    "assigned_batch_id": None,
-                    "region_timezone":"IST",
-                    "required_classes": 8,
-                    "mon_pref": "No Preference",
-                    "tue_pref": "No Preference",
-                    "wed_pref": "No Preference",
-                    "thu_pref": "No Preference",
-                    "fri_pref": "No Preference",
-                    "sat_pref": "No Preference",
-                    "sun_pref": "No Preference",
-                    "tournament_pref": "No",
-                    "additional_comments": "",
-                }
-    return list(seen.values())
+        for n in names:
+            clean = n.strip()
+            student_class_counts[clean] = student_class_counts.get(clean, 0) + 1
+
+    students = []
+    for s in STUDENT_DATA_LIST:
+        name = s["name"].strip()
+        sid = s["id"]
+        raw_lvl = s.get("raw_level", "Basic 1")
+        norm_lvl = normalize_batch_level(raw_lvl)
+        first_char = raw_lvl.strip()[:1].upper()
+        if first_char in ("G", "L", "I"):
+            b_type = first_char
+        elif "individual" in name.lower():
+            b_type = "I"
+        elif "limited" in raw_lvl.lower():
+            b_type = "L"
+        else:
+            b_type = "G"
+
+        try:
+            rating_val = float(s["rating"])
+        except (ValueError, TypeError):
+            import re
+            nums = [float(x) for x in re.findall(r"\d+\.?\d*", str(s.get("rating", "")))]
+            rating_val = sum(nums) / len(nums) if nums else 1.0
+
+        actual = student_class_counts.get(name, 0)
+        planned = max(actual, 8)
+
+        students.append({
+            "student_id":     sid,
+            "student_name":   name,
+            "student_level":  norm_lvl,
+            "batch_type":     b_type,
+            "batch":          f"{b_type} {norm_lvl.replace(' ', '')}",
+            "batch_name":     f"{b_type} {norm_lvl.replace(' ', '')}",
+            "mkca_rating":    rating_val,
+            "assigned_batch_id": None,
+            "region_timezone":"IST",
+            "required_classes": planned,
+            "planned_classes": planned,
+            "actual_classes": actual,
+            "mon_pref": "No Preference",
+            "tue_pref": "No Preference",
+            "wed_pref": "No Preference",
+            "thu_pref": "No Preference",
+            "fri_pref": "No Preference",
+            "sat_pref": "No Preference",
+            "sun_pref": "No Preference",
+            "tournament_pref": "No",
+            "additional_comments": "",
+        })
+    return students
 
 # ── accuracy check ────────────────────────────────────────────────────────────
 EXPECTED = {
@@ -605,18 +659,66 @@ def write_to_db(classes, students):
     # 4. Build schedule dict
     now_str = datetime.now().strftime("%Y-%m-%d %I:%M %p")
     schedule_id = "OCT26_MANUAL_" + uuid.uuid4().hex[:8].upper()
+    coach_schedule_map = {}
+    for c in classes:
+        key = f"{c['date']}||{c['day']}||{c['time_slot']}"
+        if key not in coach_schedule_map:
+            coach_schedule_map[key] = []
+        if c['coach_name'] not in coach_schedule_map[key]:
+            coach_schedule_map[key].append(c['coach_name'])
+
+    from app.engine.validator import parse_time_slot_sort_key
+    coach_slots = []
+    for k, clist in sorted(coach_schedule_map.items(), key=lambda x: parse_time_slot_sort_key(x[0].split("||")[0], x[0].split("||")[2])):
+        dt, dy, ts = k.split("||")
+        coach_slots.append({
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coaches": sorted(clist)
+        })
+
+    sch_counts = {}
+    for c in classes:
+        for sid in c["student_ids"]:
+            sch_counts[sid] = sch_counts.get(sid, 0) + 1
+
+    unscheduled_records = []
+    scheduled_count = 0
+    for s in students:
+        sid = s["student_id"]
+        req = s.get("required_classes", 8)
+        sch = sch_counts.get(sid, 0)
+        if sch > 0:
+            scheduled_count += 1
+        rem = max(0, req - sch)
+        if rem > 0:
+            unscheduled_records.append({
+                "student_id": sid,
+                "student_name": s["student_name"],
+                "student_level": s["student_level"],
+                "batch_type": s["batch_type"],
+                "preferred_days": "Recurring",
+                "preferred_time": "Fixed",
+                "required_classes": req,
+                "scheduled_classes": sch,
+                "remaining_classes": rem,
+                "failure_reason": f"Scheduled for {sch}/{req} classes. Remaining deficit: {rem} classes.",
+                "details": "Reference schedule attendance ceiling reached."
+            })
+
     schedule = {
         "schedule_id": schedule_id,
         "status": "Finalized",
         "start_date": "2026-10-01",
         "end_date": "2026-10-31",
         "total_students_considered": len(students),
-        "successfully_scheduled_students": len(students),
-        "unscheduled_students_count": 0,
+        "successfully_scheduled_students": scheduled_count,
+        "unscheduled_students_count": len(unscheduled_records),
         "accountability_passed": True,
         "scheduled_classes": classes,
-        "unscheduled_records": [],
-        "coach_schedule": [],
+        "unscheduled_records": unscheduled_records,
+        "coach_schedule": coach_slots,
         "created_at": now_str,
         "master_data_fingerprint": fingerprint,
         "is_stale": False,
@@ -634,7 +736,7 @@ def write_to_db(classes, students):
     cur = conn.cursor()
     cur.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('latest_schedule_id', ?)", (schedule_id,))
     cur.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('latest_schedule_fingerprint', ?)", (fingerprint,))
-    cur.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_filename', ?)", ("Oct-2026 Manual Import",))
+    cur.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_filename', ?)", ("Oct-2026 Authoritative Schedule",))
     cur.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_upload_timestamp', ?)", (now_str,))
     cur.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('parsing_errors', ?)", ("[]",))
 
@@ -653,11 +755,10 @@ if __name__ == "__main__":
     classes  = build_classes(RAW_SCHEDULE)
     students = build_students(RAW_SCHEDULE)
 
-    run_accuracy_check(classes, students)
-    # Proceeding to load regardless -- partial schedule (104 students) is intentional.
-    # Remaining students will be added in a follow-up import.
+    if not run_accuracy_check(classes, students):
+        print("[ERROR] Checks failed!")
+        exit(1)
 
     write_to_db(classes, students)
-    print("\n[DONE] Oct-2026 schedule (104 students) is now live in the website.")
+    print("\n[DONE] Oct-2026 schedule (118 students, 386 classes) is now live in the website.")
     print("   Coaches data was NOT touched.")
-    print("   Remaining students can be added via a follow-up import.")

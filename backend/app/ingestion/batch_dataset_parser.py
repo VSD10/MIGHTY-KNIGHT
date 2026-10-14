@@ -3,6 +3,7 @@ import csv
 from collections import defaultdict, Counter
 from typing import Dict, List, Any, Tuple
 from app.constants.levels import normalize_batch_to_level
+from app.engine.rule_engine import resolve_coach_canonical_name
 
 def parse_monthly_batch_dataset(csv_file_path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
@@ -77,8 +78,8 @@ def parse_monthly_batch_dataset(csv_file_path: str) -> Tuple[List[Dict[str, Any]
 
         for col_idx, day_lbl, dow in days_cols:
             if col_idx < len(r):
-                time_slot = r[col_idx].strip()
-                coach_name = r[col_idx + 1].strip().title() if col_idx + 1 < len(r) else ""
+                raw_coach = r[col_idx + 1].strip() if col_idx + 1 < len(r) else ""
+                coach_name = resolve_coach_canonical_name(raw_coach) if raw_coach and raw_coach.lower() != "na" else ""
                 if time_slot:
                     if coach_name and coach_name.lower() != "na":
                         trainer_counts[coach_name] += 1
@@ -153,7 +154,7 @@ def parse_monthly_batch_dataset(csv_file_path: str) -> Tuple[List[Dict[str, Any]
         if not schedule_slots_summary:
             schedule_slots_summary = ["Flexible Schedule"]
 
-        max_cap = 10 if batch_type == "G" else 4
+        max_cap = 8 if batch_type == "G" else (3 if batch_type == "L" else 1)
 
         batches_list.append({
             "batch_id": b_name.strip(),

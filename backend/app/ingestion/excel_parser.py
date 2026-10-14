@@ -12,76 +12,101 @@ from app.config import DEFAULT_CONFIG, SystemConfig
 from app.storage.database import load_master_data_db, save_all_master_batches_db
 
 COACH_ALIAS_MAP = {
-    "bathri": "Bathrinath",
-    "bathrinath": "Bathrinath",
-    "guru": "Guruvanthana",
-    "guruvanthana": "Guruvanthana",
-    "dhaanush": "Dhaanush",
-    "dhanush": "Dhaanush",
-    "arshath": "Arshath",
-    "saravanan": "Saravanan",
-    "abinaya": "Abinaya",
-    "prakash": "Prakash",
-    "manikandan": "Manikandan",
-    "hema": "Hema"
+    "bathri": "BATHRI",
+    "bathrinath": "BATHRI",
+    "bathrinath k": "BATHRI",
+    "bathrinath k trainer": "BATHRI",
+    "bathri trainer": "BATHRI",
+    "bathri k trainer": "BATHRI",
+    "guru": "GURU",
+    "guruvanthana": "GURU",
+    "dhaanush": "DHAANUSH",
+    "dhanush": "DHAANUSH",
+    "arshath": "ARSHATH",
+    "saravanan": "SARAVANAN",
+    "abinaya": "ABINAYA",
+    "prakash": "PRAKASH",
+    "manikandan": "MANIKANDAN",
+    "hema": "HEMA"
 }
 
 STANDARD_COACH_DEFAULTS = {
+    "guru": {
+        "coach_name": "GURU",
+        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1"],
+        "monthly_capacity_min": 35, "monthly_capacity_max": 40,
+        "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
+        "sunday_pref": "Available", "preferred_timings": "Evening (4 PM - 9 PM)"
+    },
     "guruvanthana": {
-        "coach_name": "Guruvanthana",
+        "coach_name": "GURU",
         "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1"],
         "monthly_capacity_min": 35, "monthly_capacity_max": 40,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Evening (4 PM - 9 PM)"
     },
     "dhaanush": {
-        "coach_name": "Dhaanush",
+        "coach_name": "DHAANUSH",
         "levels_handled": ["Beginner 1", "Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2"],
         "monthly_capacity_min": 70, "monthly_capacity_max": 78,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 0,
         "sunday_pref": "No Sunday Tournaments", "preferred_timings": "Midday & Evening"
     },
     "arshath": {
-        "coach_name": "Arshath",
+        "coach_name": "ARSHATH",
         "levels_handled": ["Early Intermediate 2", "Intermediate 1", "Intermediate 2", "Advanced"],
         "monthly_capacity_min": 16, "monthly_capacity_max": 20,
         "mon_max": 3, "tue_max": 3, "wed_max": 3, "thu_max": 3, "fri_max": 3, "sat_max": 4, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Evening (6 PM - 9 PM)"
     },
     "saravanan": {
-        "coach_name": "Saravanan",
+        "coach_name": "SARAVANAN",
         "levels_handled": ["Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2"],
         "monthly_capacity_min": 0, "monthly_capacity_max": 8,
         "mon_max": 3, "tue_max": 3, "wed_max": 3, "thu_max": 3, "fri_max": 3, "sat_max": 4, "sun_max": 0,
         "sunday_pref": "No Sunday Tournaments", "preferred_timings": "Evening"
     },
+    "bathri": {
+        "coach_name": "BATHRI",
+        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2"],
+        "monthly_capacity_min": 30, "monthly_capacity_max": 60,
+        "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
+        "sunday_pref": "Available", "preferred_timings": "Morning & Evening"
+    },
     "bathrinath": {
-        "coach_name": "Bathrinath",
+        "coach_name": "BATHRI",
         "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2"],
         "monthly_capacity_min": 30, "monthly_capacity_max": 60,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Morning & Evening"
     },
     "abinaya": {
-        "coach_name": "Abinaya",
+        "coach_name": "ABINAYA",
         "levels_handled": ["Basic 1", "Basic 2", "Beginner 1"],
         "monthly_capacity_min": 30, "monthly_capacity_max": 60,
         "mon_max": 3, "tue_max": 3, "wed_max": 3, "thu_max": 3, "fri_max": 3, "sat_max": 4, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Morning (6 AM - 8 AM) & Evening"
     },
     "prakash": {
-        "coach_name": "Prakash",
+        "coach_name": "PRAKASH",
         "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2", "Advanced"],
         "monthly_capacity_min": 40, "monthly_capacity_max": 90,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "All Operating Hours"
     },
     "manikandan": {
-        "coach_name": "Manikandan",
+        "coach_name": "MANIKANDAN",
         "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1"],
         "monthly_capacity_min": 20, "monthly_capacity_max": 60,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Evening & Weekend"
+    },
+    "hema": {
+        "coach_name": "HEMA",
+        "levels_handled": [],
+        "monthly_capacity_min": 0, "monthly_capacity_max": 20,
+        "mon_max": 0, "tue_max": 0, "wed_max": 0, "thu_max": 0, "fri_max": 0, "sat_max": 0, "sun_max": 5,
+        "sunday_pref": "Available", "preferred_timings": "Sunday Tournaments"
     }
 }
 
@@ -371,11 +396,13 @@ def parse_monthly_schedule_workbook(
         c_lower = fixed_trainer.lower()
         if c_lower in COACH_ALIAS_MAP:
             fixed_trainer = COACH_ALIAS_MAP[c_lower]
+        elif fixed_trainer != "Unassigned":
+            fixed_trainer = fixed_trainer.upper()
 
         b_type = b_info["batch_type"]
         lvl = b_info["level"]
-        cap_min = 1 if b_type == "I" else (2 if b_type == "L" else 4)
-        cap_max = 1 if b_type == "I" else (4 if b_type == "L" else 10)
+        cap_min = 1 if b_type == "I" else (1 if b_type == "L" else 4)
+        cap_max = 1 if b_type == "I" else (3 if b_type == "L" else 8)
 
         discovered_batches.append({
             "batch_id": f"MKB{str(batch_counter).zfill(3)}",
@@ -685,8 +712,9 @@ def parse_excel_file(
                     except (ValueError, TypeError):
                         return default_val
 
+                canonical_coach = COACH_ALIAS_MAP.get(c_name.lower(), c_name.upper())
                 coach = CoachModel(
-                    coach_name=c_name,
+                    coach_name=canonical_coach,
                     levels_handled=valid_handled,
                     monthly_capacity_min=cap_min,
                     monthly_capacity_max=cap_max,
@@ -703,7 +731,13 @@ def parse_excel_file(
                     special_comments=str(row.get(col_map.get("special_comments", ""), "")) if not pd.isna(row.get(col_map.get("special_comments", ""), "")) else "",
                     temporary_exceptions=str(row.get(col_map.get("temporary_exceptions", ""), "")) if not pd.isna(row.get(col_map.get("temporary_exceptions", ""), "")) else ""
                 )
-                coaches.append(coach)
+                existing_idx = next((i for i, existing in enumerate(coaches) if existing.coach_name == canonical_coach), None)
+                if existing_idx is not None:
+                    for l in valid_handled:
+                        if l not in coaches[existing_idx].levels_handled:
+                            coaches[existing_idx].levels_handled.append(l)
+                else:
+                    coaches.append(coach)
 
         except Exception as e:
             errors.append(ExcelParsingError(coach_sheet_name or "Coaches", 0, "Sheet", f"Error parsing Coaches sheet: {str(e)}"))

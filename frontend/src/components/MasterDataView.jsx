@@ -7,7 +7,7 @@ import {
 import {
   getMasterData, getMasterStats, saveMasterStudent, deleteMasterStudent,
   saveMasterCoach, deleteMasterCoach, saveMasterBatch, deleteMasterBatch,
-  clearAllMasterData
+  clearAllMasterData, convertBatchType, changeStudentLevel, updateCoachPriority
 } from '../services/api';
 import BatchesTab from './BatchesTab';
 import { OFFICIAL_LEVELS } from '../constants/levels';
@@ -608,6 +608,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Rating</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Level</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', minWidth: '110px' }}>Batch Type</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Tournament Eligibility</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Req Classes</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Region / TZ</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Assigned Batch</th>
@@ -703,6 +704,31 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                           </span>
                         </td>
 
+                        <td style={{ padding: '14px 16px', whiteSpace: 'nowrap' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            fontSize: '0.725rem',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            background: student.batch_type === 'I' || student.student_level === 'Basic 1'
+                              ? 'rgba(100, 116, 139, 0.2)'
+                              : (student.student_level === 'Intermediate 2' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(52, 211, 153, 0.2)'),
+                            color: student.batch_type === 'I' || student.student_level === 'Basic 1'
+                              ? '#94a3b8'
+                              : (student.student_level === 'Intermediate 2' ? '#c084fc' : '#34d399'),
+                            border: '1px solid rgba(255,255,255,0.1)'
+                          }}>
+                            {student.tournament_eligibility || (
+                              student.batch_type === 'I' ? 'Not eligible (Individual)' :
+                              student.student_level === 'Basic 1' ? 'Not eligible (Basic 1)' :
+                              student.student_level === 'Intermediate 2' ? 'Friday tournament (Int 2)' :
+                              'Sunday tournament eligible'
+                            )}
+                          </span>
+                        </td>
+
                         <td style={{ padding: '14px 16px', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>
                           {student.required_classes ?? 8} / mo
                         </td>
@@ -753,11 +779,45 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                         </td>
 
                         <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                            <select
+                              value=""
+                              onChange={async (e) => {
+                                const newType = e.target.value;
+                                if (!newType) return;
+                                if (window.confirm(`Convert student ${student.student_name} (${student.student_id}) from ${student.batch_type} to ${newType}? This will recalculate all requirements and release obsolete seats.`)) {
+                                  try {
+                                    await convertBatchType(student.student_id, newType);
+                                    showNotification(`Converted ${student.student_name} to Batch ${newType}`);
+                                    await fetchMasterData();
+                                    if (onRefreshSchedule) await onRefreshSchedule();
+                                  } catch (err) {
+                                    alert('Failed to convert batch: ' + (err.response?.data?.detail || err.message));
+                                  }
+                                }
+                              }}
+                              style={{
+                                padding: '4px 6px',
+                                borderRadius: '6px',
+                                background: 'rgba(234, 179, 8, 0.15)',
+                                border: '1px solid rgba(234, 179, 8, 0.3)',
+                                color: 'var(--accent-gold)',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                              title="Batch-Type Conversion (G/L/I)"
+                            >
+                              <option value="">Convert...</option>
+                              {['G', 'L', 'I'].filter(t => t !== student.batch_type).map(t => (
+                                <option key={t} value={t}>→ {t === 'G' ? 'Group (G)' : (t === 'L' ? 'Limited (L)' : 'Individual (I)')}</option>
+                              ))}
+                            </select>
+
                             <button
                               onClick={() => setEditingStudent({ ...student, assigned_batch_id: assignedBatch?.batch_id || '' })}
                               style={{
-                                padding: '6px 10px',
+                                padding: '6px 8px',
                                 borderRadius: '6px',
                                 background: 'rgba(96, 165, 250, 0.15)',
                                 border: '1px solid rgba(96, 165, 250, 0.3)',
@@ -766,12 +826,12 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                               }}
                               title="Edit Student"
                             >
-                              <Edit2 size={14} />
+                              <Edit2 size={13} />
                             </button>
                             <button
                               onClick={() => handleDeleteStudent(student.student_id)}
                               style={{
-                                padding: '6px 10px',
+                                padding: '6px 8px',
                                 borderRadius: '6px',
                                 background: 'rgba(239, 68, 68, 0.15)',
                                 border: '1px solid rgba(239, 68, 68, 0.3)',
@@ -780,7 +840,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                               }}
                               title="Delete Student"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={13} />
                             </button>
                           </div>
                         </td>
@@ -921,7 +981,8 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Trainer Name</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Levels Handled</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Role & Flex</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Levels Handled & Priority</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Monthly Target</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Daily Max Limits</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Sunday Max</th>
@@ -943,15 +1004,43 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                       >
                         <td style={{ padding: '14px 16px' }}>
                           <div style={{ fontWeight: 800, color: '#fff', fontSize: '0.9rem' }}>{coach.coach_name}</div>
+                          {Array.isArray(coach.aliases) && coach.aliases.length > 0 && (
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              aka: {coach.aliases.join(', ')}
+                            </div>
+                          )}
+                        </td>
+
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              background: coach.tournament_role === 'Tournament only' ? 'rgba(234, 179, 8, 0.2)' : (coach.tournament_role === 'Last-resort tier' ? 'rgba(168, 85, 247, 0.2)' : (coach.tournament_role === 'Excluded' ? 'rgba(148, 163, 184, 0.2)' : 'rgba(56, 189, 248, 0.2)')),
+                              color: coach.tournament_role === 'Tournament only' ? '#fbbf24' : (coach.tournament_role === 'Last-resort tier' ? '#c084fc' : (coach.tournament_role === 'Excluded' ? '#94a3b8' : '#38bdf8'))
+                            }}>
+                              {coach.tournament_role || 'Regular + Tournament'}
+                            </span>
+                            {coach.is_flex && (
+                              <span style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(234, 179, 8, 0.25)', color: 'var(--accent-gold)', fontSize: '0.68rem', fontWeight: 800 }}>
+                                ⚡ FLEX
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td style={{ padding: '14px 16px' }}>
                           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', maxWidth: '280px' }}>
-                            {levels.map((l, lIdx) => (
-                              <span key={lIdx} style={{ padding: '2px 7px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', fontSize: '0.725rem', fontWeight: 600 }}>
-                                {l}
-                              </span>
-                            ))}
+                            {levels.map((l, lIdx) => {
+                              const prio = coach.qualified_levels_priority?.[l];
+                              return (
+                                <span key={lIdx} style={{ padding: '2px 7px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', fontSize: '0.725rem', fontWeight: 600 }}>
+                                  {l}{prio ? ` #${prio}` : ''}
+                                </span>
+                              );
+                            })}
                           </div>
                         </td>
 
@@ -1097,11 +1186,29 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
     sun_pref: student.sun_pref || 'No Preference',
     assigned_batch_id: student.assigned_batch_id || '',
     tournament_pref: student.tournament_pref || 'No',
-    additional_comments: student.additional_comments || ''
+    additional_comments: student.additional_comments || '',
+    is_morning_available: student.is_morning_available || false,
+    requirement_exception: typeof student.requirement_exception === 'object' ? (student.requirement_exception?.reason || '') : (student.requirement_exception || ''),
+    preferred_coach: student.preferred_coach || '',
+    standing_exceptions: student.standing_exceptions ? (Array.isArray(student.standing_exceptions) ? student.standing_exceptions.join(', ') : student.standing_exceptions) : '',
+    linked_student_id: student.linked_student_id || '',
+    start_date: student.start_date || '',
+    is_active: student.is_active !== false,
+    level_history: student.level_history || []
   });
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const dayKeys = ['mon_pref', 'tue_pref', 'wed_pref', 'thu_pref', 'fri_pref', 'sat_pref', 'sun_pref'];
+
+  const derivedEligibility = useMemo(() => {
+    if (formData.batch_type === 'I') return 'Not eligible (Individual batch students never participate in tournaments)';
+    if (formData.student_level === 'Basic 1') return 'Not eligible (Basic 1 students attend regular classes only)';
+    if (formData.student_level === 'Intermediate 2') return 'Friday tournament (Intermediate 2)';
+    if (['Basic 2', 'Beginner 1', 'Beginner 2', 'Early Intermediate 1', 'Early Intermediate 2', 'Intermediate 1'].includes(formData.student_level)) {
+      return 'Sunday tournament eligible';
+    }
+    return `Not eligible (${formData.student_level} not eligible)`;
+  }, [formData.student_level, formData.batch_type]);
 
   // Parse "HH:MM AM-HH:MM PM" range string into { isOff, from, to }
   const parseDayPref = (val) => {
@@ -1120,11 +1227,17 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
       alert('Student Name is required');
       return;
     }
-    // Sanitize: convert empty-string fields to null so backend Optional[float/str] validation passes
+    if (formData.required_classes > 12 && !formData.requirement_exception.trim()) {
+      alert('Monthly requirement exceeds 12 classes! A documented Requirement Exception reason is required.');
+      return;
+    }
     const sanitized = {
       ...formData,
       mkca_rating: formData.mkca_rating === '' || formData.mkca_rating === undefined ? null : Number(formData.mkca_rating),
       assigned_batch_id: formData.assigned_batch_id || null,
+      requirement_exception: formData.requirement_exception ? { reason: formData.requirement_exception, approved_by: 'Admin' } : null,
+      standing_exceptions: formData.standing_exceptions ? formData.standing_exceptions.split(',').map(s => s.trim()).filter(Boolean) : [],
+      tournament_eligibility: derivedEligibility
     };
     onSave(sanitized);
   };
@@ -1149,7 +1262,7 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
           background: '#0d131f',
           border: '1px solid var(--border-color)',
           borderRadius: 'var(--radius-lg)',
-          width: '100%', maxWidth: '640px', maxHeight: '90vh',
+          width: '100%', maxWidth: '680px', maxHeight: '90vh',
           display: 'flex', flexDirection: 'column',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
         }}
@@ -1169,6 +1282,27 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Tournament Eligibility Banner (Read-Only) */}
+          <div style={{
+            background: derivedEligibility.startsWith('Not eligible') ? 'rgba(100, 116, 139, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+            border: `1px solid ${derivedEligibility.startsWith('Not eligible') ? 'rgba(100, 116, 139, 0.3)' : 'rgba(16, 185, 129, 0.4)'}`,
+            borderRadius: '8px',
+            padding: '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div>
+              <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block' }}>
+                TOURNAMENT ELIGIBILITY (DERIVED FROM LEVEL + BATCH TYPE)
+              </span>
+              <strong style={{ fontSize: '0.85rem', color: derivedEligibility.startsWith('Not eligible') ? '#94a3b8' : '#34d399' }}>
+                {derivedEligibility}
+              </strong>
+            </div>
+            <Award size={20} style={{ color: derivedEligibility.startsWith('Not eligible') ? '#94a3b8' : '#34d399' }} />
+          </div>
+
           {/* ID, Name & Rating */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '12px' }}>
             <div>
@@ -1248,6 +1382,36 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
             </div>
           </div>
 
+          {/* Requirement Exception if > 12 */}
+          {formData.required_classes > 12 && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', padding: '10px' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#f87171', marginBottom: '4px' }}>
+                ⚠️ Requirement Exception Reason (&gt;12 classes requires documented justification) *
+              </label>
+              <input
+                type="text"
+                value={formData.requirement_exception}
+                onChange={e => setFormData({ ...formData, requirement_exception: e.target.value })}
+                placeholder="e.g. Approved intensive tournament training by Head Coach"
+                required
+                style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.8rem' }}
+              />
+            </div>
+          )}
+
+          {/* Explicit Morning Availability Toggle */}
+          <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#cbd5e1', cursor: 'pointer', margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={formData.is_morning_available}
+                onChange={e => setFormData({ ...formData, is_morning_available: e.target.checked })}
+                style={{ accentColor: 'var(--accent-gold)', width: '16px', height: '16px' }}
+              />
+              <span><strong>Explicit Morning Availability</strong> (permits Mon–Sat windows before 4:00 PM)</span>
+            </label>
+          </div>
+
           {/* Region / TZ & Assigned Batch */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
@@ -1275,6 +1439,78 @@ function StudentEditModal({ student, allBatches, onSave, onClose }) {
               </select>
             </div>
           </div>
+
+          {/* Soft Preferences: Preferred Coach & Standing Exceptions */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Preferred Coach (Soft Preference)</label>
+              <input
+                type="text"
+                value={formData.preferred_coach}
+                onChange={e => setFormData({ ...formData, preferred_coach: e.target.value })}
+                placeholder="e.g. PRAKASH, ABINAYA"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Standing Exceptions</label>
+              <input
+                type="text"
+                value={formData.standing_exceptions}
+                onChange={e => setFormData({ ...formData, standing_exceptions: e.target.value })}
+                placeholder="e.g. Saturday 9:00 PM"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
+              />
+            </div>
+          </div>
+
+          {/* Linked Student Unit & Start Date */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Linked Student Unit (Shared I)</label>
+              <input
+                type="text"
+                value={formData.linked_student_id}
+                onChange={e => setFormData({ ...formData, linked_student_id: e.target.value })}
+                placeholder="e.g. STU_0088"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>Mid-Month Start Date</label>
+              <input
+                type="date"
+                value={formData.start_date}
+                onChange={e => setFormData({ ...formData, start_date: e.target.value })}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#cbd5e1', cursor: 'pointer', marginTop: '16px' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.is_active}
+                  onChange={e => setFormData({ ...formData, is_active: e.target.checked })}
+                  style={{ accentColor: '#10b981', width: '16px', height: '16px' }}
+                />
+                <span>Active Status</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Level History View */}
+          {formData.level_history && formData.level_history.length > 0 && (
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--accent-gold)', display: 'block', marginBottom: '4px' }}>
+                📜 Level Progression History:
+              </span>
+              {formData.level_history.map((h, i) => (
+                <div key={i} style={{ fontSize: '0.725rem', color: '#cbd5e1' }}>
+                  • {h.from_level} → <strong style={{ color: '#fff' }}>{h.to_level}</strong> on {h.changed_at} ({h.reason})
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Day-Wise Time Window Availability */}
           <div>
@@ -1476,7 +1712,11 @@ function buildTimingsStringFromDays(dayMap, currentFormData) {
 function CoachEditModal({ coach, onSave, onClose }) {
   const [formData, setFormData] = useState({
     coach_name: coach.coach_name || '',
+    aliases: Array.isArray(coach.aliases) ? coach.aliases.join(', ') : (coach.aliases || ''),
     levels_handled: Array.isArray(coach.levels_handled) ? coach.levels_handled : ['Basic 1', 'Beginner 1'],
+    qualified_levels_priority: coach.qualified_levels_priority || {},
+    is_flex: Boolean(coach.is_flex),
+    tournament_role: coach.tournament_role || 'Regular + Tournament',
     monthly_capacity_min: coach.monthly_capacity_min ?? 20,
     monthly_capacity_max: coach.monthly_capacity_max ?? 60,
     mon_max: coach.mon_max ?? 4,
@@ -1561,11 +1801,29 @@ function CoachEditModal({ coach, onSave, onClose }) {
 
   const toggleLevel = (lvl) => {
     const current = formData.levels_handled || [];
+    const pMap = { ...(formData.qualified_levels_priority || {}) };
     if (current.includes(lvl)) {
-      setFormData({ ...formData, levels_handled: current.filter(l => l !== lvl) });
+      delete pMap[lvl];
+      setFormData({
+        ...formData,
+        levels_handled: current.filter(l => l !== lvl),
+        qualified_levels_priority: pMap
+      });
     } else {
-      setFormData({ ...formData, levels_handled: [...current, lvl] });
+      const nextPrio = Object.keys(pMap).length + 1;
+      pMap[lvl] = nextPrio;
+      setFormData({
+        ...formData,
+        levels_handled: [...current, lvl],
+        qualified_levels_priority: pMap
+      });
     }
+  };
+
+  const setLevelPriority = (lvl, prio) => {
+    const pMap = { ...(formData.qualified_levels_priority || {}) };
+    pMap[lvl] = Math.max(1, parseInt(prio) || 1);
+    setFormData({ ...formData, qualified_levels_priority: pMap });
   };
 
   const handleSubmit = (e) => {
@@ -1574,7 +1832,16 @@ function CoachEditModal({ coach, onSave, onClose }) {
       alert('Trainer Name is required');
       return;
     }
-    onSave(formData);
+    const sanitized = {
+      ...formData,
+      aliases: typeof formData.aliases === 'string'
+        ? formData.aliases.split(',').map(s => s.trim()).filter(Boolean)
+        : (formData.aliases || []),
+      is_flex: Boolean(formData.is_flex),
+      tournament_role: formData.tournament_role || 'Regular + Tournament',
+      qualified_levels_priority: formData.qualified_levels_priority || {}
+    };
+    onSave(sanitized);
   };
 
   const activeDayData = dayMap[activeDayTab] || { isOff: false, slots: [] };
@@ -1632,32 +1899,102 @@ function CoachEditModal({ coach, onSave, onClose }) {
             />
           </div>
 
-          {/* Handled Levels Tag Selector */}
+          {/* Aliases for Excel matching */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              Aliases (comma-separated for Excel matching)
+            </label>
+            <input
+              type="text"
+              value={formData.aliases}
+              onChange={e => setFormData({ ...formData, aliases: e.target.value })}
+              placeholder="e.g. PRAKASH, PK, Coach PRAKASH"
+              style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
+            />
+          </div>
+
+          {/* Role and Flex Flag */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'center' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                Tournament Role
+              </label>
+              <select
+                value={formData.tournament_role}
+                onChange={e => setFormData({ ...formData, tournament_role: e.target.value })}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
+              >
+                <option value="Regular + Tournament">Regular + Tournament (Tier 1)</option>
+                <option value="Tournament only">Tournament only (HEMA)</option>
+                <option value="Last-resort tier">Last-resort tier (Tier 2)</option>
+                <option value="Excluded">Excluded from tournaments</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingTop: '18px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: '#fff', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={formData.is_flex}
+                  onChange={e => setFormData({ ...formData, is_flex: e.target.checked })}
+                  style={{ width: '16px', height: '16px', accentColor: 'var(--accent-gold)' }}
+                />
+                <span>⚡ Flex Trainer (T6 Workload Extension)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Handled Levels Tag Selector & Per-Level Priority */}
           <div>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              Levels Handled (Click to toggle)
+              Levels Handled & Per-Level Priority (1 = Highest)
             </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {STANDARD_LEVELS.map(lvl => {
                 const isSelected = (formData.levels_handled || []).includes(lvl);
+                const prio = formData.qualified_levels_priority?.[lvl] || 1;
                 return (
-                  <button
+                  <div
                     key={lvl}
-                    type="button"
-                    onClick={() => toggleLevel(lvl)}
                     style={{
-                      padding: '4px 10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
                       borderRadius: '6px',
+                      overflow: 'hidden',
                       border: isSelected ? '1px solid #c084fc' : '1px solid var(--border-color)',
-                      background: isSelected ? 'rgba(192, 132, 252, 0.2)' : 'rgba(255,255,255,0.04)',
-                      color: isSelected ? '#c084fc' : '#94a3b8',
-                      fontSize: '0.75rem',
-                      fontWeight: isSelected ? 700 : 500,
-                      cursor: 'pointer'
+                      background: isSelected ? 'rgba(192, 132, 252, 0.15)' : 'rgba(255,255,255,0.04)'
                     }}
                   >
-                    {isSelected ? '✓ ' : ''}{lvl}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleLevel(lvl)}
+                      style={{
+                        padding: '5px 10px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: isSelected ? '#c084fc' : '#94a3b8',
+                        fontSize: '0.75rem',
+                        fontWeight: isSelected ? 700 : 500,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {isSelected ? '✓ ' : ''}{lvl}
+                    </button>
+                    {isSelected && (
+                      <div style={{ display: 'flex', alignItems: 'center', padding: '0 6px', background: 'rgba(192, 132, 252, 0.25)', borderLeft: '1px solid rgba(192, 132, 252, 0.3)' }}>
+                        <span style={{ fontSize: '0.65rem', color: '#e9d5ff', marginRight: '3px' }}>#</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={prio}
+                          onChange={e => setLevelPriority(lvl, e.target.value)}
+                          style={{ width: '32px', padding: '1px 2px', textAlign: 'center', borderRadius: '3px', background: '#0d131f', border: '1px solid #c084fc', color: '#fff', fontSize: '0.7rem', fontWeight: 800 }}
+                          title={`Priority rank for ${lvl} (1 is best)`}
+                        />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

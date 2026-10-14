@@ -15,7 +15,7 @@ def test_parse_sample_template():
     # Assert coaches parsed
     assert len(coaches) == 8, f"Expected 8 coaches, got {len(coaches)}"
     coach_names_lower = [c.coach_name.strip().lower() for c in coaches]
-    expected_coaches = ["Guruvanthana", "Dhaanush", "Arshath", "Saravanan", "Bathrinath", "Abinaya", "Prakash"]
+    expected_coaches = ["GURU", "DHAANUSH", "ARSHATH", "SARAVANAN", "BATHRI", "ABINAYA", "PRAKASH"]
     for ec in expected_coaches:
         assert ec.lower() in coach_names_lower, f"Coach {ec} missing"
 

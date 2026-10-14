@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Calendar, X, Download, CheckCircle, ShieldCheck, FileSpreadsheet } from 'lucide-react';
 import { applyManualEdit, assignStudentToClass, getMonthlyMatrixExcelUrl, validateSchedule } from '../services/api';
 import { OFFICIAL_LEVELS } from '../constants/levels';
+import CompensationBadge from './CompensationBadge';
 
 export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit, scheduleId, onRefreshSchedule }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState('ALL');
   const [coachFilter, setCoachFilter] = useState('ALL');
+  const [showOnlyCompensation, setShowOnlyCompensation] = useState(false);
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
   const [sortBy, setSortBy] = useState('DATE');
@@ -82,12 +84,13 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
     const matchesCoach = coachFilter === 'ALL' || (cls.coach_name || '').trim().toLowerCase() === coachFilter.trim().toLowerCase();
     const matchesStartDate = !startDateFilter || (cls.date && cls.date >= startDateFilter);
     const matchesEndDate = !endDateFilter || (cls.date && cls.date <= endDateFilter);
+    const matchesCompensation = !showOnlyCompensation || cls.is_compensation || cls.has_compensation;
     const matchesSearch =
       (cls.coach_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (cls.students_formatted || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (cls.student_level || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (cls.date || '').toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesLevel && matchesCoach && matchesStartDate && matchesEndDate && matchesSearch;
+    return matchesLevel && matchesCoach && matchesStartDate && matchesEndDate && matchesCompensation && matchesSearch;
   });
 
   // Dynamic Sorting Logic
@@ -337,6 +340,27 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
             <option value="LEVEL" style={{ background: '#1e293b', color: '#fff' }}>🎓 Sort by Student Level</option>
             <option value="STUDENTS" style={{ background: '#1e293b', color: '#fff' }}>👥 Sort by Batch Size</option>
           </select>
+
+          {/* Show only ⓒ classes filter toggle (Part D) */}
+          <button
+            type="button"
+            onClick={() => setShowOnlyCompensation(!showOnlyCompensation)}
+            className={`btn ${showOnlyCompensation ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '7px 12px',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderColor: showOnlyCompensation ? 'var(--accent-gold)' : 'var(--border-color)',
+              color: showOnlyCompensation ? '#000' : 'var(--text-secondary)'
+            }}
+            title="Filter to show only temporary compensation or rule exception (ⓒ) classes"
+          >
+            <span style={{ fontWeight: 900 }}>ⓒ</span>
+            <span>{showOnlyCompensation ? 'Showing Only ⓒ' : 'Filter ⓒ Only'}</span>
+          </button>
         </div>
       </div>
 
@@ -375,7 +399,26 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
                     }}
                   >
                     <td>
-                      <div style={{ fontWeight: 700, color: '#fff' }}>{cls.date} ({cls.day})</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <div style={{ fontWeight: 700, color: '#fff' }}>{cls.date} ({cls.day})</div>
+                        {cls.is_tournament && (
+                          <span
+                            className="badge"
+                            style={{
+                              background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)',
+                              color: '#000',
+                              fontWeight: 900,
+                              fontSize: '0.625rem',
+                              border: '1px solid #fbbf24'
+                            }}
+                          >
+                            🏆 {cls.tournament_name || 'Tournament'}
+                          </span>
+                        )}
+                        {(cls.is_compensation || cls.has_compensation || cls.exception_metadata) && (
+                          <CompensationBadge cls={cls} month={cls.date?.substring(0, 7) || '2026-10'} onRevertSuccess={onRefreshSchedule} size="sm" />
+                        )}
+                      </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--accent-gold)' }}>{cls.time_slot}</div>
                     </td>
                     <td>
@@ -456,9 +499,19 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
-                          {cls.time_slot}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-gold)' }}>
+                            {cls.time_slot}
+                          </span>
+                          {cls.is_tournament && (
+                            <span className="badge" style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)', color: '#000', fontWeight: 900, fontSize: '0.625rem', border: '1px solid #fbbf24' }}>
+                              🏆 Tourn
+                            </span>
+                          )}
+                          {(cls.is_compensation || cls.has_compensation || cls.exception_metadata) && (
+                            <CompensationBadge cls={cls} month={cls.date?.substring(0, 7) || '2026-10'} onRevertSuccess={onRefreshSchedule} size="sm" />
+                          )}
+                        </div>
                         <span className="badge badge-gold" style={{ fontSize: '0.75rem' }}>
                           {cls.coach_name}
                         </span>

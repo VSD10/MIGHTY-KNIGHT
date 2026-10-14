@@ -222,7 +222,7 @@ def generate_monthly_matrix_excel(
                 time_cell.alignment = align_center
                 time_cell.border = thin_border
 
-                coach_cell = ws.cell(row=cur_row, column=c_idx + 1, value=c_name)
+                coach_cell = ws.cell(row=cur_row, column=c_idx + 1, value=c_name.upper() if c_name else "")
                 coach_cell.font = font_regular
                 coach_cell.alignment = align_center
                 coach_cell.border = thin_border

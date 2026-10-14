@@ -19,7 +19,8 @@ import {
   Search,
   Filter
 } from 'lucide-react';
-import { deleteClass, applyManualEdit, createScheduleClass, assignStudentToClass } from '../services/api';
+import { deleteClass, applyManualEdit, createScheduleClass, assignStudentToClass, applyException } from '../services/api';
+import CompensationBadge from './CompensationBadge';
 import { OFFICIAL_LEVELS, FILTER_LEVEL_OPTIONS } from '../constants/levels';
 import { trackDeletedClassLocal, getDeletedClassesLocal } from '../utils/storageSync';
 
@@ -68,10 +69,9 @@ export default function DailySchedulePlanner({
   // Local state for instant optimistic class removals (0ms latency UI updates)
   const [optimisticDeletedClassIds, setOptimisticDeletedClassIds] = useState(new Set());
 
-  // Active classes excluding deleted ones (both in-memory optimistic and localStorage persistent)
+  // Active classes excluding optimistic local deletions
   const activeDetailedClasses = useMemo(() => {
-    const deletedStored = new Set(getDeletedClassesLocal());
-    return (detailedClasses || []).filter(cls => !deletedStored.has(cls.class_id) && !optimisticDeletedClassIds.has(cls.class_id));
+    return (detailedClasses || []).filter(cls => !optimisticDeletedClassIds.has(cls.class_id));
   }, [detailedClasses, optimisticDeletedClassIds]);
 
   // Determine all calendar dates in the active month
@@ -122,6 +122,7 @@ export default function DailySchedulePlanner({
   // Search & Filter state for classes on selected day
   const [searchFilter, setSearchFilter] = useState('');
   const [coachFilter, setCoachFilter] = useState('All');
+  const [showOnlyCompensation, setShowOnlyCompensation] = useState(false);
 
   // Modal states for Create Class & Add Student
   const [isAddClassModalOpen, setIsAddClassModalOpen] = useState(false);
@@ -156,6 +157,10 @@ export default function DailySchedulePlanner({
     
     if (coachFilter !== 'All') {
       list = list.filter(cls => cls.coach_name?.toLowerCase() === coachFilter.toLowerCase());
+    }
+
+    if (showOnlyCompensation) {
+      list = list.filter(cls => cls.is_compensation || cls.has_compensation);
     }
 
     if (searchFilter.trim()) {
@@ -234,13 +239,13 @@ export default function DailySchedulePlanner({
   // Delete a class directly from this day
   const handleDeleteClass = async (cls) => {
     if (!cls?.class_id) return;
-    const confirmMsg = `Cancel and delete class on ${cls.date} at ${cls.time_slot} (${cls.coach_name})?\nAll assigned students will safely return to the Unscheduled Pool.`;
+    const confirmMsg = `Cancel and delete class on ${cls.date} at ${cls.time_slot} (${cls.coach_name})?\nAll assigned students will safely return to the Unscheduled Pool in Attention Required.`;
     if (!window.confirm(confirmMsg)) return;
 
     const classId = cls.class_id;
+    const month = cls.date ? cls.date.substring(0, 7) : '2026-10';
 
-    // 1. Instantly track as deleted locally in localStorage and component state for 0ms latency UI removal
-    trackDeletedClassLocal(classId);
+    // 1. Instantly track optimistically in component state for 0ms latency UI removal
     setOptimisticDeletedClassIds(prev => new Set([...prev, classId]));
     showToast(`Class at ${cls.time_slot} cancelled successfully.`);
 
@@ -249,45 +254,89 @@ export default function DailySchedulePlanner({
       onDeleteClassOptimistic(classId);
     }
 
-    // 3. API request to backend
+    // 3. Authoritative Layer 3 exception deletion
+    try {
+      await applyException({
+        month,
+        date: cls.date,
+        time_slot: cls.time_slot,
+        coach_name: cls.coach_name,
+        class_id: classId,
+        class_key: `${cls.date}||${cls.time_slot}||${cls.coach_name}`,
+        action_type: 'delete',
+        affected_student_ids: cls.student_ids || [],
+        before: cls,
+        after: null,
+        subtype: 'manual',
+        violated_rules: [],
+        reason: 'Class removed by Administrator from Daily Planner',
+        created_by: 'Admin'
+      });
+    } catch (excErr) {
+      console.warn("Exception deletion note:", excErr);
+    }
+
+    // 4. API request to backend
     try {
       if (scheduleId) {
         await deleteClass(scheduleId, classId);
       }
-      if (onRefreshSchedule) {
-        await onRefreshSchedule();
-      }
     } catch (err) {
-      console.error('Failed to delete class on backend:', err);
-      // Keep optimistic delete so user doesn't see broken state
-      if (onRefreshSchedule) {
-        await onRefreshSchedule();
-      }
+      console.warn('Backend legacy delete note:', err);
+    }
+
+    if (onRefreshSchedule) {
+      await onRefreshSchedule();
     }
   };
 
   // Remove a single student chip from a class
   const handleRemoveStudentFromClass = async (cls, studentId, studentName) => {
-    if (!scheduleId) return;
     if (!window.confirm(`Remove ${studentName} (${studentId}) from this class?`)) return;
 
+    const month = cls.date ? cls.date.substring(0, 7) : '2026-10';
+    const remainingIds = (cls.student_ids || []).filter(id => id !== studentId);
+
     try {
-      const remainingIds = (cls.student_ids || []).filter(id => id !== studentId);
-      await applyManualEdit(scheduleId, {
-        class_id: cls.class_id,
-        coach_name: cls.coach_name,
+      await applyException({
+        month,
         date: cls.date,
         time_slot: cls.time_slot,
-        student_level: cls.student_level,
-        batch_type: cls.batch_type,
-        student_ids: remainingIds
+        coach_name: cls.coach_name,
+        class_id: cls.class_id,
+        class_key: `${cls.date}||${cls.time_slot}||${cls.coach_name}`,
+        action_type: 'remove_student',
+        affected_student_ids: [studentId],
+        before: cls,
+        after: {
+          ...cls,
+          student_ids: remainingIds
+        },
+        subtype: 'manual',
+        violated_rules: [],
+        reason: `Removed student ${studentName} (${studentId}) from class`,
+        created_by: 'Admin'
       });
 
-      showToast(`Removed ${studentName} from class.`);
-      if (onRefreshSchedule) onRefreshSchedule();
+      showToast(`Removed ${studentName}. Shortfall immediately reflected in Attention Required.`);
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
-      console.error('Failed to remove student:', err);
-      showToast(err.response?.data?.detail || 'Error removing student from class.', 'danger');
+      console.error('Failed to remove student via exception:', err);
+      try {
+        await applyManualEdit(scheduleId, {
+          class_id: cls.class_id,
+          coach_name: cls.coach_name,
+          date: cls.date,
+          time_slot: cls.time_slot,
+          student_level: cls.student_level,
+          batch_type: cls.batch_type,
+          student_ids: remainingIds
+        });
+        showToast(`Removed ${studentName} from class.`);
+        if (onRefreshSchedule) await onRefreshSchedule();
+      } catch (fallbackErr) {
+        showToast(fallbackErr.response?.data?.detail || 'Error removing student from class.', 'danger');
+      }
     }
   };
 
@@ -366,7 +415,7 @@ export default function DailySchedulePlanner({
       setNewClassSelectedStudents(newClassSelectedStudents.filter(s => s.student_id !== student.student_id));
     } else {
       // Check batch capacity limit
-      const maxCap = newClassBatchType === 'I' ? 1 : (newClassBatchType === 'L' ? 4 : 10);
+      const maxCap = newClassBatchType === 'I' ? 1 : (newClassBatchType === 'L' ? 3 : 8);
       if (newClassSelectedStudents.length >= maxCap) {
         alert(`Maximum capacity for Batch Type [${newClassBatchType}] is ${maxCap} students.`);
         return;
@@ -626,6 +675,27 @@ export default function DailySchedulePlanner({
               </option>
             ))}
           </select>
+
+          {/* Show only ⓒ classes filter toggle (Part D) */}
+          <button
+            type="button"
+            onClick={() => setShowOnlyCompensation(!showOnlyCompensation)}
+            className={`btn ${showOnlyCompensation ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '7px 12px',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              borderColor: showOnlyCompensation ? 'var(--accent-gold)' : 'var(--border-color)',
+              color: showOnlyCompensation ? '#000' : 'var(--text-secondary)'
+            }}
+            title="Filter to show only temporary compensation or rule exception (ⓒ) classes"
+          >
+            <span style={{ fontWeight: 900 }}>ⓒ</span>
+            <span>{showOnlyCompensation ? 'Showing Only ⓒ' : 'Filter ⓒ Only'}</span>
+          </button>
         </div>
 
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -682,7 +752,7 @@ export default function DailySchedulePlanner({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '16px' }}>
           {classesForSelectedDay.map((cls) => {
             const studentCount = cls.student_ids?.length || 0;
-            const maxCap = cls.batch_type === 'I' ? 1 : (cls.batch_type === 'L' ? 4 : 10);
+            const maxCap = cls.batch_type === 'I' ? 1 : (cls.batch_type === 'L' ? 3 : 8);
             const isFull = studentCount >= maxCap;
 
             return (
@@ -723,7 +793,33 @@ export default function DailySchedulePlanner({
                       <span>{cls.time_slot}</span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {/* Tournament visual badge (Part C) */}
+                      {cls.is_tournament && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'linear-gradient(135deg, #f59e0b 0%, #b45309 100%)',
+                            color: '#000',
+                            fontWeight: 900,
+                            fontSize: '0.65rem',
+                            border: '1px solid #fbbf24',
+                            boxShadow: '0 0 8px rgba(245, 158, 11, 0.4)'
+                          }}
+                        >
+                          🏆 {cls.tournament_name || 'Tournament'}
+                        </span>
+                      )}
+
+                      {/* Circled ⓒ Badge with popover & Revert (Part D) */}
+                      {(cls.is_compensation || cls.has_compensation || cls.exception_metadata) && (
+                        <CompensationBadge
+                          cls={cls}
+                          month={selectedDate ? selectedDate.substring(0, 7) : '2026-10'}
+                          onRevertSuccess={onRefreshSchedule}
+                        />
+                      )}
+
                       <span className={`badge ${cls.batch_type === 'I' ? 'badge-info' : (cls.batch_type === 'L' ? 'badge-gold' : 'badge-primary')}`} style={{ fontSize: '0.65rem' }}>
                         Batch [{cls.batch_type}]
                       </span>
@@ -1023,8 +1119,8 @@ export default function DailySchedulePlanner({
                     className="input-field"
                     style={{ width: '100%', fontSize: '0.85rem' }}
                   >
-                    <option value="G">Group [G] (Max 10)</option>
-                    <option value="L">Limited [L] (Max 4)</option>
+                    <option value="G">Group [G] (Max 8)</option>
+                    <option value="L">Limited [L] (Max 3)</option>
                     <option value="I">Individual [I] (Max 1)</option>
                   </select>
                 </div>
