@@ -1,3 +1,4 @@
+import { MIGHTY_KNIGHT_LOGO } from '../constants/logo';
 import React, { useState, useEffect } from 'react';
 import {
   FileSpreadsheet, Upload, Download, CheckCircle, AlertTriangle,
@@ -8,11 +9,13 @@ import {
 import {
   getBaselineStatus, getBaselineTemplateUrl, uploadBaselineExcel,
   activateBaseline, discardBaseline, getExportActiveBaselineUrl,
-  generateNextMonthDraft, promoteEffectiveToBaseline
+  generateNextMonthDraft, promoteEffectiveToBaseline,
+  getExportCompletedScheduleUrl
 } from '../services/api';
 
-export default function AbsoluteScheduleView({ onBaselineActivated }) {
-  const [selectedMonth, setSelectedMonth] = useState('2026-10');
+export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth = '2026-10' }) {
+  const [selectedMonth, setSelectedMonth] = useState(activeMonth || '2026-10');
+  useEffect(() => { if (activeMonth) setSelectedMonth(activeMonth); }, [activeMonth]);
   const [statusData, setStatusData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -77,7 +80,7 @@ export default function AbsoluteScheduleView({ onBaselineActivated }) {
         text: `Baseline v${draft.version} for ${selectedMonth} is now ACTIVE and immutable.`
       });
       await fetchBaselineStatus(selectedMonth);
-      if (onBaselineActivated) onBaselineActivated();
+      if (onBaselineActivated) onBaselineActivated(selectedMonth);
     } catch (err) {
       setActionMsg({
         type: 'error',
@@ -225,36 +228,24 @@ export default function AbsoluteScheduleView({ onBaselineActivated }) {
           </div>
         </div>
 
-        {/* Month Selector Pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(15, 23, 42, 0.6)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-          <button
-            onClick={() => setSelectedMonth('2026-09')}
-            className={`btn ${selectedMonth === '2026-09' ? 'btn-primary' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-          >
-            Sep '26
-          </button>
-          <button
-            onClick={() => setSelectedMonth('2026-10')}
-            className={`btn ${selectedMonth === '2026-10' ? 'btn-primary' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: 800 }}
-          >
-            Oct '26 (Reference)
-          </button>
-          <button
-            onClick={() => setSelectedMonth('2026-11')}
-            className={`btn ${selectedMonth === '2026-11' ? 'btn-primary' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-          >
-            Nov '26
-          </button>
-          <button
-            onClick={() => setSelectedMonth('2026-12')}
-            className={`btn ${selectedMonth === '2026-12' ? 'btn-primary' : ''}`}
-            style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-          >
-            Dec '26
-          </button>
+        {/* Rolling 3-Month Horizon Selector Pills (Point 2 & 12: Oct '26 + Nov, Dec, Jan) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(15, 23, 42, 0.6)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+          {[
+            { m: '2026-10', label: "Oct '26 (Current)" },
+            { m: '2026-11', label: "Nov '26 (+1M)" },
+            { m: '2026-12', label: "Dec '26 (+2M)" },
+            { m: '2027-01', label: "Jan '27 (+3M)" },
+            { m: '2027-02', label: "Feb '27 (Next)" }
+          ].map(item => (
+            <button
+              key={item.m}
+              onClick={() => setSelectedMonth(item.m)}
+              className={`btn ${selectedMonth === item.m ? 'btn-primary' : ''}`}
+              style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: 800 }}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -414,8 +405,45 @@ export default function AbsoluteScheduleView({ onBaselineActivated }) {
         </div>
       </div>
 
-      {/* 3. Navigation View Modes (Preview vs Validation vs History) */}
-      <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+      {/* 3. Navigation View Modes (Preview Grid, i. Actual Schedule Text/Excel, ii. Actual Completed Schedule Text/Excel, Validation, History) */}
+      <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setActiveViewMode('actual_schedule_repo')}
+          style={{
+            background: activeViewMode === 'actual_schedule_repo' ? 'rgba(250, 204, 21, 0.2)' : 'transparent',
+            border: activeViewMode === 'actual_schedule_repo' ? '1px solid var(--accent-gold)' : '1px solid rgba(255,255,255,0.1)',
+            color: activeViewMode === 'actual_schedule_repo' ? '#fbbf24' : 'var(--text-secondary)',
+            borderRadius: '8px',
+            padding: '8px 16px',
+            fontSize: '0.825rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <Calendar size={15} /> (i) Actual Schedule — Date-Wise Text & Excel ({selectedMonth})
+        </button>
+
+        <button
+          onClick={() => setActiveViewMode('completed_schedule_repo')}
+          style={{
+            background: activeViewMode === 'completed_schedule_repo' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+            border: activeViewMode === 'completed_schedule_repo' ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+            color: activeViewMode === 'completed_schedule_repo' ? '#34d399' : 'var(--text-secondary)',
+            borderRadius: '8px',
+            padding: '8px 16px',
+            fontSize: '0.825rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <CheckCircle size={15} /> (ii) Actual Completed Schedule ({statusData?.is_completed_schedule_available ? `${statusData?.completed_classes_count || 0} Executed (Up to Prev Day)` : 'Past/Current Only'})
+        </button>
         <button
           onClick={() => setActiveViewMode('preview')}
           style={{
@@ -481,6 +509,138 @@ export default function AbsoluteScheduleView({ onBaselineActivated }) {
       </div>
 
       {/* 4. Main View Content */}
+
+      {/* VIEW (i): ACTUAL SCHEDULE REPOSITORY (DATE-WISE TEXT & EXCEL FOR PAST, CURRENT & FUTURE MONTHS) */}
+      {activeViewMode === 'actual_schedule_repo' && (
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid var(--accent-gold)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fbbf24', margin: 0 }}>
+                📅 (i) Actual Planned Schedule Repository — {selectedMonth}
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0 0' }}>
+                Complete date-wise planned schedule for {selectedMonth} (Available for Past, Current, and Future 3 Months). Download as Excel or copy date-wise text below.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(statusData?.actual_schedule_text || '');
+                  setActionMsg({ type: 'success', text: `Copied ${selectedMonth} Date-Wise Actual Schedule text to clipboard!` });
+                }}
+                className="btn btn-secondary"
+                style={{ padding: '8px 14px', fontSize: '0.8rem', fontWeight: 800 }}
+              >
+                📋 Copy Date-Wise Text
+              </button>
+              <a
+                href={getExportActiveBaselineUrl(selectedMonth)}
+                download={`Mighty_Knight_Actual_Schedule_${selectedMonth}.xlsx`}
+                className="btn btn-primary"
+                style={{ padding: '8px 16px', fontSize: '0.8rem', fontWeight: 900, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Download size={15} /> Download Actual Schedule Excel (.xlsx)
+              </a>
+            </div>
+          </div>
+
+          <pre
+            style={{
+              background: 'rgba(10, 15, 28, 0.92)',
+              border: '1px solid rgba(251, 191, 36, 0.35)',
+              borderRadius: '10px',
+              padding: '16px',
+              color: '#e2e8f0',
+              fontFamily: 'monospace',
+              fontSize: '0.78rem',
+              maxHeight: '520px',
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.5
+            }}
+          >
+            {statusData?.actual_schedule_text || `No Actual Schedule text found for ${selectedMonth}.`}
+          </pre>
+        </div>
+      )}
+
+      {/* VIEW (ii): ACTUAL COMPLETED SCHEDULE REPOSITORY (EXECUTED SCHEDULE — BLOCKED FOR FUTURE MONTHS) */}
+      {activeViewMode === 'completed_schedule_repo' && (
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid #10b981' }}>
+          {!statusData?.is_completed_schedule_available ? (
+            <div style={{ padding: '36px 20px', textAlign: 'center', color: '#fda4af', background: 'rgba(244, 63, 94, 0.12)', border: '1px solid rgba(244, 63, 94, 0.4)', borderRadius: '10px' }}>
+              <AlertTriangle size={28} style={{ color: '#f43f5e', marginBottom: '8px' }} />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', margin: 0 }}>
+                Actual Completed Schedule Not Available for Future Month ({selectedMonth})
+              </h3>
+              <p style={{ fontSize: '0.82rem', color: '#fecdd3', marginTop: '6px' }}>
+                Per academy rules, the <strong>Actual Completed Schedule</strong> only records executed classes (including real-time ⓒ compensation & manual changes) for past and current months, never future months.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#34d399', margin: 0 }}>
+                    ✅ (ii) Actual Completed Schedule Repository (Executed + ⓒ Overrides) — {selectedMonth}
+                  </h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0 0' }}>
+                    Reflects executed classes up to the previous completed day in {selectedMonth} ({statusData?.completed_classes_count || 0} classes · {statusData?.completed_seats_count || 0} student seats). Current-day and future dates remain excluded until their days conclude.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(statusData?.actual_completed_schedule_text || '');
+                      setActionMsg({ type: 'success', text: `Copied ${selectedMonth} Actual Completed Schedule text to clipboard!` });
+                    }}
+                    className="btn btn-secondary"
+                    style={{ padding: '8px 14px', fontSize: '0.8rem', fontWeight: 800 }}
+                  >
+                    📋 Copy Completed Text
+                  </button>
+                  <a
+                    href={getExportCompletedScheduleUrl(selectedMonth)}
+                    download={`Mighty_Knight_Actual_Completed_Schedule_${selectedMonth}.xlsx`}
+                    className="btn btn-primary"
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '0.8rem',
+                      fontWeight: 900,
+                      textDecoration: 'none',
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: '#000',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Download size={15} /> Download Completed Schedule Excel (.xlsx)
+                  </a>
+                </div>
+              </div>
+
+              <pre
+                style={{
+                  background: 'rgba(10, 15, 28, 0.92)',
+                  border: '1px solid rgba(16, 185, 129, 0.4)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  color: '#d1fae5',
+                  fontFamily: 'monospace',
+                  fontSize: '0.78rem',
+                  maxHeight: '520px',
+                  overflowY: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.5
+                }}
+              >
+                {statusData?.actual_completed_schedule_text || `No completed classes recorded yet for ${selectedMonth}.`}
+              </pre>
+            </>
+          )}
+        </div>
+      )}
 
       {/* VIEW: Preview Grid */}
       {activeViewMode === 'preview' && (
@@ -577,13 +737,13 @@ export default function AbsoluteScheduleView({ onBaselineActivated }) {
                         </span>
                       </td>
                       <td style={{ padding: '10px 12px' }}>
-                        <span className={`badge ${s.batch_type === 'I' ? 'badge-danger' : (s.batch_type === 'L' ? 'badge-blue' : 'badge-gold')}`} style={{ fontSize: '0.7rem' }}>
-                          {s.batch_type}
+                        <span className={`badge ${s.batch_type === 'I' ? 'badge-danger' : (s.batch_type === 'L' ? 'badge-blue' : 'badge-gold')}`} style={{ fontSize: '0.7rem', fontWeight: 800 }}>
+                          {s.batch_code || s.batch_name || s.batch || s.batch_type} [{s.batch_type}]
                         </span>
                       </td>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#fff' }}>{s.required_classes || 12}</td>
                       <td style={{ padding: '10px 12px', fontWeight: 800, color: (s.classes_scheduled_count >= (s.required_classes || 12)) ? '#22c55e' : '#f59e0b' }}>
-                        {s.classes_scheduled_count || 0}
+                        {s.classes_scheduled_count ?? s.actual_classes ?? 0}
                       </td>
                       <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{s.note || s.batch_name || '-'}</td>
                     </tr>

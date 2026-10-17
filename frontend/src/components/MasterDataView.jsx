@@ -141,6 +141,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
       showNotification(`Saved trainer ${coachData.coach_name}`);
       setEditingCoach(null);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to save coach: ' + err.message);
     }
@@ -152,6 +153,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
       await deleteMasterCoach(coachName);
       showNotification(`Deleted trainer ${coachName}`);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to delete coach: ' + err.message);
     }
@@ -165,6 +167,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
       await saveMasterBatch(batchData);
       showNotification(`Saved batch ${batchData.batch_name}`);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to save batch: ' + err.message);
     }
@@ -175,6 +178,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
       await deleteMasterBatch(batchId);
       showNotification(`Deleted batch ${batchId}`);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to delete batch: ' + err.message);
     }

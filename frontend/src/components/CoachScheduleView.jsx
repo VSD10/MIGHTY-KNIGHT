@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Copy, Check, Calendar, AlertCircle, CheckCircle, Users, Layers, Trophy } from 'lucide-react';
+import { formatCoachSlotsForDayWhatsApp, copyTextToClipboard } from '../utils/dayScheduleFormatter';
 
 const getTimeSlotSortMinutes = (timeSlotStr) => {
   if (!timeSlotStr) return 0;
@@ -19,6 +20,7 @@ const getTimeSlotSortMinutes = (timeSlotStr) => {
 
 export default function CoachScheduleView({ coachScheduleData, onRunScheduler, loading }) {
   const [copied, setCopied] = useState(false);
+  const [copiedDay, setCopiedDay] = useState(null);
   const [hideCompensationMarkers, setHideCompensationMarkers] = useState(false);
 
   if (!coachScheduleData || !coachScheduleData.coach_slots) {
@@ -44,6 +46,24 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
       navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
+    }
+  };
+
+  const handleCopySingleDayWhatsApp = async (e, dateStr, dayStr, daySlots) => {
+    e.stopPropagation();
+    e.preventDefault();
+    let text = formatCoachSlotsForDayWhatsApp(dateStr, dayStr, daySlots);
+    if (hideCompensationMarkers) {
+      text = text.replace(/ⓒ/g, '').replace(/\[ⓒ\]/g, '').replace(/  +/g, ' ');
+    }
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedDay(dateStr);
+      setTimeout(() => {
+        setCopiedDay(prev => (prev === dateStr ? null : prev));
+      }, 2500);
+    } else {
+      alert("Failed to copy schedule to clipboard. Please check clipboard permissions.");
     }
   };
 
@@ -170,11 +190,35 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
             );
             return (
               <div key={dateStr} className="glass-card" style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-                  <Calendar size={18} style={{ color: 'var(--accent-gold)' }} />
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#fff' }}>
-                    {group.day}, {dateStr}
-                  </h3>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Calendar size={18} style={{ color: 'var(--accent-gold)' }} />
+                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#fff', margin: 0 }}>
+                      {group.day}, {dateStr}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopySingleDayWhatsApp(e, dateStr, group.day, group.slots)}
+                    title="Copy this day's schedule formatted for WhatsApp"
+                    className="btn btn-secondary"
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: copiedDay === dateStr ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                      borderColor: copiedDay === dateStr ? '#10b981' : 'var(--border-color)',
+                      color: copiedDay === dateStr ? '#10b981' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      borderRadius: 'var(--radius-sm)'
+                    }}
+                  >
+                    {copiedDay === dateStr ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                    <span>{copiedDay === dateStr ? 'Copied!' : 'Copy Day'}</span>
+                  </button>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>

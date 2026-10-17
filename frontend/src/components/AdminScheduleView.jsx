@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Calendar, X, Download, CheckCircle, ShieldCheck, FileSpreadsheet } from 'lucide-react';
+import { Filter, AlertCircle, Edit3, Search, LayoutGrid, Table as TableIcon, Move, UserPlus, Calendar, X, Download, CheckCircle, ShieldCheck, FileSpreadsheet, Copy, Check } from 'lucide-react';
 import { applyManualEdit, assignStudentToClass, getMonthlyMatrixExcelUrl, validateSchedule } from '../services/api';
 import { OFFICIAL_LEVELS } from '../constants/levels';
 import CompensationBadge from './CompensationBadge';
+import { formatSingleDayWhatsAppSchedule, copyTextToClipboard } from '../utils/dayScheduleFormatter';
 
 export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit, scheduleId, onRefreshSchedule }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -16,6 +17,28 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
   const [dragOverClassId, setDragOverClassId] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [copiedDay, setCopiedDay] = useState(null);
+
+  const handleCopyDayWhatsApp = async (e, dateGroupKey, dayClasses) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!dayClasses || dayClasses.length === 0) return;
+
+    const match = dateGroupKey.match(/^(\d{4}-\d{2}-\d{2})(?:\s*\((.*?)\))?/);
+    const dateStr = match ? match[1] : (dayClasses[0]?.date || dateGroupKey);
+    const dayStr = match ? match[2] : (dayClasses[0]?.day || '');
+
+    const text = formatSingleDayWhatsAppSchedule(dateStr, dayStr, dayClasses);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedDay(dateGroupKey);
+      setTimeout(() => {
+        setCopiedDay(prev => (prev === dateGroupKey ? null : prev));
+      }, 2500);
+    } else {
+      alert("Failed to copy schedule to clipboard. Please check clipboard permissions.");
+    }
+  };
 
   const handleValidateSchedule = async () => {
     if (!scheduleId) return;
@@ -89,7 +112,8 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
       (cls.coach_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (cls.students_formatted || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (cls.student_level || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (cls.date || '').toLowerCase().includes(searchQuery.toLowerCase());
+      (cls.date || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (cls.batch_code || cls.batch_name || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesLevel && matchesCoach && matchesStartDate && matchesEndDate && matchesCompensation && matchesSearch;
   });
 
@@ -429,15 +453,15 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
                     <td>
                       <div style={{ fontWeight: 600, color: '#fff' }}>{cls.student_level}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--accent-gold)', fontWeight: 700 }}>
-                        {cls.batch_name || `Batch ${cls.batch_type}`}
+                        {cls.batch_code || cls.batch_name || `Batch ${cls.batch_type}`} [{cls.batch_type}]
                       </div>
                     </td>
                     <td>
-                      <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>{cls.student_count}</span>
+                      <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>{cls.student_count ?? cls.student_ids?.length ?? 0}</span>
                     </td>
                     <td style={{ maxWidth: '350px' }}>
                       <div style={{ fontSize: '0.825rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                        {(Array.isArray(cls.student_names) && cls.student_names.length > 0 ? cls.student_names.join(' · ') : (cls.students_formatted || '')).replace(/\s*\([^)]*\)/g, '')}
+                        {(cls.students_formatted || (Array.isArray(cls.student_names) ? cls.student_names.join(' · ') : ''))}
                       </div>
                     </td>
                     <td>
@@ -475,10 +499,35 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
             <p style={{ color: 'var(--text-secondary)' }}>No classes available to display in board view.</p>
           ) : (
             Object.keys(dateMap).sort().map(dateGroup => (
-              <div key={dateGroup} className="glass-card" style={{ padding: '16px' }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', pb: '8px' }}>
-                  📅 {dateGroup} ({dateMap[dateGroup].length} classes)
-                </h3>
+              <div key={dateGroup} className="glass-card" style={{ padding: '16px', position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--accent-gold)', margin: 0 }}>
+                    📅 {dateGroup} ({dateMap[dateGroup].length} classes)
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyDayWhatsApp(e, dateGroup, dateMap[dateGroup])}
+                    title="Copy this date's schedule formatted for WhatsApp"
+                    className="btn btn-secondary"
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: copiedDay === dateGroup ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                      borderColor: copiedDay === dateGroup ? '#10b981' : 'var(--border-color)',
+                      color: copiedDay === dateGroup ? '#10b981' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      borderRadius: 'var(--radius-sm)',
+                      flexShrink: 0
+                    }}
+                  >
+                    {copiedDay === dateGroup ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                    <span>{copiedDay === dateGroup ? 'Copied!' : 'Copy Day'}</span>
+                  </button>
+                </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {dateMap[dateGroup].map(cls => (
@@ -518,11 +567,11 @@ export default function AdminScheduleView({ adminScheduleData, onOpenManualEdit,
                       </div>
 
                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
-                        {cls.student_level} — <span style={{ color: 'var(--accent-gold)' }}>{cls.batch_name || `Batch ${cls.batch_type}`}</span>
+                        {cls.student_level} — <span style={{ color: 'var(--accent-gold)' }}>{cls.batch_code || cls.batch_name || `Batch ${cls.batch_type}`} [{cls.batch_type}]</span>
                       </div>
 
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.3 }}>
-                        {(Array.isArray(cls.student_names) && cls.student_names.length > 0 ? cls.student_names.join(' · ') : (cls.students_formatted || '')).replace(/\s*\([^)]*\)/g, '')}
+                        {(cls.students_formatted || (Array.isArray(cls.student_names) ? cls.student_names.join(' · ') : ''))}
                       </p>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

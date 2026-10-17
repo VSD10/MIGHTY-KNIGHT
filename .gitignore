@@ -1,10 +1,14 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -20,31 +24,54 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
 .pytest_cache/
 .coverage
-htmlcov/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
 
-# Databases
-*.sqlite3
-*.db
-mighty_knight.db
-!backend/data/chess_scheduler.db
+# Production Build
+/frontend/dist/
+/frontend/build/
 
-# Node / React
-node_modules/
-frontend/node_modules/
-frontend/dist/
-.eslintcache
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Environment & IDE
+# SQLite Lock & Journal files (Keep master db if desired, ignore locks)
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment & Secret files
 .env
 .env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
 .vscode/
 .idea/
-.DS_Store
-
-# System generated artifacts
-.system_generated/
-outputs/
-backend/test_chrome*
-backend/dharmasastha_native.png

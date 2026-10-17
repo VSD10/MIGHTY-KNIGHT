@@ -13,7 +13,7 @@ import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
 import AbsoluteScheduleView from './components/AbsoluteScheduleView';
 import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent } from './services/api';
-import { getCustomStudentsLocal, getDeletedStudentsLocal, getDeletedClassesLocal, trackDeletedClassLocal } from './utils/storageSync';
+import { getCustomStudentsLocal, getDeletedStudentsLocal, getDeletedClassesLocal, trackDeletedClassLocal, clearCustomStorageLocal } from './utils/storageSync';
 
 const getCurrentMonthBounds = () => {
   return {
@@ -62,6 +62,21 @@ export default function App() {
     fetchMasterBatchesList();
   }, []);
 
+
+  const refreshScheduleRef = React.useRef();
+
+  useEffect(() => {
+    if (startDate) {
+      const mStr = startDate.substring(0, 7);
+      if (refreshScheduleRef.current) {
+        refreshScheduleRef.current(currentScheduleId, null, mStr);
+      }
+    }
+  }, [startDate]);
+
+  const [isEngineBackgroundActive, setIsEngineBackgroundActive] = useState(false);
+  const [backgroundJobMessage, setBackgroundJobMessage] = useState('');
+
   // Real-time SSE listener for fire-speed automatic updates (Part A4)
   useEffect(() => {
     let eventSource;
@@ -72,7 +87,11 @@ export default function App() {
           const data = JSON.parse(event.data);
           if (data.type === 'ScheduleChanged') {
             console.log('[SSE] ScheduleChanged event received, updating view...', data);
-            handleRefreshCurrentSchedule();
+            setIsEngineBackgroundActive(false);
+            setBackgroundJobMessage('');
+            if (refreshScheduleRef.current) {
+              refreshScheduleRef.current(null, null, data.month);
+            }
           }
         } catch (err) {
           console.warn('[SSE] Parse error:', err);
@@ -183,23 +202,68 @@ export default function App() {
     setLoading(true);
     try {
       await fetchActiveFileInfo();
-      const active = await getActiveSchedule();
+      const mStr = (startDate || '2026-10-01').substring(0, 7);
+      const active = await getActiveSchedule(mStr).catch(() => null);
       if (active && active.schedule_id) {
         const sId = active.schedule_id;
         setCurrentScheduleId(sId);
         setActiveScheduleInfo(active);
-        setScheduleStatus(active.status || 'Draft');
+        setScheduleStatus(active.status || 'Active');
         if (active.start_date) setStartDate(active.start_date);
         if (active.end_date) setEndDate(active.end_date);
 
-        const o1 = await getOutput1(sId);
-        const o2 = await getOutput2(sId);
-        const o3 = await getOutput3(sId);
-        const o5 = await getOutput5(sId).catch(() => null);
+        if (active.coach_slots) {
+          setOutput1Data({
+            schedule_id: sId,
+            month: mStr,
+            version: active.version,
+            total_classes: active.total_classes,
+            quotas_completed: active.quotas_completed,
+            student_seats: active.student_seats,
+            need_attention: active.unscheduled_students_count,
+            coach_slots: active.coach_slots,
+            whatsapp_plain_text: active.whatsapp_plain_text
+          });
+        }
+        if (active.scheduled_classes) {
+          setOutput2Data({
+            schedule_id: sId,
+            detailed_classes: active.scheduled_classes,
+            coach_summaries: active.coach_summaries || [],
+            total_classes: active.total_classes,
+            student_seats: active.student_seats,
+            compensation_count: active.compensation_count || 0
+          });
+        }
+        if (active.attention_records) {
+          setOutput3Data({
+            schedule_id: sId,
+            month: mStr,
+            total_students_considered: active.total_students_considered,
+            total_input_students: active.total_students_considered,
+            unscheduled_count: active.unscheduled_students_count,
+            attention_records: active.attention_records,
+            unscheduled_records: active.attention_records
+          });
+        }
+        if (active.student_schedules) {
+          setOutput5Data({
+            schedule_id: sId,
+            total_students: active.student_schedules.length,
+            student_schedules: active.student_schedules
+          });
+        }
 
-        setOutput1Data(o1);
-        setOutput2Data(filterDeletedClasses(o2));
-        setOutput3Data(filterDeletedFromOutput3(o3));
+        const [o1, o2, o3, o5] = await Promise.all([
+          getOutput1(sId, mStr).catch(() => null),
+          getOutput2(sId, mStr).catch(() => null),
+          getOutput3(sId, mStr).catch(() => null),
+          getOutput5(sId, mStr).catch(() => null),
+        ]);
+
+        if (o1) setOutput1Data(o1);
+        if (o2) setOutput2Data(filterDeletedClasses(o2));
+        if (o3) setOutput3Data(filterDeletedFromOutput3(o3));
         if (o5) setOutput5Data(o5);
       } else {
         clearCustomStorageLocal();
@@ -213,29 +277,42 @@ export default function App() {
     }
   };
 
-  const handleRunScheduler = async () => {
-    setLoading(true);
+  const handleRunScheduler = async (forceAsync = true) => {
+    setIsEngineBackgroundActive(true);
+    setBackgroundJobMessage('Engine processing in background. All pages remain viewable and responsive...');
     try {
-      const result = await runSchedule(startDate, endDate);
-      const sId = result.schedule_id;
-      setCurrentScheduleId(sId);
-      setActiveScheduleInfo(result);
-      setScheduleStatus(result.status || 'Draft');
+      const result = await runSchedule(startDate, endDate, forceAsync);
+      if (result && result.status === 'processing') {
+        setBackgroundJobMessage(result.message || 'Engine is executing in background. You can navigate and inspect schedules freely.');
+        return;
+      }
+      const sId = result?.schedule_id;
+      if (sId) {
+        setCurrentScheduleId(sId);
+        setActiveScheduleInfo(result);
+        setScheduleStatus(result.status || 'Draft');
 
-      const o1 = await getOutput1(sId);
-      const o2 = await getOutput2(sId);
-      const o3 = await getOutput3(sId);
-      const o5 = await getOutput5(sId).catch(() => null);
+        const mStr = (startDate || '2026-10-01').substring(0, 7);
+        const [o1, o2, o3, o5] = await Promise.all([
+          getOutput1(sId, mStr).catch(() => null),
+          getOutput2(sId, mStr).catch(() => null),
+          getOutput3(sId, mStr).catch(() => null),
+          getOutput5(sId, mStr).catch(() => null),
+        ]);
 
-      setOutput1Data(o1);
-      setOutput2Data(filterDeletedClasses(o2));
-      setOutput3Data(filterDeletedFromOutput3(o3));
-      if (o5) setOutput5Data(o5);
-      await fetchActiveFileInfo();
+        if (o1) setOutput1Data(o1);
+        if (o2) setOutput2Data(filterDeletedClasses(o2));
+        if (o3) setOutput3Data(filterDeletedFromOutput3(o3));
+        if (o5) setOutput5Data(o5);
+        await fetchActiveFileInfo();
+      }
     } catch (err) {
       console.error('Failed to run scheduler:', err);
     } finally {
-      setLoading(false);
+      setTimeout(() => {
+        setIsEngineBackgroundActive(false);
+        setBackgroundJobMessage('');
+      }, 1500);
     }
   };
 
@@ -250,20 +327,8 @@ export default function App() {
     }
   };
 
-  const handleRefreshCurrentSchedule = async (sId = currentScheduleId, newStudent = null) => {
-    let targetId = sId;
-    if (!targetId) {
-      try {
-        const active = await getActiveSchedule();
-        if (active?.schedule_id) {
-          targetId = active.schedule_id;
-          setCurrentScheduleId(targetId);
-          setActiveScheduleInfo(active);
-        }
-      } catch (e) {
-        console.warn("Could not resolve active schedule:", e);
-      }
-    }
+  const handleRefreshCurrentSchedule = async (sId = null, newStudent = null, targetMonth = null) => {
+    const mStr = targetMonth || (startDate || '2026-10-01').substring(0, 7);
 
     if (newStudent) {
       const deletedIds = new Set(getDeletedStudentsLocal());
@@ -275,18 +340,75 @@ export default function App() {
       }
     }
 
-    if (!targetId) return;
     try {
       setLoading(true);
-      const o1 = await getOutput1(targetId);
-      const o2 = await getOutput2(targetId);
-      const o3 = await getOutput3(targetId);
-      const o5 = await getOutput5(targetId).catch(() => null);
+      const active = await getActiveSchedule(mStr).catch(() => null);
+      const targetId = sId || active?.schedule_id || currentScheduleId || `SCHED_${mStr.replace('-', '')}`;
+      setCurrentScheduleId(targetId);
 
-      setOutput1Data(o1);
-      setOutput2Data(filterDeletedClasses(o2));
-      setOutput3Data(filterDeletedFromOutput3(o3));
+      if (active) {
+        setActiveScheduleInfo(active);
+        setScheduleStatus(active.status || 'Active');
+        if (active.start_date) setStartDate(active.start_date);
+        if (active.end_date) setEndDate(active.end_date);
+
+        // Immediate reactive populate from active single source of truth
+        if (active.coach_slots) {
+          setOutput1Data({
+            schedule_id: targetId,
+            month: mStr,
+            version: active.version,
+            total_classes: active.total_classes,
+            quotas_completed: active.quotas_completed,
+            student_seats: active.student_seats,
+            need_attention: active.unscheduled_students_count,
+            coach_slots: active.coach_slots,
+            whatsapp_plain_text: active.whatsapp_plain_text
+          });
+        }
+        if (active.scheduled_classes) {
+          setOutput2Data({
+            schedule_id: targetId,
+            detailed_classes: active.scheduled_classes,
+            coach_summaries: active.coach_summaries || [],
+            total_classes: active.total_classes,
+            student_seats: active.student_seats,
+            compensation_count: active.compensation_count || 0
+          });
+        }
+        if (active.attention_records) {
+          setOutput3Data(prev => ({
+            ...(prev || {}),
+            schedule_id: targetId,
+            month: mStr,
+            total_students_considered: active.total_students_considered,
+            total_input_students: active.total_students_considered,
+            unscheduled_count: active.unscheduled_students_count,
+            attention_records: active.attention_records,
+            unscheduled_records: active.attention_records
+          }));
+        }
+        if (active.student_schedules) {
+          setOutput5Data({
+            schedule_id: targetId,
+            total_students: active.student_schedules.length,
+            student_schedules: active.student_schedules
+          });
+        }
+      }
+
+      const [o1, o2, o3, o5] = await Promise.all([
+        getOutput1(targetId, mStr).catch(() => null),
+        getOutput2(targetId, mStr).catch(() => null),
+        getOutput3(targetId, mStr).catch(() => null),
+        getOutput5(targetId, mStr).catch(() => null),
+      ]);
+
+      if (o1) setOutput1Data(o1);
+      if (o2) setOutput2Data(filterDeletedClasses(o2));
+      if (o3) setOutput3Data(filterDeletedFromOutput3(o3));
       if (o5) setOutput5Data(o5);
+
       await fetchActiveFileInfo();
       await fetchMasterStudentsList();
       await fetchMasterBatchesList();
@@ -296,6 +418,8 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  refreshScheduleRef.current = handleRefreshCurrentSchedule;
 
   const handleOpenManualEdit = (cls) => {
     setTargetEditClass(cls);
@@ -344,6 +468,46 @@ export default function App() {
           stats={scheduleStats}
         />
 
+        {/* Rule 6: Non-Blocking Background Engine Execution Banner */}
+        {isEngineBackgroundActive && (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(79, 70, 229, 0.12))',
+            border: '1px solid rgba(59, 130, 246, 0.35)',
+            borderRadius: '12px',
+            padding: '12px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.25)',
+            backdropFilter: 'blur(8px)',
+            animation: 'fadeIn 0.3s ease-in-out'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{
+                display: 'inline-block',
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                backgroundColor: '#3b82f6',
+                boxShadow: '0 0 10px #3b82f6',
+                animation: 'pulse 1.5s infinite'
+              }} />
+              <div>
+                <div style={{ fontWeight: 600, color: '#93c5fd', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>⚡ Background Engine Execution Active (Rule 6)</span>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>
+                  {backgroundJobMessage || 'All pages remain responsive. Operations and changes are safely queued without blocking.'}
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: '0.75rem', padding: '4px 10px', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', fontWeight: 600 }}>
+              Non-Blocking Mode
+            </div>
+          </div>
+        )}
+
         {/* Dynamic Canvas Views */}
         <main>
           {activeTab === 'output1' && (
@@ -366,6 +530,7 @@ export default function App() {
               coaches={output2Data?.coach_summaries || []}
               masterStudents={masterStudentsList}
               unscheduledStudents={output3Data?.attention_records || output3Data?.unscheduled_records || []}
+              masterBatches={masterBatchesList}
             />
           )}
 
@@ -385,6 +550,7 @@ export default function App() {
               scheduleId={currentScheduleId}
               onRefreshSchedule={handleRefreshCurrentSchedule}
               coachList={output2Data?.coach_summaries?.map(c => c.coach_name) || []}
+              activeMonth={(startDate || '2026-10-01').substring(0, 7)}
             />
           )}
 
@@ -395,12 +561,16 @@ export default function App() {
               scheduleId={currentScheduleId}
               onOpenManualEdit={handleOpenManualEdit}
               onRefreshSchedule={handleRefreshCurrentSchedule}
+              systemConfig={systemConfig}
+              onRefreshConfig={fetchSystemConfig}
             />
           )}
 
           {activeTab === 'studentSchedules' && (
             <StudentScheduleView
               studentScheduleData={output5Data}
+              activeMonth={(startDate || '2026-10-01').substring(0, 7)}
+              onRefreshSchedule={handleRefreshCurrentSchedule}
               detailedClasses={output2Data?.detailed_classes || []}
               scheduleId={currentScheduleId}
             />
@@ -416,7 +586,8 @@ export default function App() {
 
           {activeTab === 'absoluteSchedule' && (
             <AbsoluteScheduleView
-              onBaselineActivated={() => handleRefreshCurrentSchedule()}
+              activeMonth={(startDate || '2026-10-01').substring(0, 7)}
+              onBaselineActivated={(activatedMonth) => handleRefreshCurrentSchedule(null, null, activatedMonth)}
             />
           )}
 

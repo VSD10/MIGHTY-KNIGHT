@@ -78,6 +78,7 @@ def parse_monthly_batch_dataset(csv_file_path: str) -> Tuple[List[Dict[str, Any]
 
         for col_idx, day_lbl, dow in days_cols:
             if col_idx < len(r):
+                time_slot = r[col_idx].strip()
                 raw_coach = r[col_idx + 1].strip() if col_idx + 1 < len(r) else ""
                 coach_name = resolve_coach_canonical_name(raw_coach) if raw_coach and raw_coach.lower() != "na" else ""
                 if time_slot:

@@ -32,31 +32,37 @@ export const uploadExcel = async (file) => {
   return res.data;
 };
 
-export const runSchedule = async (startDate, endDate) => {
+export const runSchedule = async (startDate, endDate, asyncRun = false) => {
   const res = await api.post('/schedule/run', {
     start_date: startDate,
     end_date: endDate,
+    async_run: asyncRun,
   });
   return res.data;
 };
 
-export const getOutput1 = async (scheduleId) => {
-  const res = await api.get(`/schedule/${scheduleId}/output1`);
+export const getEngineStatus = async () => {
+  const res = await api.get('/engine/status');
   return res.data;
 };
 
-export const getOutput2 = async (scheduleId) => {
-  const res = await api.get(`/schedule/${scheduleId}/output2`);
+export const getOutput1 = async (scheduleId, month = '2026-10') => {
+  const res = await api.get(`/schedule/${scheduleId}/output1?month=${encodeURIComponent(month)}`);
   return res.data;
 };
 
-export const getOutput3 = async (scheduleId) => {
-  const res = await api.get(`/schedule/${scheduleId}/output3`);
+export const getOutput2 = async (scheduleId, month = '2026-10') => {
+  const res = await api.get(`/schedule/${scheduleId}/output2?month=${encodeURIComponent(month)}`);
   return res.data;
 };
 
-export const getOutput5 = async (scheduleId) => {
-  const res = await api.get(`/schedule/${scheduleId}/output5`);
+export const getOutput3 = async (scheduleId, month = '2026-10') => {
+  const res = await api.get(`/schedule/${scheduleId}/output3?month=${encodeURIComponent(month)}`);
+  return res.data;
+};
+
+export const getOutput5 = async (scheduleId, month = '2026-10') => {
+  const res = await api.get(`/schedule/${scheduleId}/output5?month=${encodeURIComponent(month)}`);
   return res.data;
 };
 
@@ -168,8 +174,8 @@ export const getDataSummary = async () => {
   return res.data;
 };
 
-export const getActiveSchedule = async () => {
-  const res = await api.get('/schedule/latest/active');
+export const getActiveSchedule = async (month = '2026-10') => {
+  const res = await api.get(`/schedule/latest/active?month=${encodeURIComponent(month)}`);
   return res.data;
 };
 
@@ -353,6 +359,33 @@ export const getSmartBatches = async (month = '2026-10') => {
 
 export const getConsolidationAdvisor = async (month = '2026-10') => {
   const res = await api.get(`/engine/consolidation-advisor?month=${month}`);
+  return res.data;
+};
+
+
+export const getExportCompletedScheduleUrl = (month = '2026-10') => {
+  return `${API_BASE_URL}/baseline/export-completed?month=${encodeURIComponent(month)}`;
+};
+
+export const resolveDeletedPastClass = async (payload) => {
+  const res = await api.post('/schedule/deleted-class/resolve', payload);
+  return res.data;
+};
+
+export const getCoachAvailabilityExplorer = async (month = '2026-10', date = null) => {
+  const q = date ? `month=${encodeURIComponent(month)}&date=${encodeURIComponent(date)}` : `month=${encodeURIComponent(month)}`;
+  const res = await api.get(`/engine/coach-availability?${q}`);
+  return res.data;
+};
+
+export const reassignBatchCoach = async ({ class_id, batch_name, new_coach_name, apply_to_entire_batch = true, month = '2026-10' }) => {
+  const res = await api.post('/schedule/reassign-batch-coach', {
+    class_id,
+    batch_name,
+    new_coach_name,
+    apply_to_entire_batch,
+    month
+  });
   return res.data;
 };
 

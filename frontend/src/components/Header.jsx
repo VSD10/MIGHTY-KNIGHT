@@ -1,3 +1,4 @@
+import { MIGHTY_KNIGHT_LOGO } from '../constants/logo';
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Calendar, FileSpreadsheet, Play, CheckCircle, Clock, Download, HardDrive, Sparkles, Layers, Users, BarChart3, GraduationCap, MessageSquare } from 'lucide-react';
 import { getDownloadTemplateUrl, getDataSummary } from '../services/api';
@@ -25,22 +26,21 @@ export default function Header({ scheduleStatus, onStatusToggle, activeTab, setA
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '20px' }}>
         {/* Brand Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div
+          <img
+            src={MIGHTY_KNIGHT_LOGO}
+            alt="Mighty Knight Official Logo"
             className="knight-logo"
             style={{
-              width: '52px',
-              height: '52px',
-              borderRadius: '16px',
-              background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              width: 'clamp(48px, 4.5vw, 60px)',
+              height: 'clamp(48px, 4.5vw, 60px)',
+              borderRadius: '14px',
+              background: '#450a0a',
+              objectFit: 'contain',
               boxShadow: 'var(--shadow-gold)',
-              border: '1px solid rgba(255,255,255,0.2)'
+              border: '1.5px solid var(--accent-gold)',
+              flexShrink: 0
             }}
-          >
-            <span style={{ fontSize: '30px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}>♞</span>
-          </div>
+          />
 
           <div>
             <h1 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '12px' }}>

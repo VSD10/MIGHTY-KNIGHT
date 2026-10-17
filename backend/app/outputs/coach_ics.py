@@ -1,3 +1,4 @@
+from app.engine.rule_engine import resolve_coach_canonical_name
 import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
@@ -24,10 +25,10 @@ def generate_coach_ics(coach_name: str, scheduled_classes: List[Dict[str, Any]])
     Generates a standard iCalendar (.ics) format file string for a coach's scheduled classes.
     Allows one-click importing of all assigned classes into Google Calendar, Apple Calendar, or Outlook.
     """
-    c_lower = coach_name.strip().lower()
+    c_canon = resolve_coach_canonical_name(coach_name).lower()
     coach_classes = [
         cls for cls in scheduled_classes 
-        if cls.get("coach_name", "").strip().lower() == c_lower
+        if resolve_coach_canonical_name(cls.get("coach_name", "")).lower() == c_canon
     ]
 
     ics_lines = [

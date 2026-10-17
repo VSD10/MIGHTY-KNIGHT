@@ -133,6 +133,18 @@ export default function SettingsView({ config }) {
   // 2. Hard Rules (Enforced by Backend Engine)
   const hardRules = [
     {
+      name: 'Rule 1: Strict Batch Compatibility (Zero Mixing)',
+      category: 'Batch Compatibility',
+      description: 'Mandatory hard constraint: Group (G) students attend Group batches only, Limited (L) Limited only, and Individual (I) Individual only. Never mix different batch types regardless of student availability, vacant seats, or convenience. Individual students must remain individually assigned and never combined into shared batches.',
+      enforcement: 'Mandatory Hard Invariant (100% Zero-Mixing Enforced)'
+    },
+    {
+      name: 'Rule 1: Level Compatibility & Basic 1 Absolute Isolation',
+      category: 'Level Compatibility',
+      description: 'Hard constraint by default: Exact same-level matching within same batch type. Basic 1 is an absolute isolated exception: Basic 1 students must attend Basic 1 batches only and must never be combined with Basic 2 or any other level. Combining non-adjacent levels (2+ steps) is strictly prohibited.',
+      enforcement: 'Hard Compatibility Guard & Basic 1 Isolation'
+    },
+    {
       name: 'No Coach Overlap (Single Occupancy)',
       category: 'Trainer Feasibility',
       description: 'A trainer cannot be assigned to two classes occurring at the same time slot on the same date.',
@@ -191,16 +203,22 @@ export default function SettingsView({ config }) {
   // 3. Soft Optimization Targets (Balanced via Deterministic Scoring)
   const softOptimizations = [
     {
+      name: 'Rule 1: Conditional Adjacent-Level Flexibility (Fallback Only)',
+      category: 'Controlled Level Fallback',
+      description: 'When a suitable same-level batch cannot accommodate the student, the engine may recommend an adjacent level within the same batch type (±1 step in hierarchy: Basic 2 ↔ Beginner 1 ↔ Beginner 2 ↔ Early Intermediate 1 ↔ Early Intermediate 2 ↔ Intermediate 1 ↔ Intermediate 2).',
+      rationale: 'Fallback recommendation only, not default strategy. Requires authorized confirmation before assignment; never silently changes level.'
+    },
+    {
       name: 'Even Weekly Pacing',
       category: 'Learning Rhythm',
       description: 'Aims to spread classes evenly throughout the month (~4/wk for 16, ~2/wk for 8, ~1/wk for 4), with controlled relaxation late in the month.',
       rationale: 'Avoids student fatigue while allowing catch-up if early classes are missed.'
     },
     {
-      name: 'Group Batch Minimum of 4 Students',
+      name: 'Flexible Group Batch Start (1 to 8 Students)',
       category: 'Batch Size Optimization',
-      description: 'Group batches ideally have at least 4 students. If fewer compatible students exist, a soft warning is recorded, but students are never omitted.',
-      rationale: 'Students are never left unscheduled simply because a compatible group has fewer than 4 students.'
+      description: 'Group batches start even with 1 student and scale up to a hard maximum of 8 students.',
+      rationale: 'Ensures every student gets scheduled without waiting for a minimum cohort threshold.'
     },
     {
       name: 'Preferred Time Slots & Recurring Days',
@@ -231,14 +249,13 @@ export default function SettingsView({ config }) {
     'Early Intermediate 1': ['DHAANUSH', 'SARAVANAN', 'ARSHATH', 'PRAKASH', 'GURU'],
     'Early Intermediate 2': ['DHAANUSH', 'SARAVANAN', 'ARSHATH', 'PRAKASH', 'GURU'],
     'Intermediate 1': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN'],
-    'Intermediate 2': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN'],
-    'Advanced': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN']
+    'Intermediate 2': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN']
   };
 
   const sundayRules = config?.sunday_rules || {
     max_end_time: '15:00',
     excluded_tournament_coaches: ['DHAANUSH', 'SARAVANAN'],
-    excluded_tournament_levels: ['Intermediate 1', 'Intermediate 2', 'Advanced']
+    excluded_tournament_levels: ['Intermediate 1', 'Intermediate 2']
   };
 
   const weekdaySlots = config?.weekday_slots || [
@@ -705,20 +722,20 @@ export default function SettingsView({ config }) {
               <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <strong style={{ fontSize: '0.95rem', color: '#fff' }}>Group Batch (G)</strong>
-                  <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>Max 10 Students</span>
+                  <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>1 – 8 Students</span>
                 </div>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.45 }}>
-                  Hard maximum of 10 students. Minimum capacity target is 4 students; if fewer students are available, a soft notice is raised without omitting any enrolled students.
+                  Starts even with 1 student and scales up to a hard maximum of 8 students per Group session.
                 </p>
               </div>
 
               <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <strong style={{ fontSize: '0.95rem', color: '#fff' }}>Limited Students Batch (L)</strong>
-                  <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>1 – 4 Students</span>
+                  <span className="badge badge-gold" style={{ fontSize: '0.7rem' }}>1 – 3 Students</span>
                 </div>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.45 }}>
-                  Intensive format restricted to 1 to 4 students. Hard ceiling of 4 students is strictly enforced across automated and manual assignments.
+                  Intensive format restricted to 1 to 3 students. Hard ceiling of 3 students is strictly enforced across automated and manual assignments.
                 </p>
               </div>
 

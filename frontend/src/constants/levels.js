@@ -1,6 +1,6 @@
 /**
- * Official 9 Academy Levels (Source of Truth)
- * No generic 'Beginner', no 'Beginner 3', no generic 'Intermediate'.
+ * Official 8 Academy Levels (Source of Truth)
+ * Strictly 8 levels from Basic 1 to Intermediate 2.
  */
 export const OFFICIAL_LEVELS = [
   'Basic 1',
@@ -10,8 +10,7 @@ export const OFFICIAL_LEVELS = [
   'Early Intermediate 1',
   'Early Intermediate 2',
   'Intermediate 1',
-  'Intermediate 2',
-  'Advanced'
+  'Intermediate 2'
 ];
 
 /**

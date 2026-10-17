@@ -103,8 +103,181 @@ def validate_student_data(
     return len(errors) == 0, errors
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. DYNAMIC TRAINER PRIORITY PER LEVEL (F1 & F8)
+# 2. DYNAMIC TRAINER PRIORITY PER LEVEL (AUTHORITATIVE SOURCE OF TRUTH)
 # ─────────────────────────────────────────────────────────────────────────────
+
+STANDARD_LEVELS = [
+    "Basic 1", "Basic 2", "Beginner 1", "Beginner 2",
+    "Early Intermediate 1", "Early Intermediate 2",
+    "Intermediate 1", "Intermediate 2"
+]
+
+def sync_live_coach_priority_matrix(
+    coaches_list: Optional[List[Dict[str, Any]]] = None,
+    config: Optional[Any] = None,
+    removed_coach_name: Optional[str] = None,
+    new_coach_dict: Optional[Dict[str, Any]] = None,
+    persist_db: bool = True
+) -> Tuple[Dict[str, List[str]], List[Dict[str, Any]]]:
+    """
+    Authoritative single source of truth for trainer qualifications and level-wise priority rankings.
+    
+    1. Loads all active coaches.
+    2. When a new coach is added, automatically appends them to the bottom of every applicable level's
+       priority list, preserving existing priorities.
+    3. When a coach is removed, automatically removes them from applicable matrices and future
+       scheduling eligibility, shifting remaining coaches upward without gaps (1..N sequential) or priority resets.
+    4. Updates each coach's `qualified_levels_priority` mapping so it 100% mirrors the live matrix.
+    5. Synchronizes SystemConfig (both in memory and SQLite active_metadata) and SQLite coaches table.
+    6. Synchronizes COACH_REFERENCE so the rule engine, suggestion engine, and selector all use the same live matrix.
+    """
+    from app.storage.database import load_master_data_db, save_single_coach_db, delete_single_coach_db, save_system_config_db
+
+    # 1. Determine active coaches list
+    if coaches_list is None:
+        try:
+            import app.main
+            coaches_list = list(app.main.ACTIVE_DATA.get("coaches", []))
+        except Exception:
+            coaches_list = []
+        if not coaches_list:
+            coaches_list = load_master_data_db().get("coaches", [])
+
+    coaches_list = [dict(c) for c in coaches_list]
+
+    # Handle addition of new coach
+    if new_coach_dict:
+        new_c_canon = resolve_coach_canonical_name(new_coach_dict.get("coach_name", ""))
+        coaches_list = [c for c in coaches_list if resolve_coach_canonical_name(c.get("coach_name", "")) != new_c_canon]
+        coaches_list.append(dict(new_coach_dict))
+
+    # Handle removal of coach
+    canon_rem = None
+    if removed_coach_name:
+        canon_rem = resolve_coach_canonical_name(removed_coach_name)
+        coaches_list = [c for c in coaches_list if resolve_coach_canonical_name(c.get("coach_name", "")) != canon_rem]
+        if persist_db and canon_rem:
+            delete_single_coach_db(canon_rem)
+
+    active_coaches_map = {}
+    for c in coaches_list:
+        c_name = resolve_coach_canonical_name(c.get("coach_name", ""))
+        if c_name:
+            c["coach_name"] = c_name
+            active_coaches_map[c_name] = c
+
+    active_names = set(active_coaches_map.keys())
+
+    # 2. Determine target SystemConfig
+    target_config = None
+    if config:
+        target_config = config
+    else:
+        try:
+            import app.main
+            target_config = app.main.CURRENT_CONFIG
+        except Exception:
+            from app.config import DEFAULT_CONFIG
+            target_config = DEFAULT_CONFIG
+
+    prio_matrix = dict(getattr(target_config, "coach_priority", {}) or {})
+
+    # Ensure all standard levels exist in matrix
+    all_levels = list(STANDARD_LEVELS)
+    for c in active_coaches_map.values():
+        for lvl in c.get("levels_handled", []):
+            if lvl and lvl not in all_levels:
+                all_levels.append(lvl)
+
+    for lvl in all_levels:
+        if lvl not in prio_matrix:
+            prio_matrix[lvl] = []
+
+    # 3. Synchronize level-by-level priorities
+    for lvl in all_levels:
+        curr_list = list(prio_matrix.get(lvl, []))
+        # Keep existing coaches that are still active and still handle this level (preserves established priority)
+        retained = []
+        for c_cand in curr_list:
+            c_cand_canon = resolve_coach_canonical_name(c_cand)
+            if c_cand_canon in active_names:
+                c_obj = active_coaches_map[c_cand_canon]
+                handles = [h.strip().lower() for h in c_obj.get("levels_handled", [])]
+                if lvl.strip().lower() in handles:
+                    if c_cand_canon not in retained:
+                        retained.append(c_cand_canon)
+
+        # For any active coach qualified for this level but not in priority list, append at the bottom
+        for c_canon, c_obj in active_coaches_map.items():
+            handles = [h.strip().lower() for h in c_obj.get("levels_handled", [])]
+            if lvl.strip().lower() in handles:
+                if c_canon not in retained:
+                    retained.append(c_canon)
+
+        prio_matrix[lvl] = retained
+
+    # 4. Update each coach's qualified_levels_priority map to exactly match 1-indexed ranks
+    for c_canon, c_obj in active_coaches_map.items():
+        c_prio_map = {}
+        handles = c_obj.get("levels_handled", [])
+        for lvl in handles:
+            if lvl in prio_matrix and c_canon in prio_matrix[lvl]:
+                c_prio_map[lvl] = prio_matrix[lvl].index(c_canon) + 1
+            else:
+                c_prio_map[lvl] = 99
+        c_obj["qualified_levels_priority"] = c_prio_map
+
+    # 5. Persist updates
+    if persist_db:
+        for c_obj in active_coaches_map.values():
+            save_single_coach_db(c_obj)
+
+        if not hasattr(target_config, "coach_priority") or target_config.coach_priority is None:
+            target_config.coach_priority = {}
+        target_config.coach_priority.clear()
+        target_config.coach_priority.update(prio_matrix)
+
+        if hasattr(target_config, "sync_to_rules_registry"):
+            target_config.sync_to_rules_registry()
+        save_system_config_db(target_config.model_dump())
+
+        try:
+            import app.main
+            app.main.CURRENT_CONFIG = target_config
+            if hasattr(app.main.CURRENT_CONFIG, "coach_priority") and isinstance(app.main.CURRENT_CONFIG.coach_priority, dict):
+                app.main.CURRENT_CONFIG.coach_priority.clear()
+                app.main.CURRENT_CONFIG.coach_priority.update(prio_matrix)
+            app.main.ACTIVE_DATA["coaches"] = list(active_coaches_map.values())
+        except Exception:
+            pass
+
+    # 6. Synchronize COACH_REFERENCE in rule engine
+    if canon_rem and canon_rem in COACH_REFERENCE:
+        del COACH_REFERENCE[canon_rem]
+
+    for c_canon, c_obj in active_coaches_map.items():
+        COACH_REFERENCE[c_canon] = {
+            "aliases": c_obj.get("aliases") or [c_canon.lower()],
+            "levels": list(c_obj.get("levels_handled", [])),
+            "monthly_max": c_obj.get("monthly_capacity_max"),
+            "daily_limits": {
+                "Monday": c_obj.get("mon_max", 4),
+                "Tuesday": c_obj.get("tue_max", 4),
+                "Wednesday": c_obj.get("wed_max", 4),
+                "Thursday": c_obj.get("thu_max", 4),
+                "Friday": c_obj.get("fri_max", 4),
+                "Saturday": c_obj.get("sat_max", 5),
+                "Sunday": c_obj.get("sun_max", 2)
+            },
+            "availability": c_obj.get("availability") or {},
+            "preferred_timings": c_obj.get("preferred_timings") or "No Preference",
+            "is_flex": bool(c_obj.get("is_flex", False)),
+            "tournaments_only": c_obj.get("tournament_role") == "Tournament only",
+            "tournament_tier": 2,
+            "qualified_levels_priority": dict(c_obj.get("qualified_levels_priority", {}))
+        }
+
+    return prio_matrix, list(active_coaches_map.values())
 
 def reorder_coach_level_priorities(
     coaches: List[Dict[str, Any]],
@@ -113,48 +286,38 @@ def reorder_coach_level_priorities(
     new_priority: int
 ) -> List[Dict[str, Any]]:
     """
-    Independent 1-indexed priority per level.
-    Inserting at N shifts others down (A1, B2, C3, D4 + new at 1 -> new 1, A2, B3, C4, D5).
-    Removing coach from level closes gap. No duplicates or gaps, ever.
+    Reorders a coach's priority for a specific level.
+    Inserting at rank N shifts other coaches down sequentially (zero gaps, zero duplicates).
+    Immediately synchronizes the authoritative matrix.
     """
     updated_coaches = [dict(c) for c in coaches]
     canon_target = resolve_coach_canonical_name(target_coach_name)
 
-    # Collect coaches that teach this level
-    coaches_with_level = []
+    # First ensure coaches are up to date
+    prio_matrix, updated_coaches = sync_live_coach_priority_matrix(coaches_list=updated_coaches, persist_db=False)
+
+    curr_list = list(prio_matrix.get(level, []))
+    if canon_target in curr_list:
+        curr_list.remove(canon_target)
+
+    insert_idx = max(0, min(len(curr_list), new_priority - 1))
+    curr_list.insert(insert_idx, canon_target)
+    prio_matrix[level] = curr_list
+
+    # Ensure target coach has level in levels_handled
     for c in updated_coaches:
-        p_map = c.get("qualified_levels_priority", {})
-        levels = c.get("levels_handled", [])
-        if level in levels or level in p_map:
-            coaches_with_level.append((c, p_map.get(level, 99)))
-
-    # Sort by current priority
-    coaches_with_level.sort(key=lambda x: x[1])
-
-    # Extract coach names
-    ordered_names = [resolve_coach_canonical_name(c["coach_name"]) for c, _ in coaches_with_level]
-    if canon_target in ordered_names:
-        ordered_names.remove(canon_target)
-
-    # Insert target at new_priority (1-indexed)
-    insert_idx = max(0, min(len(ordered_names), new_priority - 1))
-    ordered_names.insert(insert_idx, canon_target)
-
-    # Re-assign sequential priorities 1..N with zero gaps and zero duplicates
-    name_to_prio = {name: idx + 1 for idx, name in enumerate(ordered_names)}
-
-    for c in updated_coaches:
-        c_name = resolve_coach_canonical_name(c["coach_name"])
-        if c_name in name_to_prio:
-            if "qualified_levels_priority" not in c:
-                c["qualified_levels_priority"] = {}
-            c["qualified_levels_priority"][level] = name_to_prio[c_name]
-            # Ensure level is in levels_handled
+        if resolve_coach_canonical_name(c.get("coach_name", "")) == canon_target:
             if level not in c.get("levels_handled", []):
                 c.setdefault("levels_handled", []).append(level)
-            save_single_coach_db(c)
 
-    return updated_coaches
+    try:
+        import app.main
+        app.main.CURRENT_CONFIG.coach_priority = prio_matrix
+    except Exception:
+        pass
+
+    _, final_coaches = sync_live_coach_priority_matrix(coaches_list=updated_coaches, persist_db=True)
+    return final_coaches
 
 def remove_coach_from_level_priority(
     coaches: List[Dict[str, Any]],
@@ -167,28 +330,16 @@ def remove_coach_from_level_priority(
     updated_coaches = [dict(c) for c in coaches]
     canon_target = resolve_coach_canonical_name(target_coach_name)
 
-    remaining_coaches = []
     for c in updated_coaches:
-        c_name = resolve_coach_canonical_name(c["coach_name"])
-        p_map = c.get("qualified_levels_priority", {})
-        if c_name == canon_target:
-            if level in p_map:
-                del p_map[level]
+        if resolve_coach_canonical_name(c.get("coach_name", "")) == canon_target:
             if level in c.get("levels_handled", []):
                 c["levels_handled"] = [l for l in c["levels_handled"] if l != level]
-            save_single_coach_db(c)
-        elif level in c.get("levels_handled", []) or level in p_map:
-            remaining_coaches.append((c, p_map.get(level, 99)))
+            p_map = c.get("qualified_levels_priority", {})
+            if level in p_map:
+                del p_map[level]
 
-    # Close gap for remaining coaches
-    remaining_coaches.sort(key=lambda x: x[1])
-    for idx, (c, _) in enumerate(remaining_coaches, 1):
-        if "qualified_levels_priority" not in c:
-            c["qualified_levels_priority"] = {}
-        c["qualified_levels_priority"][level] = idx
-        save_single_coach_db(c)
-
-    return updated_coaches
+    _, final_coaches = sync_live_coach_priority_matrix(coaches_list=updated_coaches, persist_db=True)
+    return final_coaches
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. BATCH-TYPE CONVERSIONS (F1: G<->L, G<->I, L<->I)

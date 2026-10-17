@@ -1,3 +1,4 @@
+import { MIGHTY_KNIGHT_LOGO } from '../constants/logo';
 import React, { useState } from 'react';
 import {
   Calendar as CalendarIcon,
@@ -177,20 +178,20 @@ export default function CalendarPicker({
         
         {/* Left: Monthly Title & Active Date Span */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: '12px',
-            background: 'linear-gradient(135deg, rgba(251, 191, 36, 0.25) 0%, rgba(217, 119, 6, 0.25) 100%)',
-            border: '1px solid rgba(251, 191, 36, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--accent-gold)',
-            boxShadow: '0 0 15px rgba(251, 191, 36, 0.2)'
-          }}>
-            <CalendarIcon size={22} />
-          </div>
+          <img
+            src={MIGHTY_KNIGHT_LOGO}
+            alt="Mighty Knight Academy Logo"
+            style={{
+              width: 'clamp(44px, 4vw, 54px)',
+              height: 'clamp(44px, 4vw, 54px)',
+              borderRadius: '12px',
+              background: '#450a0a',
+              border: '1.5px solid var(--accent-gold)',
+              objectFit: 'contain',
+              boxShadow: '0 0 15px rgba(251, 191, 36, 0.35)',
+              flexShrink: 0
+            }}
+          />
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.01em', margin: 0 }}>
@@ -407,6 +408,33 @@ export default function CalendarPicker({
             >
               <ChevronRight size={16} />
             </button>
+          </div>
+
+                    {/* Rolling 3-Month Horizon Quick Pills (Point 2: Oct + Nov, Dec, Jan) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg-secondary)', padding: '4px 8px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(251, 191, 36, 0.35)' }}>
+            <span style={{ fontSize: '0.65rem', color: 'var(--accent-gold)', fontWeight: 800, marginRight: '4px' }}>3-MO HORIZON:</span>
+            {[
+              { label: "Oct '26 (Current)", y: 2026, m: 9, val: "2026-10" },
+              { label: "Nov '26 (+1M)", y: 2026, m: 10, val: "2026-11" },
+              { label: "Dec '26 (+2M)", y: 2026, m: 11, val: "2026-12" },
+              { label: "Jan '27 (+3M)", y: 2027, m: 0, val: "2027-01" }
+            ].map(p => (
+              <button
+                key={p.val}
+                onClick={() => applyMonth(p.y, p.m)}
+                className="btn btn-secondary"
+                style={{
+                  padding: '5px 10px',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  border: currentMonthInfo.monthInputValue === p.val ? '1px solid var(--accent-gold)' : 'none',
+                  background: currentMonthInfo.monthInputValue === p.val ? 'rgba(251, 191, 36, 0.25)' : 'transparent',
+                  color: currentMonthInfo.monthInputValue === p.val ? 'var(--accent-gold)' : 'var(--text-secondary)'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
 
           {/* HTML5 Month Selector Input */}

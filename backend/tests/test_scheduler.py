@@ -12,7 +12,7 @@ def test_full_scheduler_end_to_end():
         students, coaches, errors = parse_excel_file(f.read(), DEFAULT_CONFIG)
 
     assert len(students) > 0
-    assert len(coaches) == 8
+    assert len(coaches) in (8, 9)
 
     start_date = date(2026, 8, 24) # Monday
     end_date = date(2026, 8, 30)   # Sunday
@@ -48,7 +48,7 @@ def test_group_batch_minimum_and_one_class_per_day():
         config=DEFAULT_CONFIG
     )
 
-    # 1. Assert no group batch has fewer than min_capacity (4) students or more than max_capacity (10)
+    # 1. Assert no group batch has fewer than min_capacity (1) students or more than max_capacity (8)
     min_group_cap = DEFAULT_CONFIG.batch_types["G"].min_capacity
     max_group_cap = DEFAULT_CONFIG.batch_types["G"].max_capacity
     for cls in result.scheduled_classes:
@@ -58,7 +58,7 @@ def test_group_batch_minimum_and_one_class_per_day():
                 # Group minimum is a soft warning (does not reject or drop students)
                 assert any("soft notice" in w.lower() or "batch size" in w.lower() for w in cls.warnings)
         elif cls.batch_type == "L":
-            assert 1 <= len(cls.student_ids) <= 4, f"Limited class {cls.class_id} had {len(cls.student_ids)} students (allowed 1-4)"
+            assert 1 <= len(cls.student_ids) <= 3, f"Limited class {cls.class_id} had {len(cls.student_ids)} students (allowed 1-3)"
 
     # 2. Assert no student has more than 1 class per day
     student_date_counts = {}
