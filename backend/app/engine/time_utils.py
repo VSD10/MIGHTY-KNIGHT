@@ -1,7 +1,8 @@
+from __future__ import annotations
 import re
 from functools import lru_cache
 from datetime import datetime, date, timedelta
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any, Dict, Set, Union
 
 @lru_cache(maxsize=2048)
 def parse_time_to_minutes(time_str: str) -> Optional[int]:
