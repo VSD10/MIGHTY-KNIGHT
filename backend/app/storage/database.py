@@ -988,6 +988,30 @@ def get_exception_records_db(month: str, status: Optional[str] = "active", db_pa
         })
     return results
 
+
+def update_exception_record_db(exception_id: str, after_patch: Dict[str, Any], subtype: Optional[str] = None, reason: Optional[str] = None, db_path: Optional[str] = None) -> bool:
+    """Updates the after_json, subtype, or reason of an existing ExceptionRecord."""
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT after_json, subtype, reason FROM exception_records WHERE id = ?", (exception_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False
+    curr_after = json.loads(row["after_json"]) if row["after_json"] else {}
+    curr_after.update(after_patch or {})
+    new_subtype = subtype if subtype is not None else row["subtype"]
+    new_reason = reason if reason is not None else row["reason"]
+    cursor.execute(
+        "UPDATE exception_records SET after_json = ?, subtype = ?, reason = ? WHERE id = ?",
+        (json.dumps(curr_after), new_subtype, new_reason, exception_id)
+    )
+    conn.commit()
+    conn.close()
+    return True
+
 def revert_exception_record_db(exception_id: str, db_path: Optional[str] = None) -> bool:
     """Marks an exception record as reverted."""
     target_path = db_path or get_db_path()
@@ -1079,18 +1103,12 @@ def get_audit_logs_db(month: Optional[str] = None, limit: int = 100, db_path: Op
 
 def seed_october_baseline_if_missing(db_path: Optional[str] = None):
     """
-    Guarantees October 2026 has an Active Baseline (v1) loaded from reference schedule,
-    so the app boots up immediately with the full 119-student schedule.
+    Guarantees October 2026 has an Active Baseline (v1) loaded from reference_oct_schedule.json,
+    and ensures Master Data tables (students, coaches, batches) and initial ⓒ compensation records
+    are populated when starting fresh (unless explicitly cleared by user via Reset to Scratch).
     """
     target_path = db_path or get_db_path()
     init_db(target_path)
-    conn = get_connection(target_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-10' AND status = 'Active'")
-    cnt = cursor.fetchone()[0]
-    conn.close()
-    if cnt > 0:
-        return
 
     # Check for pre-compiled JSON reference
     ref_json_paths = [
@@ -1111,30 +1129,123 @@ def seed_october_baseline_if_missing(db_path: Optional[str] = None):
         return
 
     students_raw = ref_data.get("students_raw", [])
+    coaches_raw = ref_data.get("coaches_list", [])
+    batches_raw = ref_data.get("batches_list", [])
+    comp_exceptions = ref_data.get("compensation_exceptions", [])
     classes_by_date = ref_data.get("oct_exact_classes_by_date", {})
-    all_classes = []
-    seat_count = 0
-    for dt, cls_list in classes_by_date.items():
-        for c in cls_list:
-            all_classes.append(c)
-            seat_count += len(c.get("student_ids", []))
 
-    save_baseline_db({
-        "month": "2026-10",
-        "version": 1,
-        "status": "Active",
-        "file_name": "Oct'26 Schedule_FRESH-1.xlsx",
-        "uploaded_by": "System Baseline Seed",
-        "uploaded_at": "2026-10-01 12:00 PM",
-        "student_count": len(students_raw),
-        "class_count": len(all_classes),
-        "student_class_count": seat_count,
-        "students_data": students_raw,
-        "classes_data": all_classes,
-        "baseline_exceptions": [],
-        "validation_report": {"blocking": [], "baseline_exceptions": [], "info": []},
-        "created_at": "2026-10-01 12:00:00"
-    }, target_path)
-    print(f"[BASE_SEED] Successfully seeded October 2026 Active Baseline (v1): {len(students_raw)} students, {len(all_classes)} classes, {seat_count} seats.", flush=True)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-10' AND status = 'Active'")
+    base_cnt = cursor.fetchone()[0]
 
+    cursor.execute("SELECT COUNT(*) FROM students")
+    stu_cnt = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM coaches")
+    coach_cnt = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM batches")
+    batch_cnt = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM exception_records WHERE month = '2026-10'")
+    exc_cnt = cursor.fetchone()[0]
+    conn.close()
 
+    if base_cnt == 0:
+        all_classes = []
+        seat_count = 0
+        for dt, cls_list in classes_by_date.items():
+            for c in cls_list:
+                all_classes.append(c)
+                seat_count += len(c.get("student_ids", []))
+
+        save_baseline_db({
+            "month": "2026-10",
+            "version": 1,
+            "status": "Active",
+            "file_name": "Oct26_Schedule_Approach1_Updated_preFinal 14.10.26 11.00pm.xlsx",
+            "uploaded_by": "System Baseline Seed",
+            "uploaded_at": "2026-10-14 11:00 PM",
+            "student_count": len(students_raw),
+            "class_count": len(all_classes),
+            "student_class_count": seat_count,
+            "students_data": students_raw,
+            "classes_data": all_classes,
+            "baseline_exceptions": [],
+            "validation_report": {"blocking": [], "baseline_exceptions": [], "info": []},
+            "created_at": "2026-10-14 23:00:00"
+        }, target_path)
+        print(f"[BASE_SEED] Successfully seeded October 2026 Active Baseline (v1): {len(students_raw)} students, {len(all_classes)} classes, {seat_count} seats.", flush=True)
+
+    # Seed Master Data tables if not explicitly cleared
+    if not is_master_cleared_db(target_path):
+        conn = get_connection(target_path)
+        cursor = conn.cursor()
+        if stu_cnt == 0 and students_raw:
+            for s in students_raw:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO students (student_id, student_name, student_level, batch_type, region_timezone, required_classes, data_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    s["student_id"],
+                    s["student_name"],
+                    s["student_level"],
+                    s["batch_type"],
+                    s.get("region_timezone", "IST"),
+                    s.get("required_classes", 12),
+                    json.dumps(s)
+                ))
+        if coach_cnt == 0 and coaches_raw:
+            for c in coaches_raw:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO coaches (coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max, data_json)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    c["coach_name"],
+                    json.dumps(c.get("levels_handled", [])),
+                    c.get("monthly_capacity_min", 0),
+                    c.get("monthly_capacity_max", 100),
+                    json.dumps(c)
+                ))
+        if batch_cnt == 0 and batches_raw:
+            for b in batches_raw:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO batches (batch_id, batch_name, level, batch_type, fixed_trainer, schedule_timings, student_ids_json, data_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    b["batch_id"],
+                    b.get("batch_name", b["batch_id"]),
+                    b.get("level", "Beginner 1"),
+                    b.get("batch_type", "G"),
+                    b.get("fixed_trainer", "Unassigned"),
+                    b.get("schedule_timings", ""),
+                    json.dumps(b.get("student_ids", [])),
+                    json.dumps(b)
+                ))
+        if exc_cnt == 0 and comp_exceptions:
+            for rec in comp_exceptions:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO exception_records (
+                        id, month, date, start_time, coach_id, class_key, action_type,
+                        affected_student_ids_json, before_json, after_json, subtype,
+                        violated_rules_json, reason, created_by, created_at, status, version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    rec["id"],
+                    rec["month"],
+                    rec["date"],
+                    rec["start_time"],
+                    rec["coach_id"],
+                    rec["class_key"],
+                    rec["action_type"],
+                    json.dumps(rec.get("affected_student_ids", [])),
+                    json.dumps(rec.get("before", {})),
+                    json.dumps(rec.get("after", {})),
+                    rec.get("subtype", "compensation"),
+                    json.dumps(rec.get("violated_rules", [])),
+                    rec.get("reason", ""),
+                    rec.get("created_by", "Admin"),
+                    rec.get("created_at", ""),
+                    rec.get("status", "active"),
+                    rec.get("version", 1)
+                ))
+        conn.commit()
+        conn.close()

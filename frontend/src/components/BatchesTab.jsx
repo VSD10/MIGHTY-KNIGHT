@@ -15,8 +15,7 @@ const LEVEL_ORDER_MAP = {
   'early intermediate 1': 5,
   'early intermediate 2': 6,
   'intermediate 1': 7,
-  'intermediate 2': 8,
-  'advanced': 9
+  'intermediate 2': 8
 };
 
 const getLevelRank = (lvl) => {
@@ -376,8 +375,8 @@ export default function BatchesTab({
                 batch_name: '',
                 batch_type: 'G',
                 level: 'Beginner 1',
-                capacity_min: 4,
-                capacity_max: 10,
+                capacity_min: 1,
+                capacity_max: 8,
                 fixed_trainer: 'Unassigned',
                 schedule_timings: '',
                 weekly_slots: [],
@@ -423,8 +422,8 @@ export default function BatchesTab({
                 batch_name: '',
                 batch_type: 'G',
                 level: 'Beginner 1',
-                capacity_min: 4,
-                capacity_max: 10,
+                capacity_min: 1,
+                capacity_max: 8,
                 fixed_trainer: 'Unassigned',
                 schedule_timings: '',
                 weekly_slots: [],
@@ -448,8 +447,8 @@ export default function BatchesTab({
         >
           {filteredBatches.map(batch => {
             const typeBadge = getBatchTypeBadge(batch.batch_type);
-            const capMin = batch.capacity_min || (batch.batch_type === 'G' ? 4 : 1);
-            const capMax = batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 4 : 10));
+            const capMin = 1;
+            const capMax = batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 3 : 8));
 
             // Resolve complete enrolled student objects
             const enrolledStudentsList = (batch.students && batch.students.length > 0)
@@ -854,8 +853,8 @@ export default function BatchesTab({
               {filteredBatches.map(batch => {
                 const typeBadge = getBatchTypeBadge(batch.batch_type);
                 const enrolled = (batch.students || []).length || (batch.student_ids || []).length || 0;
-                const capMin = batch.capacity_min || (batch.batch_type === 'G' ? 4 : 1);
-                const capMax = batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 4 : 10));
+                const capMin = 1;
+                const capMax = batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 3 : 8));
                 const isExpanded = expandedBatchId === batch.batch_id;
 
                 return (
@@ -1118,8 +1117,8 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
     batch_name: batch.batch_name || '',
     batch_type: batch.batch_type || 'G',
     level: batch.level || 'Beginner 1',
-    capacity_min: batch.capacity_min || (batch.batch_type === 'G' ? 4 : 1),
-    capacity_max: batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 4 : 10)),
+    capacity_min: 1,
+    capacity_max: batch.capacity_max || (batch.batch_type === 'I' ? 1 : (batch.batch_type === 'L' ? 3 : 8)),
     fixed_trainer: batch.fixed_trainer || 'Unassigned',
     schedule_timings: batch.schedule_timings || '',
     weekly_slots: batch.weekly_slots || [],
@@ -1156,7 +1155,7 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
   };
 
   const handleTypeChange = (newType) => {
-    let minCap = 4;
+    let minCap = 1;
     let maxCap = 8;
     if (newType === 'I') {
       minCap = 1;

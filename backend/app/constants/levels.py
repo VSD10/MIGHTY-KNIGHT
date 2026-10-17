@@ -9,8 +9,7 @@ OFFICIAL_LEVELS = [
     "Early Intermediate 1",
     "Early Intermediate 2",
     "Intermediate 1",
-    "Intermediate 2",
-    "Advanced"
+    "Intermediate 2"
 ]
 
 def normalize_batch_to_level(batch_str: str, student_id: Optional[str] = None) -> Tuple[str, bool, Optional[str]]:
@@ -61,12 +60,8 @@ def normalize_batch_to_level(batch_str: str, student_id: Optional[str] = None) -
     if re.search(r'^int[e]?rmediate\s*1', core_clean):
         return ("Intermediate 1", False, None)
 
-    # 8. Intermediate 2
-    if re.search(r'^int[e]?rmediate\s*2', core_clean):
+    # 8. Intermediate 2 (also maps any legacy 'advanced' string to Intermediate 2)
+    if re.search(r'^int[e]?rmediate\s*2', core_clean) or core_clean.startswith('advanced'):
         return ("Intermediate 2", False, None)
 
-    # 9. Advanced
-    if core_clean.startswith('advanced'):
-        return ("Advanced", False, None)
-
-    return ("Beginner 1", True, f"Batch '{batch_str}' does not match any official 9 levels")
+    return ("Beginner 1", True, f"Batch '{batch_str}' does not match any official 8 levels")

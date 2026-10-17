@@ -1,3 +1,4 @@
+from app.engine.rule_engine import resolve_coach_canonical_name
 import io
 import pandas as pd
 from typing import Dict, Any, List
@@ -6,10 +7,10 @@ def generate_coach_individual_excel(coach_name: str, scheduled_classes: List[Dic
     """
     Generates a dedicated Excel file (.xlsx) for a specific coach's timetable and student rosters.
     """
-    c_lower = coach_name.strip().lower()
+    c_canon = resolve_coach_canonical_name(coach_name).lower()
     coach_classes = [
         cls for cls in scheduled_classes 
-        if cls.get("coach_name", "").strip().lower() == c_lower
+        if resolve_coach_canonical_name(cls.get("coach_name", "")).lower() == c_canon
     ]
     
     # Sort by date and time_slot
@@ -63,10 +64,10 @@ def generate_coach_whatsapp_msg(coach_name: str, scheduled_classes: List[Dict[st
     """
     Generates a personalized WhatsApp schedule broadcast text for an individual coach.
     """
-    c_lower = coach_name.strip().lower()
+    c_canon = resolve_coach_canonical_name(coach_name).lower()
     coach_classes = [
         cls for cls in scheduled_classes 
-        if cls.get("coach_name", "").strip().lower() == c_lower
+        if resolve_coach_canonical_name(cls.get("coach_name", "")).lower() == c_canon
     ]
     coach_classes.sort(key=lambda x: (x.get("date", ""), x.get("time_slot", "")))
 

@@ -1,3 +1,4 @@
+import { MIGHTY_KNIGHT_LOGO } from '../constants/logo';
 import React from 'react';
 import { MessageSquare, Layers, ShieldAlert, BarChart3, GraduationCap, Users, Play, FileSpreadsheet, CheckCircle, Clock, Sparkles, HardDrive, Database, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -42,16 +43,16 @@ export default function Sidebar({
           {!isCollapsed && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <img
-                src="/CHESS.png"
+                src={MIGHTY_KNIGHT_LOGO}
                 alt="Mighty Knight Official Logo"
                 className="knight-logo"
                 style={{
-                  width: '42px',
-                  height: '42px',
+                  width: 'clamp(42px, 3.8vw, 52px)',
+                  height: 'clamp(42px, 3.8vw, 52px)',
                   borderRadius: '10px',
                   border: '1px solid var(--accent-gold)',
                   boxShadow: 'var(--shadow-gold)',
-                  objectFit: 'cover'
+                  objectFit: 'contain', background: '#450a0a'
                 }}
               />
 
@@ -68,7 +69,7 @@ export default function Sidebar({
 
           {isCollapsed && (
             <img
-              src="/CHESS.png"
+              src={MIGHTY_KNIGHT_LOGO}
               alt="Mighty Knight Logo"
               className="knight-logo"
               style={{
@@ -78,7 +79,7 @@ export default function Sidebar({
                 border: '1px solid var(--accent-gold)',
                 boxShadow: 'var(--shadow-gold)',
                 cursor: 'pointer',
-                objectFit: 'cover'
+                objectFit: 'contain', background: '#450a0a'
               }}
               onClick={onToggleCollapse}
               title="Expand Sidebar"

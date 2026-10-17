@@ -17,12 +17,16 @@ import {
   X,
   Layers,
   Search,
-  Filter
+  Filter,
+  Copy,
+  Check
 } from 'lucide-react';
-import { deleteClass, applyManualEdit, createScheduleClass, assignStudentToClass, applyException } from '../services/api';
+import { deleteClass, applyManualEdit, createScheduleClass, assignStudentToClass, validateException, applyException } from '../services/api';
+import RuleViolationModal from './RuleViolationModal';
 import CompensationBadge from './CompensationBadge';
 import { OFFICIAL_LEVELS, FILTER_LEVEL_OPTIONS } from '../constants/levels';
 import { trackDeletedClassLocal, getDeletedClassesLocal } from '../utils/storageSync';
+import { formatSingleDayWhatsAppSchedule, copyTextToClipboard } from '../utils/dayScheduleFormatter';
 
 const TIME_SLOT_PRESETS = [
   '06:00 AM - 07:00 AM',
@@ -64,7 +68,8 @@ export default function DailySchedulePlanner({
   onDeleteClassOptimistic,
   coaches = [],
   masterStudents = [],
-  unscheduledStudents = []
+  unscheduledStudents = [],
+  masterBatches = []
 }) {
   // Local state for instant optimistic class removals (0ms latency UI updates)
   const [optimisticDeletedClassIds, setOptimisticDeletedClassIds] = useState(new Set());
@@ -123,6 +128,20 @@ export default function DailySchedulePlanner({
   const [searchFilter, setSearchFilter] = useState('');
   const [coachFilter, setCoachFilter] = useState('All');
   const [showOnlyCompensation, setShowOnlyCompensation] = useState(false);
+  const [copiedDay, setCopiedDay] = useState(false);
+
+  const handleCopySelectedDayWhatsApp = async (e) => {
+    e?.stopPropagation?.();
+    e?.preventDefault?.();
+    const text = formatSingleDayWhatsAppSchedule(selectedDate, selectedDayInfo?.fullDayName, classesForSelectedDay);
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopiedDay(true);
+      setTimeout(() => setCopiedDay(false), 2500);
+    } else {
+      alert("Failed to copy schedule to clipboard. Please check clipboard permissions.");
+    }
+  };
 
   // Modal states for Create Class & Add Student
   const [isAddClassModalOpen, setIsAddClassModalOpen] = useState(false);
@@ -139,6 +158,28 @@ export default function DailySchedulePlanner({
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [creatingClass, setCreatingClass] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
+  const [violationModalOpen, setViolationModalOpen] = useState(false);
+  const [pendingViolations, setPendingViolations] = useState([]);
+  const [pendingExceptionPayload, setPendingExceptionPayload] = useState(null);
+
+  // Map student_id -> official Batch Code (e.g. IBN2-01, GB1-01)
+  const studentBatchCodeMap = useMemo(() => {
+    const m = {};
+    (masterBatches || []).forEach(b => {
+      const code = b.batch_id || b.batch_name;
+      (b.student_ids || []).forEach(sid => { m[sid] = code; });
+    });
+    (masterStudents || []).forEach(s => {
+      const code = s.batch_code || s.batch || s.batch_name || s.assigned_batch_id;
+      if (code && !m[s.student_id]) m[s.student_id] = code;
+    });
+    return m;
+  }, [masterBatches, masterStudents]);
+
+  // All ⓒ classes across the entire active month (for Filter ⓒ Only month directory)
+  const allMonthCompensationClasses = useMemo(() => {
+    return activeDetailedClasses.filter(cls => cls.is_compensation || cls.has_compensation || cls.exception_metadata);
+  }, [activeDetailedClasses]);
 
   // Map of classes count per date for the ribbon badges
   const classesPerDate = useMemo(() => {
@@ -182,7 +223,7 @@ export default function DailySchedulePlanner({
       if (aMin !== bMin) return aMin - bMin;
       return (a.coach_name || '').localeCompare(b.coach_name || '');
     });
-  }, [activeDetailedClasses, selectedDate, coachFilter, searchFilter]);
+  }, [activeDetailedClasses, selectedDate, coachFilter, searchFilter, showOnlyCompensation]);
 
   // Selected date info
   const selectedDayInfo = useMemo(() => {
@@ -346,15 +387,57 @@ export default function DailySchedulePlanner({
     setIsAddStudentModalOpen(true);
   };
 
-  // Assign Student to target class
+  // Assign Student to target class (Validates rules & pops up RuleViolationModal if violation, then marks as ⓒ)
   const handleAssignStudent = async (studentId, studentName) => {
-    if (!scheduleId || !targetClassForAddStudent) return;
+    if (!targetClassForAddStudent) return;
+    const cls = targetClassForAddStudent;
+    const month = (cls.date || selectedDate || '2026-10-01').substring(0, 7);
+    const updatedSids = [...new Set([...(cls.student_ids || []), studentId])];
+    const cleanTime = (cls.time_slot || '').split('-')[0].trim();
+
     try {
-      await assignStudentToClass(scheduleId, studentId, targetClassForAddStudent.class_id);
-      showToast(`Added ${studentName} to ${targetClassForAddStudent.time_slot} class.`);
+      const valRes = await validateException({
+        month,
+        date: cls.date,
+        time_slot: cleanTime,
+        coach_name: cls.coach_name,
+        class_id: cls.class_id,
+        student_level: cls.student_level,
+        batch_type: cls.batch_type,
+        student_ids: updatedSids,
+        action_type: 'add_student'
+      });
+
+      const excPayload = {
+        month,
+        date: cls.date,
+        time_slot: cleanTime,
+        coach_name: cls.coach_name,
+        class_id: cls.class_id,
+        class_key: `${cls.date}||${cleanTime}||${cls.coach_name}`,
+        action_type: 'add_student',
+        affected_student_ids: [studentId],
+        before: { student_ids: cls.student_ids || [] },
+        after: { student_ids: updatedSids },
+        subtype: 'compensation',
+        violated_rules: valRes.violations || [],
+        reason: `Added ${studentName} (${studentId}) to ${cls.batch_name || cls.batch_type} class (ⓒ Compensation / Manual Override)`,
+        created_by: 'Admin'
+      };
+
+      if (valRes.has_violations && valRes.violations?.length > 0) {
+        setIsAddStudentModalOpen(false);
+        setPendingViolations(valRes.violations);
+        setPendingExceptionPayload(excPayload);
+        setViolationModalOpen(true);
+        return;
+      }
+
+      await applyException(excPayload);
+      showToast(`Added ${studentName} (${studentId}) to ${cls.batch_name || cls.time_slot} with ⓒ marker! Synced across all pages.`);
       setIsAddStudentModalOpen(false);
       setTargetClassForAddStudent(null);
-      if (onRefreshSchedule) onRefreshSchedule();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       console.error('Failed to assign student:', err);
       showToast(err.response?.data?.detail || 'Failed to assign student to class.', 'danger');
@@ -363,9 +446,9 @@ export default function DailySchedulePlanner({
 
   // Open Create Class Modal
   const handleOpenCreateClassModal = () => {
-    setNewClassCoach(availableCoaches[0]?.coach_name || 'Saravanan');
+    setNewClassCoach(availableCoaches[0]?.coach_name || 'BATHRI');
     setNewClassTimeSlot(TIME_SLOT_PRESETS[4]);
-    setNewClassLevel('Basic 1');
+    setNewClassLevel('Beginner 1');
     setNewClassBatchType('G');
     setNewClassBatchName('');
     setNewClassSelectedStudents([]);
@@ -373,38 +456,111 @@ export default function DailySchedulePlanner({
     setIsAddClassModalOpen(true);
   };
 
-  // Submit Create Class
+  // Submit Create Class (Validates rules first; if violation like Group student in Individual class, pops up RuleViolationModal, then saves as ⓒ!)
   const handleCreateClassSubmit = async (e) => {
     e.preventDefault();
-    if (!scheduleId) {
-      alert('No active schedule loaded. Please run the monthly engine first.');
-      return;
-    }
     if (!newClassCoach) {
       alert('Please select a coach for this class.');
       return;
     }
 
+    const month = (selectedDate || '2026-10-01').substring(0, 7);
+    const cleanTime = (newClassTimeSlot || '').split('-')[0].trim();
+    const sIds = newClassSelectedStudents.map(s => s.student_id);
+    const firstStuBatchCode = sIds.length > 0 ? studentBatchCodeMap[sIds[0]] : null;
+    const resolvedBatchCode = newClassBatchName.trim() || firstStuBatchCode || `${newClassBatchType}${newClassLevel.split(' ')[0][0].toUpperCase()}1-01`;
+
     setCreatingClass(true);
     try {
-      await createScheduleClass(scheduleId, {
-        coach_name: newClassCoach,
+      const valRes = await validateException({
+        month,
         date: selectedDate,
-        time_slot: newClassTimeSlot,
+        time_slot: cleanTime,
+        coach_name: newClassCoach,
         student_level: newClassLevel,
         batch_type: newClassBatchType,
-        batch_name: newClassBatchName || `${newClassLevel} - ${newClassCoach}`,
-        student_ids: newClassSelectedStudents.map(s => s.student_id)
+        student_ids: sIds,
+        action_type: 'add'
       });
 
-      showToast(`Created new class for ${selectedDate} at ${newClassTimeSlot}!`);
+      // Also check if any selected student's registered batch_type differs from newClassBatchType (e.g. Group student given an Individual class)
+      const extraViolations = [...(valRes.violations || [])];
+      newClassSelectedStudents.forEach(stu => {
+        const stuBType = (stu.batch_type || 'G').toUpperCase();
+        if (stuBType !== newClassBatchType.toUpperCase()) {
+          extraViolations.push({
+            rule_id: 'B2_BATCH_TYPE_MISMATCH',
+            rule_name: `Batch Type Exception (${stu.student_name}: Registered [${stuBType}] placed in [${newClassBatchType}] Class)`,
+            severity: 'hard',
+            reason: `${stu.student_name} (${stu.student_id} · ${studentBatchCodeMap[stu.student_id] || stuBType}) is a [${stuBType}] batch student being assigned a manual [${newClassBatchType}] class.`
+          });
+        }
+      });
+
+      const dayName = new Date(selectedDate).toLocaleString('en-US', { weekday: 'long' });
+      const excPayload = {
+        month,
+        date: selectedDate,
+        time_slot: cleanTime,
+        coach_name: newClassCoach,
+        class_key: `${selectedDate}||${cleanTime}||${newClassCoach}`,
+        action_type: 'add',
+        affected_student_ids: sIds,
+        before: {},
+        after: {
+          day: dayName,
+          student_level: newClassLevel,
+          batch_type: newClassBatchType,
+          batch_name: resolvedBatchCode,
+          batch_code: resolvedBatchCode,
+          student_ids: sIds
+        },
+        subtype: extraViolations.length > 0 ? 'rule_exception' : 'compensation',
+        violated_rules: extraViolations,
+        reason: extraViolations.length > 0
+          ? `Admin Override (ⓒ): Created ${resolvedBatchCode} [${newClassBatchType}] class on ${selectedDate} at ${cleanTime}`
+          : `Manual / Compensation class (ⓒ) created on ${selectedDate} at ${cleanTime}`,
+        created_by: 'Admin'
+      };
+
+      if (extraViolations.length > 0) {
+        setIsAddClassModalOpen(false);
+        setPendingViolations(extraViolations);
+        setPendingExceptionPayload(excPayload);
+        setViolationModalOpen(true);
+        return;
+      }
+
+      await applyException(excPayload);
+      showToast(`Created class ${resolvedBatchCode} on ${selectedDate} at ${cleanTime} with ⓒ badge!`);
       setIsAddClassModalOpen(false);
-      if (onRefreshSchedule) onRefreshSchedule();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       console.error('Failed to create class:', err);
       showToast(err.response?.data?.detail || 'Failed to create class.', 'danger');
     } finally {
       setCreatingClass(false);
+    }
+  };
+
+  // Confirm & Acknowledge Rule Violations -> Save with ⓒ Marker
+  const handleConfirmViolationException = async ({ subtype, reason }) => {
+    if (!pendingExceptionPayload) return;
+    try {
+      await applyException({
+        ...pendingExceptionPayload,
+        subtype: subtype || 'rule_exception',
+        reason: reason || pendingExceptionPayload.reason
+      });
+      setViolationModalOpen(false);
+      setPendingExceptionPayload(null);
+      setPendingViolations([]);
+      setTargetClassForAddStudent(null);
+      showToast('Rule exception acknowledged and saved with ⓒ marker! Updated across all pages.');
+      if (onRefreshSchedule) await onRefreshSchedule();
+    } catch (err) {
+      console.error('Failed to apply acknowledged exception:', err);
+      showToast(err.response?.data?.detail || 'Failed to apply exception.', 'danger');
     }
   };
 
@@ -643,6 +799,30 @@ export default function DailySchedulePlanner({
             <span style={{ fontSize: '0.625rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>STUDENTS</span>
             <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#a855f7' }}>{totalStudentsToday}</div>
           </div>
+
+          <button
+            type="button"
+            onClick={handleCopySelectedDayWhatsApp}
+            title="Copy this date's schedule formatted for WhatsApp"
+            className="btn btn-secondary"
+            style={{
+              padding: '8px 14px',
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: copiedDay ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+              borderColor: copiedDay ? '#10b981' : 'var(--border-color)',
+              color: copiedDay ? '#10b981' : '#fff',
+              cursor: 'pointer',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+            }}
+          >
+            {copiedDay ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+            <span>{copiedDay ? 'Copied WhatsApp!' : 'Copy Day WhatsApp'}</span>
+          </button>
         </div>
       </div>
 
@@ -682,19 +862,19 @@ export default function DailySchedulePlanner({
             onClick={() => setShowOnlyCompensation(!showOnlyCompensation)}
             className={`btn ${showOnlyCompensation ? 'btn-primary' : 'btn-secondary'}`}
             style={{
-              padding: '7px 12px',
+              padding: '7px 14px',
               fontSize: '0.8rem',
-              fontWeight: 700,
+              fontWeight: 800,
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
               borderColor: showOnlyCompensation ? 'var(--accent-gold)' : 'var(--border-color)',
-              color: showOnlyCompensation ? '#000' : 'var(--text-secondary)'
+              color: showOnlyCompensation ? '#000' : 'var(--accent-gold)'
             }}
-            title="Filter to show only temporary compensation or rule exception (ⓒ) classes"
+            title="Filter to show temporary compensation or rule exception (ⓒ) classes on this day and across the month"
           >
-            <span style={{ fontWeight: 900 }}>ⓒ</span>
-            <span>{showOnlyCompensation ? 'Showing Only ⓒ' : 'Filter ⓒ Only'}</span>
+            <span style={{ fontWeight: 900, fontSize: '0.95rem' }}>ⓒ</span>
+            <span>{showOnlyCompensation ? `Showing ⓒ Only (${allMonthCompensationClasses.length} in Month)` : `Filter ⓒ Only (${allMonthCompensationClasses.length} in Month)`}</span>
           </button>
         </div>
 
@@ -702,6 +882,69 @@ export default function DailySchedulePlanner({
           Showing {classesForSelectedDay.length} of {activeDetailedClasses.filter(c => c.date === selectedDate).length} classes
         </span>
       </div>
+
+      {/* Month-Wide ⓒ Compensation & Exception Directory when Filter ⓒ Only is active */}
+      {showOnlyCompensation && (
+        <div
+          className="glass-panel"
+          style={{
+            padding: '16px 20px',
+            border: '1px solid rgba(251, 191, 36, 0.5)',
+            background: 'rgba(120, 53, 15, 0.2)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+            <div>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fbbf24', margin: 0 }}>
+                ⓒ All Compensation & Exception Classes in Active Month ({allMonthCompensationClasses.length})
+              </h4>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                {classesForSelectedDay.length === 0
+                  ? `No ⓒ classes on ${selectedDate}. Click any date below to jump directly to a ⓒ class in this month:`
+                  : `Showing ${classesForSelectedDay.length} ⓒ class(es) on ${selectedDate}. You can also jump to any other ⓒ class in this month below:`}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowOnlyCompensation(false)}
+              className="btn btn-secondary"
+              style={{ padding: '5px 12px', fontSize: '0.75rem' }}
+            >
+              Show All Classes
+            </button>
+          </div>
+          {allMonthCompensationClasses.length === 0 ? (
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              No ⓒ compensation or exception classes exist in this month yet.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {allMonthCompensationClasses.map((cItem) => (
+                <button
+                  key={cItem.class_id}
+                  onClick={() => setSelectedDate(cItem.date)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    border: cItem.date === selectedDate ? '2px solid #fbbf24' : '1px solid rgba(251, 191, 36, 0.35)',
+                    background: cItem.date === selectedDate ? 'rgba(251, 191, 36, 0.25)' : 'rgba(15, 23, 42, 0.85)',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span style={{ color: '#fbbf24', fontWeight: 900 }}>ⓒ {cItem.date}</span>
+                  <span>· {cItem.time_slot}</span>
+                  <span style={{ color: '#38bdf8', fontWeight: 700 }}>· {cItem.coach_name}</span>
+                  <span style={{ color: '#34d399', fontWeight: 800 }}>[{cItem.batch_code || cItem.batch_name}]</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 5. Main Day Class Roster Timeline */}
       {classesForSelectedDay.length === 0 ? (
@@ -820,8 +1063,22 @@ export default function DailySchedulePlanner({
                         />
                       )}
 
+                      <span
+                        className="badge"
+                        style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 900,
+                          background: 'rgba(16, 185, 129, 0.18)',
+                          border: '1px solid rgba(52, 211, 153, 0.5)',
+                          color: '#34d399',
+                          padding: '3px 8px'
+                        }}
+                        title="Official Academy Batch Code"
+                      >
+                        {cls.batch_code || cls.batch_name || studentBatchCodeMap[cls.student_ids?.[0]] || `Batch [${cls.batch_type}]`}
+                      </span>
                       <span className={`badge ${cls.batch_type === 'I' ? 'badge-info' : (cls.batch_type === 'L' ? 'badge-gold' : 'badge-primary')}`} style={{ fontSize: '0.65rem' }}>
-                        Batch [{cls.batch_type}]
+                        Type [{cls.batch_type}]
                       </span>
                       <span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>
                         {cls.student_level}
@@ -924,7 +1181,9 @@ export default function DailySchedulePlanner({
                               }}
                             >
                               <span style={{ fontWeight: 700 }}>{sName}</span>
-                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>({sid})</span>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--accent-gold)', fontWeight: 700 }}>
+                                ({sid} · {cls.student_batch_codes?.[sIdx] || studentBatchCodeMap[sid] || cls.batch_name || cls.batch_type})
+                              </span>
                               <button
                                 onClick={() => handleRemoveStudentFromClass(cls, sid, sName)}
                                 title={`Remove ${sName}`}
@@ -1148,7 +1407,7 @@ export default function DailySchedulePlanner({
                     ASSIGN INITIAL STUDENTS ({newClassSelectedStudents.length} SELECTED)
                   </label>
                   <span style={{ fontSize: '0.7rem', color: 'var(--accent-gold)' }}>
-                    Batch limit: {newClassBatchType === 'I' ? 1 : (newClassBatchType === 'L' ? 4 : 10)}
+                    Batch limit: {newClassBatchType === 'I' ? 1 : (newClassBatchType === 'L' ? 3 : 8)}
                   </span>
                 </div>
 
@@ -1365,6 +1624,23 @@ export default function DailySchedulePlanner({
           </div>
         </div>
       )}
+    
+      {/* 8. Rule Violation Confirmation Modal (Accept & Acknowledge -> Marks as ⓒ) */}
+      <RuleViolationModal
+        isOpen={violationModalOpen}
+        onClose={() => {
+          setViolationModalOpen(false);
+          setPendingExceptionPayload(null);
+          setPendingViolations([]);
+        }}
+        violations={pendingViolations}
+        onConfirm={handleConfirmViolationException}
+        targetSummary={
+          pendingExceptionPayload
+            ? `${pendingExceptionPayload.date} · ${pendingExceptionPayload.time_slot} · Coach ${pendingExceptionPayload.coach_name}`
+            : ''
+        }
+      />
     </div>
   );
 }

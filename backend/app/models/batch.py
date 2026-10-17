@@ -13,8 +13,8 @@ class BatchModel(BaseModel):
     batch_type: str = Field("G", description="Batch type: G (Group), L (Limited), I (Individual)")
     level: str = Field("Beginner 1", description="Student skill level (e.g. Basic 1, Beginner 1, Intermediate 1)")
     
-    capacity_min: int = Field(4, ge=1, description="Minimum capacity required for batch")
-    capacity_max: int = Field(10, ge=1, description="Maximum capacity allowed for batch")
+    capacity_min: int = Field(1, ge=1, description="Minimum capacity required for batch")
+    capacity_max: int = Field(8, ge=1, description="Maximum capacity allowed for batch")
     
     fixed_trainer: Optional[str] = Field("Unassigned", description="Assigned fixed coach/trainer name")
     schedule_timings: Optional[str] = Field("", description="Human-readable summary of timings")
@@ -29,5 +29,5 @@ class BatchModel(BaseModel):
         if b_type == "I":
             return (1, 1)
         elif b_type == "L":
-            return (1, 4)
-        return (4, 10)
+            return (1, 3)
+        return (1, 8)

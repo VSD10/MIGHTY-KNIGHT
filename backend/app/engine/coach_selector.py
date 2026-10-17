@@ -1,11 +1,11 @@
 from typing import List, Optional, Tuple, Dict, Any
 from app.models.coach import CoachModel
 from app.config import SystemConfig
-from app.engine.time_utils import is_slot_in_preference, parse_slot_range, eval_coach_timing_preference
+from app.engine.time_utils import is_slot_in_preference, parse_slot_range, eval_coach_timing_preference, is_slot_in_coach_preference
 
 class CoachSelector:
     """
-    Implements the coach selection algorithm, hard constraint checks, and RULE_COACH_PREFERRED_TIMING.
+    Implements the coach selection algorithm, hard constraint checks, and mandatory RULE_COACH_PREFERRED_TIMING.
     """
     def __init__(self, coaches: List[CoachModel], config: SystemConfig):
         self.coaches = coaches
@@ -25,6 +25,7 @@ class CoachSelector:
     ) -> Tuple[Optional[CoachModel], Optional[str]]:
         """
         Executes selection sequence and returns (SelectedCoach, FailureReasonIfNone).
+        Strictly enforces mandatory coach preference timings, daily caps, and monthly caps.
         """
         level_clean = student_level.strip()
 
@@ -50,9 +51,9 @@ class CoachSelector:
 
         ordered_coaches = sorted(capable_coaches, key=get_priority_rank)
 
-        # Check rule configuration for RULE_COACH_PREFERRED_TIMING
+        # Mandatory Hard Constraint: Never recommend or assign a coach outside their configured preference timings
         pref_rule = next((r for r in self.config.rules_registry if r.rule_id == "RULE_COACH_PREFERRED_TIMING"), None)
-        is_pref_hard = (pref_rule and pref_rule.enabled and pref_rule.constraint_type == "HARD_CONSTRAINT")
+        is_pref_hard = True if (pref_rule is None or (pref_rule.enabled and pref_rule.constraint_type == "HARD_CONSTRAINT")) else False
 
         failure_reasons = []
         valid_candidates: List[Tuple[CoachModel, bool, bool]] = [] # (coach, matches_preferred_window, is_substitute)
@@ -64,23 +65,17 @@ class CoachSelector:
             if not coach.can_handle_level(level_clean, self.config):
                 continue
 
-            # Check 2: Sunday Preference
-            if day_name == "Sunday" and coach.sunday_pref:
-                if str(coach.sunday_pref).strip().lower() in ["not available", "no", "off"]:
-                    failure_reasons.append(f"{c_name}: Not available on Sundays")
-                    continue
-
-            # Check 3: Coach Preferred Timings & Day Availability
-            parsed_timings = coach.get_parsed_preferred_timings()
-            is_day_avail, matches_window, pref_daily_max = eval_coach_timing_preference(
-                parsed_timings, day_name, time_slot
-            )
-
-            if not is_day_avail:
-                failure_reasons.append(f"{c_name}: Marked 'Not Available' on {day_name} in Preferred Timings")
+            # Check 2 & 3: Mandatory Coach Preferred Timings, Working Hours & Day Availability
+            timing_ok, timing_reason = is_slot_in_coach_preference(coach, day_name, time_slot)
+            if not timing_ok:
+                failure_reasons.append(timing_reason)
                 continue
 
-            # Check 4: Effective Daily Class Limit (Min of standard daily max and preferred daily max)
+            # Check 4: Effective Daily Class Limit
+            parsed_timings = coach.get_parsed_preferred_timings()
+            _, matches_window, pref_daily_max = eval_coach_timing_preference(
+                parsed_timings, day_name, time_slot
+            )
             std_daily_max = coach.get_daily_max(day_name)
             effective_daily_max = min(std_daily_max, pref_daily_max) if (pref_daily_max is not None and pref_daily_max >= 0) else std_daily_max
 
@@ -107,46 +102,29 @@ class CoachSelector:
                     failure_reasons.append(f"{c_name}: Excluded from Sunday tournament assignments")
                     continue
 
-
-
-            # Candidate meets all hard rules!
+            # Candidate meets all mandatory hard rules!
             valid_candidates.append((coach, matches_window, is_substitute_coach(coach)))
 
         if not valid_candidates:
             primary_reason = failure_reasons[0] if failure_reasons else "No available coach met all constraints"
             return None, primary_reason
 
-        # Selection hierarchy:
+        # Selection hierarchy in strict priority order:
         regular_candidates = [(c, match) for c, match, sub in valid_candidates if not sub]
         substitute_candidates = [(c, match) for c, match, sub in valid_candidates if sub]
 
-        if is_pref_hard:
-            # Under HARD_CONSTRAINT mode: must match timing window
-            reg_matches = [c for c, match in regular_candidates if match]
-            if reg_matches:
-                return reg_matches[0], None
-            sub_matches = [c for c, match in substitute_candidates if match]
-            if sub_matches:
-                return sub_matches[0], None
-            return None, f"No coach available within preferred timing window for {day_name} ({time_slot})"
-        else:
-            # Under SOFT_CONSTRAINT mode (default):
-            # Pass 1: Regular coach matching preferred window
-            reg_matches = [c for c, match in regular_candidates if match]
-            if reg_matches:
-                return reg_matches[0], None
+        reg_matches = [c for c, match in regular_candidates if match]
+        if reg_matches:
+            return reg_matches[0], None
+        sub_matches = [c for c, match in substitute_candidates if match]
+        if sub_matches:
+            return sub_matches[0], None
 
-            # Pass 2: Regular coach fallback (even if outside preferred window)
+        if not is_pref_hard:
             if regular_candidates:
                 return regular_candidates[0][0], None
-
-            # Pass 3: Substitute coach matching preferred window
-            sub_matches = [c for c, match in substitute_candidates if match]
-            if sub_matches:
-                return sub_matches[0], None
-
-            # Pass 4: Substitute coach fallback
             if substitute_candidates:
                 return substitute_candidates[0][0], None
 
-            return None, f"No available coach met all constraints"
+        return None, f"No coach available within preferred timing window for {day_name} ({time_slot})"
+

@@ -68,7 +68,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
         },
         {
             "Coach Name": "PRAKASH",
-            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Early Intermediate 1, Early Intermediate 2, Intermediate 1, Intermediate 2, Advanced",
+            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Early Intermediate 1, Early Intermediate 2, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "30 - 100",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 2,
             "Sunday Preference": "Available",

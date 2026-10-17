@@ -1,0 +1,8 @@
+[project]
+name = "mk-engine"
+version = "1.0.0"
+description = "Mighty Knight Chess Academy scheduling engine (universal, rule-driven, validated)"
+requires-python = ">=3.10"
+dependencies = ["openpyxl>=3.1"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
