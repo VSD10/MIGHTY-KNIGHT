@@ -1,26 +1,17 @@
 import sys
 import os
-from datetime import datetime, date
 
 # Add app to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
-from app.storage.database import (
-    load_master_data_db, save_master_data_db, get_active_baseline_db,
-    save_exception_record_db, get_exception_records_db
-)
 from app.engine.effective_schedule_service import (
-    get_effective_schedule, ScheduleEventBus, REFERENCE_TODAY
-)
-from app.engine.master_data_service import (
-    sync_live_coach_priority_matrix, reorder_coach_level_priorities
+    get_effective_schedule, REFERENCE_TODAY
 )
 from app.engine.time_utils import is_slot_in_coach_preference
 from app.engine.coach_selector import CoachSelector
 from app.models.coach import CoachModel
 from app.engine.suggestion_engine import (
     find_single_class_suggestions, solve_multi_class_options,
-    generate_new_slot_candidates, evaluate_hard_feasibility,
     ENGINE_SETTINGS, build_coach_availability_mask
 )
 from app.main import (
@@ -83,7 +74,7 @@ def run_tests():
     b1_prio_before = list(app.main.CURRENT_CONFIG.coach_priority.get("Basic 1", []))
     int1_prio_before = list(app.main.CURRENT_CONFIG.coach_priority.get("Intermediate 1", []))
     
-    saved_coach = save_master_coach(new_coach_payload)
+    save_master_coach(new_coach_payload)
     
     b1_prio_after = list(app.main.CURRENT_CONFIG.coach_priority.get("Basic 1", []))
     int1_prio_after = list(app.main.CURRENT_CONFIG.coach_priority.get("Intermediate 1", []))
@@ -94,11 +85,11 @@ def run_tests():
     # Assert existing priorities strictly preserved
     assert b1_prio_after[:-1] == b1_prio_before, f"Existing Basic 1 priorities were altered! Before: {b1_prio_before}, After: {b1_prio_after}"
     assert int1_prio_after[:-1] == int1_prio_before, f"Existing Intermediate 1 priorities were altered! Before: {int1_prio_before}, After: {int1_prio_after}"
-    print(f"[PASSED] 1.1 New coach appended to bottom of applicable levels. Existing priorities preserved.")
+    print("[PASSED] 1.1 New coach appended to bottom of applicable levels. Existing priorities preserved.")
     print(f"         Basic 1 priorities: {b1_prio_after}")
 
     # 1.2 Remove Coach - Shifting remaining coaches upward without gaps (1..N) and without priority resets
-    res_del = delete_master_coach(test_coach_name)
+    delete_master_coach(test_coach_name)
     b1_prio_post_del = list(app.main.CURRENT_CONFIG.coach_priority.get("Basic 1", []))
     int1_prio_post_del = list(app.main.CURRENT_CONFIG.coach_priority.get("Intermediate 1", []))
     
@@ -116,7 +107,7 @@ def run_tests():
                 c_canon = c["coach_name"]
                 if c_canon in expected_list:
                     assert rank == expected_list.index(c_canon) + 1, f"Mismatch rank for {c_canon} in {lvl}: {rank} vs {expected_list.index(c_canon) + 1}"
-    print(f"[PASSED] 1.2 Coach removal closes gaps upward without resets; coach objects 100% match live matrix.")
+    print("[PASSED] 1.2 Coach removal closes gaps upward without resets; coach objects 100% match live matrix.")
 
     # =========================================================================
     # REQUIREMENT 2: PROTECT EXISTING STUDENTS' AND COACHES' SCHEDULES
@@ -172,7 +163,7 @@ def run_tests():
     # Bit 36 is 18:00 (06:00 PM)
     assert (mask_mon & (1 << 36)) > 0, "Monday 06:00 PM bit must be 1"
     assert (mask_mon & (1 << 32)) == 0, "Monday 04:00 PM bit must be 0"
-    print(f"[PASSED] 3.2 build_coach_availability_mask correctly zeroes out prohibited times and days.")
+    print("[PASSED] 3.2 build_coach_availability_mask correctly zeroes out prohibited times and days.")
 
     # 3.3 Test CoachSelector strict enforcement (Never violates preferred timing)
     coach_fields = CoachModel.model_fields if hasattr(CoachModel, "model_fields") else CoachModel.__fields__
@@ -221,7 +212,7 @@ def run_tests():
     assert att_rec["is_mid_month"] is True, f"is_mid_month flag not set: {att_rec}"
     assert att_rec["shortfall"] >= 1, f"Expected shortfall >= 1 for joining on 25th with 8 needed, got {att_rec['shortfall']}"
     assert "Joined mid-month" in att_rec["failure_reason"], f"Failure reason should explain mid-month joining: {att_rec['failure_reason']}"
-    print(f"[PASSED] 4.1 Mid-month student complete profile fetched into Attention Required with accurate shortfall diagnosis:")
+    print("[PASSED] 4.1 Mid-month student complete profile fetched into Attention Required with accurate shortfall diagnosis:")
     print(f"         Reason: {att_rec['failure_reason']}")
 
     # 4.2 Never allocate classes to past dates or dates before joining
@@ -309,7 +300,7 @@ def run_tests():
     assert stu_sched["scheduled_classes_count"] == classes_to_add
     assert stu_sched["approved_allocations_count"] == classes_to_add
     assert stu_sched["completed_classes_count"] == 0  # Oct 25-31 is after REFERENCE_TODAY (Oct 15)
-    print(f"[PASSED] 5.1 Real-time synchronization verified across Outputs 1-5.")
+    print("[PASSED] 5.1 Real-time synchronization verified across Outputs 1-5.")
     print(f"         Distinct counts: scheduled={stu_sched['scheduled_classes_count']}, approved={stu_sched['approved_allocations_count']}, completed={stu_sched['completed_classes_count']}.")
 
     # =========================================================================

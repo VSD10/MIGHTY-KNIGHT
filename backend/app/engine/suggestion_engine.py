@@ -7,20 +7,20 @@ New Trainer Engagement Proposals, and Read-Only Consolidation Advisor.
 """
 
 import re
-import math
 import calendar
-from datetime import datetime, date, timedelta
-from typing import Dict, Any, List, Tuple, Optional, Set
+from datetime import datetime, date
+from typing import Dict, Any, List, Tuple, Optional
 from collections import defaultdict
 
 from app.engine.rule_engine import (
-    LEVEL_MAP, LEVEL_BY_NUM, STAGES, TOURNAMENT_GROUPS,
+    LEVEL_MAP, STAGES,
     COACH_REFERENCE, resolve_coach_canonical_name,
     parse_time_to_minutes, format_minutes_to_time,
     check_intervals_overlap, check_operating_hours,
-    is_morning_class, check_tournament_eligibility,
+    check_tournament_eligibility,
     check_tournament_grouping, check_regular_level_compatibility
 )
+from app.engine.time_utils import parse_slot_range
 
 # In-memory cache for suggestion engine queries to eliminate latency and repeat computation
 _SUGGESTION_CACHE: Dict[Tuple[str, int, str], Any] = {}
@@ -793,7 +793,6 @@ def find_single_class_suggestions(
         c_coach = vac["coach_name"]
         c_time = vac["time_slot"]
         c_lvl = vac["student_level"]
-        c_btype = vac["batch_type"]
 
         is_exact_coach = (not pref_coach) or (c_coach.lower() == pref_coach.lower())
         is_exact_time = (not pref_times) or (c_time in pref_times)
@@ -1054,9 +1053,6 @@ def generate_new_slot_candidates(
             if len(existing_mins) >= d_limit:
                 continue
 
-            is_over_limit = False
-            is_flex = c_canon in flex_coaches or c_ref.get("is_flex", False)
-
             # Evaluate full-hour start bits first (even bits: :00), then half-hour bits (:30)
             bit_order = [b for b in range(48) if b % 2 == 0] + [b for b in range(48) if b % 2 == 1]
             for b in bit_order:
@@ -1234,7 +1230,6 @@ def solve_multi_class_options(
     s = enrich_student_profile(student)
     sid = s["student_id"]
     s_lvl = s.get("student_level", "Beginner 1")
-    s_btype = (s.get("batch_type") or "G").upper()
 
     cache_key = (sid, needed_count, target_month)
     if cache_key in _SUGGESTION_CACHE:

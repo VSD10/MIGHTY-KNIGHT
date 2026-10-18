@@ -1,8 +1,7 @@
-import json
 import asyncio
 import calendar
-from datetime import datetime, date
-from typing import Dict, Any, List, Optional, Set
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 from collections import defaultdict, Counter
 
 from app.storage.database import (
@@ -206,7 +205,6 @@ def get_effective_schedule(month: str = "2026-10", reference_today: str = REFERE
     master_student_ids = {s["student_id"] for s in base_students}
     student_name_map = {s["student_id"]: s.get("student_name", s["student_id"]) for s in base_students}
     student_name_to_id_map = {str(s.get("student_name", "")).strip().lower(): s["student_id"] for s in base_students if s.get("student_name")}
-    student_quota_map = {s["student_id"]: s.get("required_classes", 12) for s in base_students}
     student_rating_map = {s["student_id"]: (s.get("mkca_rating") if s.get("mkca_rating") is not None else "-") for s in base_students}
 
     base_classes = [dict(c) for c in active_base.get("classes_data", [])] if active_base else []
@@ -719,7 +717,6 @@ def get_effective_schedule(month: str = "2026-10", reference_today: str = REFERE
                 ranked_replacements[0]["is_recommended"] = True
 
             rec_coach = ranked_replacements[0]["coach_name"] if ranked_replacements else "Any qualified coach"
-            suggs = [r["coach_name"] for r in ranked_replacements[:3]]
 
             attention_records.append({
                 "record_type": "coach_reassignment",
@@ -741,6 +738,8 @@ def get_effective_schedule(month: str = "2026-10", reference_today: str = REFERE
                 "scheduled_classes": 0,
                 "remaining_classes": len(c_sids),
                 "failure_reason": f"Coach {c_coach} was deleted. Reassignment required for batch {b_name} on {c_date} ({day_name[:3]}) at {t_slot}.",
+                "sunday_tournament_eligible": False,
+                "tournament_requirement": "Non-Tournament Class (Coach Reassignment)",
                 "preferred_days": day_name,
                 "preferred_time": t_slot,
                 "suggested_coaches": ranked_replacements,

@@ -10,31 +10,28 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.config import DEFAULT_CONFIG, SystemConfig, save_config, load_config
+from app.config import DEFAULT_CONFIG, SystemConfig
 from app.models.student import StudentModel
 from app.models.coach import CoachModel
-from app.models.schedule import ScheduleResult, ScheduledClass
+from app.models.schedule import ScheduleResult
 from app.ingestion.excel_parser import parse_excel_file
 from app.engine.scheduler import run_scheduler
-from app.outputs.coach_schedule import generate_coach_schedule_text
-from app.outputs.admin_schedule import format_admin_schedule
-from app.outputs.attention_report import format_attention_report
-from app.outputs.student_schedule import format_student_schedules, generate_student_ics
-from app.utils.time_utils import parse_time_slot_sort_key
+from app.outputs.student_schedule import generate_student_ics
 from app.engine.validator import (
     validate_schedule_state, recompute_schedule_outputs, execute_transactional_mutation
 )
 from app.storage.database import (
     init_db, save_schedule_db, get_schedule_db, get_latest_schedule_db,
-    save_master_data_db, load_master_data_db, has_master_data_db,
+    save_master_data_db, load_master_data_db,
     save_single_batch_db, delete_single_batch_db, load_master_batches_db, save_all_master_batches_db,
     clear_all_master_data_db, is_master_cleared_db,
     save_system_config_db, load_system_config_db,
     compute_master_data_fingerprint,
     log_db_status, BASE_DIR,
-    save_baseline_db, get_active_baseline_db, get_draft_baseline_db, get_baseline_by_version_db,
+    save_baseline_db, get_active_baseline_db, get_draft_baseline_db,
     activate_baseline_db, discard_draft_baseline_db, list_baselines_for_month_db,
     save_exception_record_db, get_exception_records_db, revert_exception_record_db,
+    update_exception_record_db,
     log_audit_event_db, get_audit_logs_db, seed_october_baseline_if_missing
 )
 from app.engine.effective_schedule_service import get_effective_schedule, ScheduleEventBus
@@ -1371,8 +1368,6 @@ def get_output2_admin_schedule(schedule_id: str, month: str = Query(default="202
         "student_seats": eff["student_seats"],
         "compensation_count": eff["compensation_count"]
     }
-
-from fastapi.responses import FileResponse, Response
 
 def resolve_schedule_or_effective(schedule_id: str, month: str = "2026-10") -> Optional[Dict[str, Any]]:
     """

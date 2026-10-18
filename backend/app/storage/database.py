@@ -2,6 +2,7 @@ import sqlite3
 import json
 import os
 import hashlib
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 # Local SQLite Database Path inside data/ folder
@@ -16,7 +17,16 @@ def get_db_path() -> str:
     # Vercel serverless environment: root filesystem is read-only, copy to /tmp for write access
     if os.environ.get("VERCEL"):
         tmp_db = "/tmp/chess_scheduler.db"
-        if not os.path.exists(tmp_db) and os.path.exists(DEFAULT_DB_PATH):
+        should_copy = False
+        if not os.path.exists(tmp_db) or os.path.getsize(tmp_db) == 0:
+            should_copy = True
+        elif os.path.exists(DEFAULT_DB_PATH):
+            try:
+                if os.path.getmtime(DEFAULT_DB_PATH) > os.path.getmtime(tmp_db):
+                    should_copy = True
+            except Exception:
+                pass
+        if should_copy and os.path.exists(DEFAULT_DB_PATH):
             import shutil
             try:
                 shutil.copy2(DEFAULT_DB_PATH, tmp_db)
@@ -45,14 +55,14 @@ def log_db_status(context: str, db_path: Optional[str] = None):
         except Exception as e:
             print(f"[{context}] Error reading DB counts: {e}", flush=True)
 
-    print(f"==================================================", flush=True)
+    print("==================================================", flush=True)
     print(f"[{context}] DATABASE STATUS LOG", flush=True)
     print(f"  - DB Absolute Path: {abs_path}", flush=True)
     print(f"  - DB Exists       : {exists}", flush=True)
     print(f"  - DB File Size    : {size_bytes} bytes", flush=True)
     print(f"  - Student Count   : {student_count}", flush=True)
     print(f"  - Coach Count     : {coach_count}", flush=True)
-    print(f"==================================================", flush=True)
+    print("==================================================", flush=True)
 
 def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     target_path = db_path or get_db_path()
@@ -538,6 +548,7 @@ def clear_all_master_data_db(db_path: Optional[str] = None):
     cursor.execute("INSERT INTO active_metadata (key, value) VALUES ('master_cleared', 'true')")
     conn.commit()
     conn.close()
+    log_db_status("POST_CLEAR_ALL_MASTER_DATA", target_path)
 
 def is_master_cleared_db(db_path: Optional[str] = None) -> bool:
     target_path = db_path or get_db_path()
@@ -756,42 +767,6 @@ def load_system_config_db(db_path: Optional[str] = None) -> Optional[Dict[str, A
             return None
     return None
 
-def clear_all_master_data_db(db_path: Optional[str] = None):
-    """
-    Wipes all students, coaches, batches, and schedules from the SQLite database,
-    and marks master_cleared flag as true so server restarts don't auto-reload sample data.
-    """
-    target_path = db_path or get_db_path()
-    init_db(target_path)
-    conn = get_connection(target_path)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM students")
-    cursor.execute("DELETE FROM coaches")
-    cursor.execute("DELETE FROM batches")
-    cursor.execute("DELETE FROM schedules")
-    cursor.execute("DELETE FROM active_metadata WHERE key = 'latest_schedule_id'")
-    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('master_cleared', 'true')")
-    conn.commit()
-    conn.close()
-    log_db_status("POST_CLEAR_ALL_MASTER_DATA", target_path)
-
-def is_master_cleared_db(db_path: Optional[str] = None) -> bool:
-    """
-    Returns True if master data was explicitly cleared by the user.
-    """
-    target_path = db_path or get_db_path()
-    if not os.path.exists(target_path):
-        return False
-    try:
-        conn = get_connection(target_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM active_metadata WHERE key = 'master_cleared'")
-        row = cursor.fetchone()
-        conn.close()
-        return bool(row and row["value"] == "true")
-    except Exception:
-        return False
-
 # ==============================================================================
 # ABSOLUTE BASELINES STORAGE (PART E)
 # ==============================================================================
@@ -827,7 +802,7 @@ def save_baseline_db(baseline_dict: Dict[str, Any], db_path: Optional[str] = Non
         status,
         baseline_dict.get("file_name", ""),
         baseline_dict.get("uploaded_by", "Admin"),
-        baseline_dict.get("uploaded_at", datetime.now().strftime("%Y-%m-%d %I:%M %p") if 'datetime' in globals() else ""),
+        baseline_dict.get("uploaded_at", datetime.now().strftime("%Y-%m-%d %I:%M %p")),
         baseline_dict.get("student_count", 0),
         baseline_dict.get("class_count", 0),
         baseline_dict.get("student_class_count", 0),
