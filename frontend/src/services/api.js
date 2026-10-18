@@ -1,9 +1,23 @@
 import axios from 'axios';
+import { getCustomStudentsLocal } from '../utils/storageSync';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+});
+
+api.interceptors.request.use((config) => {
+  try {
+    const local = getCustomStudentsLocal();
+    if (local && local.length > 0) {
+      const jsonStr = JSON.stringify(local.slice(0, 15));
+      if (jsonStr.length < 5000) {
+        config.headers['X-Custom-Students'] = encodeURIComponent(jsonStr);
+      }
+    }
+  } catch (e) {}
+  return config;
 });
 
 export const getHealth = async () => {
@@ -82,16 +96,47 @@ export const applyManualEdit = async (scheduleId, editData) => {
 };
 
 export const assignStudentToClass = async (scheduleId, studentId, classId) => {
-  const res = await api.post(`/schedule/${scheduleId}/assign-student`, {
-    student_id: studentId,
-    class_id: classId
-  });
-  return res.data;
+  try {
+    const res = await api.post(`/schedule/${scheduleId}/assign-student`, {
+      student_id: studentId,
+      class_id: classId
+    });
+    return res.data;
+  } catch (err) {
+    if (err?.response?.status === 404 && studentId) {
+      const local = getCustomStudentsLocal().find(s => s.student_id === studentId);
+      if (local) {
+        try {
+          await saveMasterStudent(local);
+          const retryRes = await api.post(`/schedule/${scheduleId}/assign-student`, {
+            student_id: studentId,
+            class_id: classId
+          });
+          return retryRes.data;
+        } catch (rErr) {}
+      }
+    }
+    throw err;
+  }
 };
 
 export const createClassForStudent = async (scheduleId, classData) => {
-  const res = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
-  return res.data;
+  try {
+    const res = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
+    return res.data;
+  } catch (err) {
+    if (err?.response?.status === 404 && classData?.student_id) {
+      const local = getCustomStudentsLocal().find(s => s.student_id === classData.student_id);
+      if (local) {
+        try {
+          await saveMasterStudent(local);
+          const retryRes = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
+          return retryRes.data;
+        } catch (rErr) {}
+      }
+    }
+    throw err;
+  }
 };
 
 export const deleteClass = async (scheduleId, classId) => {
@@ -151,6 +196,11 @@ export const getMasterStats = async () => {
 
 export const saveMasterStudent = async (studentData) => {
   const res = await api.post('/master/students', studentData);
+  return res.data;
+};
+
+export const syncMasterStudentsBulk = async (studentsList) => {
+  const res = await api.post('/master/students/sync', { students: studentsList });
   return res.data;
 };
 
@@ -343,13 +393,45 @@ export const updateEngineSettings = async (settingsData) => {
 };
 
 export const getEngineSuggestions = async (studentId, neededClasses = 1, month = '2026-10') => {
-  const res = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
-  return res.data;
+  try {
+    const res = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
+    return res.data;
+  } catch (err) {
+    if (err?.response?.status === 404 || err?.response?.status === 500) {
+      const local = getCustomStudentsLocal().find(s => s.student_id === studentId);
+      if (local) {
+        try {
+          await saveMasterStudent(local);
+          const retryRes = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
+          return retryRes.data;
+        } catch (retryErr) {
+          console.warn("Auto-sync retry failed:", retryErr);
+        }
+      }
+    }
+    throw err;
+  }
 };
 
 export const acceptEngineSuggestion = async (payload) => {
-  const res = await api.post('/engine/suggestions/accept', payload);
-  return res.data;
+  try {
+    const res = await api.post('/engine/suggestions/accept', payload);
+    return res.data;
+  } catch (err) {
+    if (err?.response?.status === 404 && payload?.student_id && payload.student_id !== 'TRAINER_PROPOSAL') {
+      const local = getCustomStudentsLocal().find(s => s.student_id === payload.student_id);
+      if (local) {
+        try {
+          await saveMasterStudent(local);
+          const retryRes = await api.post('/engine/suggestions/accept', payload);
+          return retryRes.data;
+        } catch (retryErr) {
+          console.warn("Auto-sync accept retry failed:", retryErr);
+        }
+      }
+    }
+    throw err;
+  }
 };
 
 export const getSmartBatches = async (month = '2026-10') => {

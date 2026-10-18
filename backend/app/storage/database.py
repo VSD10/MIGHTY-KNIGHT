@@ -288,6 +288,21 @@ def save_master_data_db(
     conn.commit()
     conn.close()
 
+def get_single_student_db(student_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT data_json FROM students WHERE student_id = ?", (student_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row["data_json"]:
+        try:
+            return json.loads(row["data_json"])
+        except Exception:
+            return None
+    return None
+
 def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
     target_path = db_path or get_db_path()
     init_db(target_path)
@@ -306,6 +321,21 @@ def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
         s.get("required_classes", 8),
         json.dumps(s)
     ))
+
+    # Also synchronize the student record into all Active baselines in absolute_baselines
+    try:
+        cursor.execute("SELECT id, month, students_data_json FROM absolute_baselines WHERE status = 'Active'")
+        b_rows = cursor.fetchall()
+        sid = s.get("student_id", "")
+        for b_row in b_rows:
+            b_s_list = json.loads(b_row["students_data_json"]) if b_row["students_data_json"] else []
+            b_s_list = [st for st in b_s_list if st.get("student_id") != sid]
+            b_s_list.append(s)
+            cursor.execute("UPDATE absolute_baselines SET students_data_json = ?, student_count = ? WHERE id = ?",
+                           (json.dumps(b_s_list), len(b_s_list), b_row["id"]))
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -337,6 +367,18 @@ def delete_single_student_db(student_id: str, db_path: Optional[str] = None):
                                (json.dumps(b.get("student_ids", [])), json.dumps(b), row["batch_id"]))
         except Exception:
             pass
+
+    # Cascade: Remove student from active baselines
+    try:
+        cursor.execute("SELECT id, month, students_data_json FROM absolute_baselines WHERE status = 'Active'")
+        b_rows = cursor.fetchall()
+        for b_row in b_rows:
+            b_s_list = json.loads(b_row["students_data_json"]) if b_row["students_data_json"] else []
+            b_s_list = [st for st in b_s_list if st.get("student_id") != student_id]
+            cursor.execute("UPDATE absolute_baselines SET students_data_json = ?, student_count = ? WHERE id = ?",
+                           (json.dumps(b_s_list), len(b_s_list), b_row["id"]))
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()

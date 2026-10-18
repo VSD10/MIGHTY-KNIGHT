@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView';
 import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
 import AbsoluteScheduleView from './components/AbsoluteScheduleView';
-import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent } from './services/api';
+import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent, syncMasterStudentsBulk } from './services/api';
 import { getCustomStudentsLocal, getDeletedStudentsLocal, getDeletedClassesLocal, trackDeletedClassLocal, clearCustomStorageLocal } from './utils/storageSync';
 
 const getCurrentMonthBounds = () => {
@@ -111,8 +111,112 @@ export default function App() {
   }, []);
 
   // Pass-through filters: backend Layer 1 + Layer 3 Effective Schedule is the single authoritative source of truth
-  const filterDeletedClasses = (o2) => o2;
-  const filterDeletedFromOutput3 = (o3) => o3;
+  const filterDeletedFromOutput3 = (o3, extraStudent = null) => {
+    if (!o3) return o3;
+    const deletedIds = new Set(getDeletedStudentsLocal());
+
+    // 1. Filter out deleted students from attention_records
+    let attentionRecords = (o3.attention_records || []).filter(
+      r => !deletedIds.has(r.student_id)
+    );
+
+    // 2. Discover all known active students
+    const allStudentsMap = new Map();
+    (masterStudentsList || []).forEach(s => {
+      if (s?.student_id && !deletedIds.has(s.student_id)) {
+        allStudentsMap.set(s.student_id, s);
+      }
+    });
+    getCustomStudentsLocal().forEach(s => {
+      if (s?.student_id && !deletedIds.has(s.student_id)) {
+        allStudentsMap.set(s.student_id, s);
+      }
+    });
+    if (extraStudent && extraStudent.student_id && !deletedIds.has(extraStudent.student_id)) {
+      allStudentsMap.set(extraStudent.student_id, extraStudent);
+    }
+
+    // 3. Count scheduled classes from output2Data
+    const scheduledCounts = {};
+    if (output2Data?.detailed_classes) {
+      output2Data.detailed_classes.forEach(cls => {
+        (cls.student_ids || []).forEach(sid => {
+          scheduledCounts[sid] = (scheduledCounts[sid] || 0) + 1;
+        });
+      });
+    }
+
+    // 4. Ensure every active student with shortfall is present in attentionRecords
+    const existingSids = new Set(attentionRecords.map(r => r.student_id));
+
+    allStudentsMap.forEach((student, sid) => {
+      if (student.is_active === false || student.is_active === 'false' || student.is_active === 0 || student.is_active === '0') return;
+      const rawReq = Number(student.required_classes ?? 8);
+      const sch = scheduledCounts[sid] || 0;
+      const rem = Math.max(0, rawReq - sch);
+
+      if (rawReq > 0 && rem > 0 && !existingSids.has(sid)) {
+        const lvl = student.student_level || 'Beginner 1';
+        const btype = student.batch_type || 'G';
+        const bcode = student.batch || student.assigned_batch_id || `${btype} ${lvl}`;
+        const isSundayEligible = (btype !== 'I' && lvl !== 'Basic 1' && lvl !== 'Intermediate 2');
+        const tournReq = isSundayEligible
+          ? 'Sunday Tournament Eligible: Basic 2 to Intermediate 1 (Group & Limited). Operating hours: 09:00 AM – 02:30 PM (cap 20).'
+          : (btype === 'I' ? 'Individual Batch (Private 1-on-1): Ineligible for Sunday tournaments.' : 'Regular class scheduling.');
+
+        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const prefDays = days.filter(d => {
+          const val = String(student[`${d.toLowerCase()}_pref`] || 'No Preference').toLowerCase();
+          return !['not available', 'na', 'no', 'off'].includes(val);
+        });
+
+        attentionRecords.unshift({
+          student_id: sid,
+          student_name: student.student_name || sid,
+          student_level: lvl,
+          joining_date: student.joining_date || student.start_date || '',
+          date_of_joining: student.date_of_joining || student.start_date || '',
+          monthly_quota: rawReq,
+          quota: rawReq,
+          batch_eligibility: btype,
+          batch_type: btype,
+          batch_name: bcode,
+          batch_code: bcode,
+          required_classes: rawReq,
+          scheduled_classes: sch,
+          remaining_classes: rem,
+          had_deleted_class: false,
+          deleted_class_details: [],
+          is_mid_month: false,
+          shortfall: 0,
+          shortfall_info: '',
+          failure_reason: sch === 0
+            ? `Unscheduled. Needs ${rem} class assignments to meet monthly requirement.`
+            : `Partially scheduled (${sch}/${rawReq} classes). Shortfall of ${rem} class session(s).`,
+          sunday_tournament_eligible: isSundayEligible,
+          tournament_requirement: tournReq,
+          preferred_days: prefDays.length > 0 ? prefDays.join(', ') : 'Mon, Tue, Wed, Thu, Fri, Sat, Sun',
+          preferred_time: student.preferred_timings || 'Flexible',
+          preferred_timings: student.preferred_timings || 'Flexible',
+          preferred_times: student.preferred_times || [],
+          preferred_coach: student.preferred_coach || '',
+          availability: student.availability || {},
+          is_morning_available: student.is_morning_available || false,
+          details: `Needs ${rem} more class(es) in Batch ${bcode}`
+        });
+        existingSids.add(sid);
+      }
+    });
+
+    return {
+      ...o3,
+      attention_records: attentionRecords,
+      unscheduled_records: attentionRecords,
+      unscheduled_count: attentionRecords.length,
+      accountability_passed: attentionRecords.length === 0,
+      total_students_considered: Math.max(o3.total_students_considered || 0, allStudentsMap.size)
+    };
+  };
 
   const handleDeleteClassOptimistic = (classId) => {
     trackDeletedClassLocal(classId);
@@ -163,6 +267,7 @@ export default function App() {
 
       if (res && res.students) {
         setMasterStudentsList(res.students.filter(s => !deletedIds.has(s.student_id)));
+        setOutput3Data(prev => prev ? filterDeletedFromOutput3(prev) : prev);
       }
     } catch (err) {
       console.error("Failed to fetch master students:", err);
@@ -236,7 +341,7 @@ export default function App() {
           });
         }
         if (active.attention_records) {
-          setOutput3Data({
+          setOutput3Data(filterDeletedFromOutput3({
             schedule_id: sId,
             month: mStr,
             total_students_considered: active.total_students_considered,
@@ -244,7 +349,7 @@ export default function App() {
             unscheduled_count: active.unscheduled_students_count,
             attention_records: active.attention_records,
             unscheduled_records: active.attention_records
-          });
+          }));
         }
         if (active.student_schedules) {
           setOutput5Data({
@@ -337,11 +442,36 @@ export default function App() {
           newStudent,
           ...prev.filter(s => s.student_id !== newStudent.student_id)
         ]);
+        // Optimistically inject into output3Data immediately with zero delay
+        setOutput3Data(prev => {
+          const base = prev || {
+            schedule_id: sId || `SCHED_${mStr.replace('-', '')}`,
+            month: mStr,
+            attention_records: [],
+            unscheduled_records: [],
+            total_students_considered: 1,
+            unscheduled_count: 1,
+            accountability_passed: false
+          };
+          return filterDeletedFromOutput3(base, newStudent);
+        });
       }
     }
 
     try {
       setLoading(true);
+
+      // Prime the serverless backend instance with all custom students from localStorage before querying outputs
+      const deletedIds = new Set(getDeletedStudentsLocal());
+      const localCustom = getCustomStudentsLocal().filter(s => !deletedIds.has(s.student_id));
+      if (localCustom && localCustom.length > 0) {
+        try {
+          await syncMasterStudentsBulk(localCustom);
+        } catch (syncErr) {
+          console.warn("[SYNC] Bulk custom students sync non-blocking:", syncErr);
+        }
+      }
+
       const active = await getActiveSchedule(mStr).catch(() => null);
       const targetId = sId || active?.schedule_id || currentScheduleId || `SCHED_${mStr.replace('-', '')}`;
       setCurrentScheduleId(targetId);
@@ -377,7 +507,7 @@ export default function App() {
           });
         }
         if (active.attention_records) {
-          setOutput3Data(prev => ({
+          setOutput3Data(prev => filterDeletedFromOutput3({
             ...(prev || {}),
             schedule_id: targetId,
             month: mStr,
@@ -386,7 +516,7 @@ export default function App() {
             unscheduled_count: active.unscheduled_students_count,
             attention_records: active.attention_records,
             unscheduled_records: active.attention_records
-          }));
+          }, newStudent));
         }
         if (active.student_schedules) {
           setOutput5Data({
@@ -406,7 +536,7 @@ export default function App() {
 
       if (o1) setOutput1Data(o1);
       if (o2) setOutput2Data(filterDeletedClasses(o2));
-      if (o3) setOutput3Data(filterDeletedFromOutput3(o3));
+      if (o3) setOutput3Data(filterDeletedFromOutput3(o3, newStudent));
       if (o5) setOutput5Data(o5);
 
       await fetchActiveFileInfo();

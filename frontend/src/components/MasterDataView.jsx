@@ -94,18 +94,23 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
   // ----------------------------------------------------
   const handleSaveStudent = async (studentData) => {
     try {
-      saveCustomStudentLocal(studentData);
+      const fullStudent = {
+        ...studentData,
+        is_active: studentData.is_active !== undefined ? studentData.is_active : true,
+        required_classes: studentData.required_classes ? Number(studentData.required_classes) : 8
+      };
+      saveCustomStudentLocal(fullStudent);
       // Optimistically update local students list immediately so UI updates with 0 latency
       setStudents(prev => {
-        const filtered = prev.filter(s => s.student_id !== studentData.student_id);
-        return [studentData, ...filtered];
+        const filtered = prev.filter(s => s.student_id !== fullStudent.student_id);
+        return [fullStudent, ...filtered];
       });
       setEditingStudent(null);
-      showNotification(`Saved student ${studentData.student_name} (${studentData.student_id})`);
+      showNotification(`Saved student ${fullStudent.student_name} (${fullStudent.student_id})`);
 
-      await saveMasterStudent(studentData);
+      await saveMasterStudent(fullStudent);
       await fetchMasterData();
-      if (onRefreshSchedule) await onRefreshSchedule(studentData);
+      if (onRefreshSchedule) await onRefreshSchedule(fullStudent);
     } catch (err) {
       alert('Failed to save student: ' + err.message);
       await fetchMasterData();

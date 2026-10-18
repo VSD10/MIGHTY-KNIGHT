@@ -110,6 +110,17 @@ def get_effective_schedule(month: str = "2026-10", reference_today: str = REFERE
     active_base_students = active_base.get("students_data", []) if active_base else []
     master_students_map = {s["student_id"]: dict(s) for s in master_students_list if s.get("student_id")}
 
+    try:
+        from app.main import ACTIVE_DATA
+        for mem_s in ACTIVE_DATA.get("students", []):
+            mem_id = mem_s.get("student_id")
+            if mem_id:
+                if mem_id not in master_students_map:
+                    master_students_list.append(dict(mem_s))
+                master_students_map[mem_id] = dict(mem_s)
+    except Exception:
+        pass
+
     base_students_map = {}
     for s in active_base_students:
         sid = s.get("student_id")
@@ -130,13 +141,16 @@ def get_effective_schedule(month: str = "2026-10", reference_today: str = REFERE
             ]:
                 if k in ms and ms[k] is not None:
                     s_merged[k] = ms[k]
-        if s_merged.get("is_active", True) is not False:
+        is_act = s_merged.get("is_active")
+        if is_act not in (False, "false", "False", 0, "0"):
             base_students_map[sid] = s_merged
 
     # Unconditionally include all active students from Master Data Hub (single or bulk additions of 50-150 students)
     for ms in master_students_list:
         msid = ms.get("student_id")
-        if msid and msid not in base_students_map and ms.get("is_active", True) is not False:
+        is_act = ms.get("is_active")
+        is_act_bool = is_act not in (False, "false", "False", 0, "0")
+        if msid and msid not in base_students_map and is_act_bool:
             base_students_map[msid] = dict(ms)
 
     base_students = list(base_students_map.values())
@@ -171,6 +185,23 @@ def get_effective_schedule(month: str = "2026-10", reference_today: str = REFERE
         s["batch_name"] = b_code
         s["batch_code"] = b_code
         student_batch_code_map[sid] = b_code
+
+    active_exceptions = get_exception_records_db(month, status="active")
+
+    # Ensure any student referenced in active exceptions is unconditionally known
+    for exc in active_exceptions:
+        for sid in exc.get("affected_student_ids", []):
+            if sid and sid not in master_students_map:
+                try:
+                    from app.storage.database import get_single_student_db
+                    s_db = get_single_student_db(sid)
+                    if s_db:
+                        master_students_map[sid] = s_db
+                        if sid not in base_students_map:
+                            base_students_map[sid] = s_db
+                except Exception:
+                    pass
+    base_students = list(base_students_map.values())
 
     master_student_ids = {s["student_id"] for s in base_students}
     student_name_map = {s["student_id"]: s.get("student_name", s["student_id"]) for s in base_students}
