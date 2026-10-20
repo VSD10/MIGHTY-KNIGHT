@@ -641,13 +641,25 @@ def test_9_delete_class():
     month = "2026-10"
     eff_pre = get_effective_schedule(month)
     
-    # Pick a class with students
-    target = next(c for c in eff_pre["scheduled_classes"] if len(c.get("student_ids", [])) > 0 and not c.get("is_compensation"))
+    # Pick a class with students where at least one student is at or below required quota
+    target = None
+    target_sid = None
+    for c in eff_pre["scheduled_classes"]:
+        if len(c.get("student_ids", [])) > 0 and not c.get("is_compensation"):
+            for sid_cand in c.get("student_ids", []):
+                s_sched = next((ss for ss in eff_pre["student_schedules"] if ss["student_id"] == sid_cand), None)
+                if s_sched and s_sched.get("scheduled_classes_count", 0) <= s_sched.get("required_classes", 12):
+                    target = c
+                    target_sid = sid_cand
+                    break
+        if target:
+            break
+
+    assert target is not None and target_sid is not None, "Must find a scheduled class with an eligible student"
     c_date = target["date"]
     c_time = target["time_slot"]
     c_coach = resolve_coach_canonical_name(target["coach_name"])
     affected_students = target["student_ids"]
-    target_sid = affected_students[0]
 
     pre_day_count = sum(1 for c in eff_pre["scheduled_classes"] if c["date"] == c_date)
     pre_workload = next(cs for cs in eff_pre["coach_summaries"] if cs["coach_name"] == c_coach)["classes_scheduled"]

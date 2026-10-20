@@ -64,7 +64,7 @@ class CandidateSessionSlot:
         preferred_trainer: Optional[str] = None,
         roster_student_ids: Optional[Set[str]] = None,
         max_capacity: int = 8,
-        min_capacity: int = 1
+        min_capacity: int = 4
     ):
         self.date_str = date_str
         self.day_name = day_name
@@ -117,11 +117,11 @@ def build_candidate_session_slots(
             if b_type == "I":
                 max_cap, min_cap = 1, 1
             elif b_type == "L":
-                max_cap = min(3, b.get("capacity_max") or 3)
-                min_cap = 1
+                max_cap = b.get("capacity_max") or 4
+                min_cap = b.get("capacity_min") or 1
             else:
-                max_cap = min(8, b.get("capacity_max") or 8)
-                min_cap = 1
+                max_cap = b.get("capacity_max") or 10
+                min_cap = b.get("capacity_min") or 4
 
             s_ids = set(b.get("student_ids", []))
             if not s_ids and b.get("students"):
@@ -179,7 +179,7 @@ def build_candidate_session_slots(
                 if key not in created_slot_keys:
                     created_slot_keys.add(key)
                     max_cap = 1 if b_type == "I" else (3 if b_type == "L" else 8)
-                    min_cap = 1
+                    min_cap = 1 if b_type in ["I", "L"] else 4
                     slots.append(CandidateSessionSlot(
                         date_str=date_str,
                         day_name=day_name,

@@ -13,7 +13,7 @@ class SundayConfig(BaseModel):
     start_time: str = "09:00"
     max_end_time: str = "15:00"
     excluded_tournament_coaches: List[str] = ["DHAANUSH", "SARAVANAN"]
-    excluded_tournament_levels: List[str] = ["Intermediate 1", "Intermediate 2"]
+    excluded_tournament_levels: List[str] = ["Intermediate 1", "Intermediate 2", "Advanced"]
 
 class ConstraintRule(BaseModel):
     rule_id: str
@@ -28,48 +28,15 @@ class ConstraintRule(BaseModel):
 def get_default_rules_registry() -> List[ConstraintRule]:
     return [
         ConstraintRule(
-            rule_id="RULE_BATCH_TYPE_COMPATIBILITY",
-            name="Strict Batch Type Compatibility",
-            description="Mandatory hard constraint: Group (G) students attend Group batches only, Limited (L) students attend Limited batches only, and Individual (I) students attend Individual batches only. Individual students must remain individually assigned and never combined into shared batches.",
-            category="Batch Compatibility",
-            constraint_type="HARD_CONSTRAINT",
-            enabled=True,
-            priority=1,
-            params={
-                "strict_segregation": True,
-                "allow_cross_batch_mixing": False,
-                "individual_single_student_only": True
-            }
-        ),
-        ConstraintRule(
-            rule_id="RULE_LEVEL_COMPATIBILITY_AND_ADJACENT_FLEXIBILITY",
-            name="Level Compatibility & Conditional Adjacent-Level Flexibility",
-            description="Hard constraint by default: Exact same-level matching within same batch type. Controlled soft exception: May recommend adjacent level (±1 step in 8-level hierarchy) only when same-level batch cannot accommodate, with sufficient capacity and authorized confirmation. Basic 1 is an absolute isolated exception (never mixed with any other level). Combining non-adjacent levels (2+ steps) is strictly prohibited.",
-            category="Level Compatibility",
-            constraint_type="HARD_CONSTRAINT",
-            enabled=True,
-            priority=1,
-            params={
-                "hierarchy": [
-                    "Basic 1", "Basic 2", "Beginner 1", "Beginner 2",
-                    "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2"
-                ],
-                "allow_adjacent_level_fallback": True,
-                "max_level_difference": 1,
-                "isolated_levels": ["Basic 1"],
-                "requires_authorized_confirmation": True
-            }
-        ),
-        ConstraintRule(
             rule_id="RULE_BATCH_CAPACITY",
             name="Group & Batch Size Capacity Bounds",
-            description="Enforces min and max student limits per batch type (Group: 1-8, Limited: 1-3, Individual: 1).",
+            description="Enforces min and max student limits per batch type (Group: 4-8, Limited: 1-3, Individual: 1).",
             category="Batch Capacity",
             constraint_type="HARD_CONSTRAINT",
             enabled=True,
             priority=1,
             params={
-                "g_min": 1, "g_max": 8,
+                "g_min": 4, "g_max": 8,
                 "l_min": 1, "l_max": 3,
                 "i_min": 1, "i_max": 1
             }
@@ -97,7 +64,7 @@ def get_default_rules_registry() -> List[ConstraintRule]:
             params={
                 "max_end_time": "15:00",
                 "excluded_tournament_coaches": ["DHAANUSH", "SARAVANAN"],
-                "excluded_tournament_levels": ["Intermediate 1", "Intermediate 2"]
+                "excluded_tournament_levels": ["Intermediate 1", "Intermediate 2", "Advanced"]
             }
         ),
         ConstraintRule(
@@ -117,20 +84,9 @@ def get_default_rules_registry() -> List[ConstraintRule]:
                     "Early Intermediate 1": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
                     "Early Intermediate 2": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
                     "Intermediate 1": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
-                    "Intermediate 2": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"]
+                    "Intermediate 2": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
+                    "Advanced": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"]
                 }
-            }
-        ),
-        ConstraintRule(
-            rule_id="RULE_COACH_PREFERRED_TIMING",
-            name="Coach Preferred Timings & Daily Availability",
-            description="Mandatory hard constraint: Never recommend or assign a new class to a coach outside their configured preference timings or daily limits.",
-            category="Coach Capability",
-            constraint_type="HARD_CONSTRAINT",
-            enabled=True,
-            priority=1,
-            params={
-                "mandatory_constraint": True
             }
         ),
         ConstraintRule(
@@ -171,13 +127,13 @@ def get_default_rules_registry() -> List[ConstraintRule]:
         ConstraintRule(
             rule_id="RULE_BATCH_CAPACITY_POOLS",
             name="Flexible Capacity Pools & Soft Group Min",
-            description="Master batches act as flexible capacity templates. Group max 8 (min 1), Limited max 3 (min 1), Individual 1 are hard limits.",
+            description="Master batches act as flexible capacity templates. Group max 10, Limited max 4, Individual 1 are hard limits. Group min 4 is a soft warning.",
             category="Capacity Pools",
             constraint_type="HARD_CONSTRAINT",
             enabled=True,
             priority=1,
             params={
-                "group_max": 8, "group_min": 1,
+                "group_max": 8, "group_min_behavior": "Soft Warning (never leave students unscheduled)",
                 "limited_max": 3, "individual_cap": 1
             }
         ),
@@ -230,7 +186,8 @@ class SystemConfig(BaseModel):
         "Early Intermediate 1",
         "Early Intermediate 2",
         "Intermediate 1",
-        "Intermediate 2"
+        "Intermediate 2",
+        "Advanced"
     ]
     
     level_groups: Dict[str, int] = {
@@ -241,7 +198,8 @@ class SystemConfig(BaseModel):
         "Early Intermediate 1": 5,
         "Early Intermediate 2": 6,
         "Intermediate 1": 7,
-        "Intermediate 2": 8
+        "Intermediate 2": 8,
+        "Advanced": 9
     }
 
     coach_priority: Dict[str, List[str]] = {
@@ -252,11 +210,12 @@ class SystemConfig(BaseModel):
         "Early Intermediate 1": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
         "Early Intermediate 2": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
         "Intermediate 1": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
-        "Intermediate 2": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"]
+        "Intermediate 2": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
+        "Advanced": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"]
     }
 
     batch_types: Dict[str, BatchConfig] = {
-        "G": BatchConfig(symbol="G", name="Group Batch", min_capacity=1, max_capacity=8),
+        "G": BatchConfig(symbol="G", name="Group Batch", min_capacity=4, max_capacity=8),
         "L": BatchConfig(symbol="L", name="Limited Students Batch", min_capacity=1, max_capacity=3),
         "I": BatchConfig(symbol="I", name="Individual Batch", min_capacity=1, max_capacity=1)
     }
@@ -390,3 +349,4 @@ def save_config(config: SystemConfig, config_path: str):
 # Global default configuration instance
 DEFAULT_CONFIG = SystemConfig()
 DEFAULT_CONFIG.sync_to_rules_registry()
+CURRENT_CONFIG = DEFAULT_CONFIG

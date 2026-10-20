@@ -12,7 +12,7 @@ def format_attention_report(result: ScheduleResult, master_students: List[Dict[s
     report_rows = []
     
     # Capacity maps per batch type
-    batch_max_capacities = {"G": 8, "L": 3, "I": 1}
+    batch_max_capacities = {"G": 10, "L": 4, "I": 1}
 
     # Pre-calculate daily class counts per coach
     coach_daily_counts = {}
@@ -71,7 +71,7 @@ def format_attention_report(result: ScheduleResult, master_students: List[Dict[s
             if b_type != rec_btype_clean:
                 continue
 
-            max_cap = batch_max_capacities.get(b_type, 8)
+            max_cap = batch_max_capacities.get(b_type, 10)
             current_cnt = len(cls.student_ids)
             c_day_count = coach_daily_counts.get(((cls.coach_name or "").strip().lower(), cls.date), 0)
 

@@ -1,4 +1,3 @@
-import { MIGHTY_KNIGHT_LOGO } from '../constants/logo';
 import React, { useState, useEffect } from 'react';
 import {
   FileSpreadsheet, Upload, Download, CheckCircle, AlertTriangle,
@@ -9,24 +8,42 @@ import {
 import {
   getBaselineStatus, getBaselineTemplateUrl, uploadBaselineExcel,
   activateBaseline, discardBaseline, getExportActiveBaselineUrl,
-  generateNextMonthDraft, promoteEffectiveToBaseline,
-  getExportCompletedScheduleUrl
+  generateNextMonthDraft, promoteEffectiveToBaseline, getActualCompletedSchedule
 } from '../services/api';
 
-export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth = '2026-10' }) {
-  const [selectedMonth, setSelectedMonth] = useState(activeMonth || '2026-10');
-  useEffect(() => { if (activeMonth) setSelectedMonth(activeMonth); }, [activeMonth]);
+export default function AbsoluteScheduleView({ onBaselineActivated }) {
+  const [selectedMonth, setSelectedMonth] = useState('2026-10');
   const [statusData, setStatusData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [actionMsg, setActionMsg] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLevel, setSelectedLevel] = useState('ALL');
-  const [activeViewMode, setActiveViewMode] = useState('preview'); // 'preview' | 'validation' | 'history'
+  const [activeViewMode, setActiveViewMode] = useState('preview'); // 'preview' | 'validation' | 'history' | 'completed'
+  const [previewSubMode, setPreviewSubMode] = useState('students'); // 'students' | 'classes'
+
+  // Rule 2 Completed Schedule State
+  const [completedScheduleData, setCompletedScheduleData] = useState(null);
+  const [loadingCompleted, setLoadingCompleted] = useState(false);
 
   useEffect(() => {
     fetchBaselineStatus(selectedMonth);
+    if (activeViewMode === 'completed') {
+      fetchActualCompletedSchedule(selectedMonth);
+    }
   }, [selectedMonth]);
+
+  const fetchActualCompletedSchedule = async (month) => {
+    setLoadingCompleted(true);
+    try {
+      const data = await getActualCompletedSchedule(month);
+      setCompletedScheduleData(data);
+    } catch (err) {
+      console.error('Failed to load actual completed schedule:', err);
+    } finally {
+      setLoadingCompleted(false);
+    }
+  };
 
   const fetchBaselineStatus = async (month) => {
     setLoading(true);
@@ -80,7 +97,7 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
         text: `Baseline v${draft.version} for ${selectedMonth} is now ACTIVE and immutable.`
       });
       await fetchBaselineStatus(selectedMonth);
-      if (onBaselineActivated) onBaselineActivated(selectedMonth);
+      if (onBaselineActivated) onBaselineActivated();
     } catch (err) {
       setActionMsg({
         type: 'error',
@@ -179,6 +196,21 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
     return matchesSearch && matchesLevel;
   });
 
+  // Filter scheduled classes
+  const classesList = currentDisplayBaseline?.classes_data || [];
+  const filteredClasses = classesList.filter(c => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery ||
+      (c.coach_name || '').toLowerCase().includes(q) ||
+      (c.batch_name || '').toLowerCase().includes(q) ||
+      (c.time_slot || '').toLowerCase().includes(q) ||
+      (c.date || '').toLowerCase().includes(q) ||
+      (c.day || '').toLowerCase().includes(q) ||
+      (c.student_names || []).some(n => n.toLowerCase().includes(q));
+    const matchesLevel = selectedLevel === 'ALL' || c.student_level === selectedLevel;
+    return matchesSearch && matchesLevel;
+  });
+
   const validationReport = currentDisplayBaseline?.validation_report || { blocking: [], baseline_exceptions: [], info: [] };
   const blockingCount = validationReport.blocking?.length || 0;
   const exceptionsCount = validationReport.baseline_exceptions?.length || 0;
@@ -228,24 +260,58 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
           </div>
         </div>
 
-        {/* Rolling 3-Month Horizon Selector Pills (Point 2 & 12: Oct '26 + Nov, Dec, Jan) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(15, 23, 42, 0.6)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
-          {[
-            { m: '2026-10', label: "Oct '26 (Current)" },
-            { m: '2026-11', label: "Nov '26 (+1M)" },
-            { m: '2026-12', label: "Dec '26 (+2M)" },
-            { m: '2027-01', label: "Jan '27 (+3M)" },
-            { m: '2027-02', label: "Feb '27 (Next)" }
-          ].map(item => (
-            <button
-              key={item.m}
-              onClick={() => setSelectedMonth(item.m)}
-              className={`btn ${selectedMonth === item.m ? 'btn-primary' : ''}`}
-              style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: 800 }}
-            >
-              {item.label}
-            </button>
-          ))}
+        {/* Month Selector Pills */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(15, 23, 42, 0.6)', padding: '6px 10px', borderRadius: '12px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setSelectedMonth('2026-09')}
+            className={`btn ${selectedMonth === '2026-09' ? 'btn-primary' : ''}`}
+            style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: selectedMonth === '2026-09' ? 800 : 600 }}
+          >
+            Sep '26
+          </button>
+          <button
+            onClick={() => setSelectedMonth('2026-10')}
+            className={`btn ${selectedMonth === '2026-10' ? 'btn-primary' : ''}`}
+            style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: 800 }}
+          >
+            Oct '26 (Reference)
+          </button>
+          <button
+            onClick={() => setSelectedMonth('2026-11')}
+            className={`btn ${selectedMonth === '2026-11' ? 'btn-primary' : ''}`}
+            style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: selectedMonth === '2026-11' ? 800 : 600 }}
+          >
+            Nov '26
+          </button>
+          <button
+            onClick={() => setSelectedMonth('2026-12')}
+            className={`btn ${selectedMonth === '2026-12' ? 'btn-primary' : ''}`}
+            style={{ padding: '6px 12px', fontSize: '0.75rem', fontWeight: selectedMonth === '2026-12' ? 800 : 600 }}
+          >
+            Dec '26
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '4px', borderLeft: '1px solid rgba(255, 255, 255, 0.12)', paddingLeft: '8px' }}>
+            <Calendar size={13} style={{ color: 'var(--text-muted)' }} />
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setSelectedMonth(e.target.value);
+                }
+              }}
+              style={{
+                background: 'rgba(15, 23, 42, 0.9)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#ffffff',
+                borderRadius: '6px',
+                padding: '3px 8px',
+                fontSize: '0.75rem'
+              }}
+              title="Pick any month to view or load saved schedule"
+            />
+          </div>
         </div>
       </div>
 
@@ -405,45 +471,8 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
         </div>
       </div>
 
-      {/* 3. Navigation View Modes (Preview Grid, i. Actual Schedule Text/Excel, ii. Actual Completed Schedule Text/Excel, Validation, History) */}
-      <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setActiveViewMode('actual_schedule_repo')}
-          style={{
-            background: activeViewMode === 'actual_schedule_repo' ? 'rgba(250, 204, 21, 0.2)' : 'transparent',
-            border: activeViewMode === 'actual_schedule_repo' ? '1px solid var(--accent-gold)' : '1px solid rgba(255,255,255,0.1)',
-            color: activeViewMode === 'actual_schedule_repo' ? '#fbbf24' : 'var(--text-secondary)',
-            borderRadius: '8px',
-            padding: '8px 16px',
-            fontSize: '0.825rem',
-            fontWeight: 800,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          <Calendar size={15} /> (i) Actual Schedule — Date-Wise Text & Excel ({selectedMonth})
-        </button>
-
-        <button
-          onClick={() => setActiveViewMode('completed_schedule_repo')}
-          style={{
-            background: activeViewMode === 'completed_schedule_repo' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
-            border: activeViewMode === 'completed_schedule_repo' ? '1px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
-            color: activeViewMode === 'completed_schedule_repo' ? '#34d399' : 'var(--text-secondary)',
-            borderRadius: '8px',
-            padding: '8px 16px',
-            fontSize: '0.825rem',
-            fontWeight: 800,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          <CheckCircle size={15} /> (ii) Actual Completed Schedule ({statusData?.is_completed_schedule_available ? `${statusData?.completed_classes_count || 0} Executed (Up to Prev Day)` : 'Past/Current Only'})
-        </button>
+      {/* 3. Navigation View Modes (Preview vs Validation vs History) */}
+      <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
         <button
           onClick={() => setActiveViewMode('preview')}
           style={{
@@ -506,146 +535,93 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
         >
           <History size={15} /> Version History ({statusData?.history?.length || 0})
         </button>
+
+        <button
+          onClick={() => {
+            setActiveViewMode('completed');
+            fetchActualCompletedSchedule(selectedMonth);
+          }}
+          style={{
+            background: activeViewMode === 'completed' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+            border: activeViewMode === 'completed' ? '1px solid #10b981' : '1px solid transparent',
+            color: activeViewMode === 'completed' ? '#fff' : 'var(--text-secondary)',
+            borderRadius: '8px',
+            padding: '8px 16px',
+            fontSize: '0.825rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          <CheckCircle size={15} style={{ color: '#10b981' }} />
+          Actual Completed Schedule (Rule 2)
+        </button>
       </div>
 
       {/* 4. Main View Content */}
-
-      {/* VIEW (i): ACTUAL SCHEDULE REPOSITORY (DATE-WISE TEXT & EXCEL FOR PAST, CURRENT & FUTURE MONTHS) */}
-      {activeViewMode === 'actual_schedule_repo' && (
-        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid var(--accent-gold)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fbbf24', margin: 0 }}>
-                📅 (i) Actual Planned Schedule Repository — {selectedMonth}
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0 0' }}>
-                Complete date-wise planned schedule for {selectedMonth} (Available for Past, Current, and Future 3 Months). Download as Excel or copy date-wise text below.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(statusData?.actual_schedule_text || '');
-                  setActionMsg({ type: 'success', text: `Copied ${selectedMonth} Date-Wise Actual Schedule text to clipboard!` });
-                }}
-                className="btn btn-secondary"
-                style={{ padding: '8px 14px', fontSize: '0.8rem', fontWeight: 800 }}
-              >
-                📋 Copy Date-Wise Text
-              </button>
-              <a
-                href={getExportActiveBaselineUrl(selectedMonth)}
-                download={`Mighty_Knight_Actual_Schedule_${selectedMonth}.xlsx`}
-                className="btn btn-primary"
-                style={{ padding: '8px 16px', fontSize: '0.8rem', fontWeight: 900, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Download size={15} /> Download Actual Schedule Excel (.xlsx)
-              </a>
-            </div>
-          </div>
-
-          <pre
-            style={{
-              background: 'rgba(10, 15, 28, 0.92)',
-              border: '1px solid rgba(251, 191, 36, 0.35)',
-              borderRadius: '10px',
-              padding: '16px',
-              color: '#e2e8f0',
-              fontFamily: 'monospace',
-              fontSize: '0.78rem',
-              maxHeight: '520px',
-              overflowY: 'auto',
-              whiteSpace: 'pre-wrap',
-              lineHeight: 1.5
-            }}
-          >
-            {statusData?.actual_schedule_text || `No Actual Schedule text found for ${selectedMonth}.`}
-          </pre>
-        </div>
-      )}
-
-      {/* VIEW (ii): ACTUAL COMPLETED SCHEDULE REPOSITORY (EXECUTED SCHEDULE — BLOCKED FOR FUTURE MONTHS) */}
-      {activeViewMode === 'completed_schedule_repo' && (
-        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid #10b981' }}>
-          {!statusData?.is_completed_schedule_available ? (
-            <div style={{ padding: '36px 20px', textAlign: 'center', color: '#fda4af', background: 'rgba(244, 63, 94, 0.12)', border: '1px solid rgba(244, 63, 94, 0.4)', borderRadius: '10px' }}>
-              <AlertTriangle size={28} style={{ color: '#f43f5e', marginBottom: '8px' }} />
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', margin: 0 }}>
-                Actual Completed Schedule Not Available for Future Month ({selectedMonth})
-              </h3>
-              <p style={{ fontSize: '0.82rem', color: '#fecdd3', marginTop: '6px' }}>
-                Per academy rules, the <strong>Actual Completed Schedule</strong> only records executed classes (including real-time ⓒ compensation & manual changes) for past and current months, never future months.
-              </p>
-            </div>
-          ) : (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                <div>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#34d399', margin: 0 }}>
-                    ✅ (ii) Actual Completed Schedule Repository (Executed + ⓒ Overrides) — {selectedMonth}
-                  </h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0 0' }}>
-                    Reflects executed classes up to the previous completed day in {selectedMonth} ({statusData?.completed_classes_count || 0} classes · {statusData?.completed_seats_count || 0} student seats). Current-day and future dates remain excluded until their days conclude.
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(statusData?.actual_completed_schedule_text || '');
-                      setActionMsg({ type: 'success', text: `Copied ${selectedMonth} Actual Completed Schedule text to clipboard!` });
-                    }}
-                    className="btn btn-secondary"
-                    style={{ padding: '8px 14px', fontSize: '0.8rem', fontWeight: 800 }}
-                  >
-                    📋 Copy Completed Text
-                  </button>
-                  <a
-                    href={getExportCompletedScheduleUrl(selectedMonth)}
-                    download={`Mighty_Knight_Actual_Completed_Schedule_${selectedMonth}.xlsx`}
-                    className="btn btn-primary"
-                    style={{
-                      padding: '8px 16px',
-                      fontSize: '0.8rem',
-                      fontWeight: 900,
-                      textDecoration: 'none',
-                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                      color: '#000',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <Download size={15} /> Download Completed Schedule Excel (.xlsx)
-                  </a>
-                </div>
-              </div>
-
-              <pre
-                style={{
-                  background: 'rgba(10, 15, 28, 0.92)',
-                  border: '1px solid rgba(16, 185, 129, 0.4)',
-                  borderRadius: '10px',
-                  padding: '16px',
-                  color: '#d1fae5',
-                  fontFamily: 'monospace',
-                  fontSize: '0.78rem',
-                  maxHeight: '520px',
-                  overflowY: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: 1.5
-                }}
-              >
-                {statusData?.actual_completed_schedule_text || `No completed classes recorded yet for ${selectedMonth}.`}
-              </pre>
-            </>
-          )}
-        </div>
-      )}
 
       {/* VIEW: Preview Grid */}
       {activeViewMode === 'preview' && (
         <div className="glass-panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           
+          {/* Sub-Mode View Toggle (Students vs Classes) */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setPreviewSubMode('students')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  background: previewSubMode === 'students' ? 'rgba(234, 179, 8, 0.2)' : 'rgba(30, 41, 59, 0.6)',
+                  border: previewSubMode === 'students' ? '1px solid #facc15' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: previewSubMode === 'students' ? '#fde047' : '#94a3b8',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>Student Roster</span>
+                <span className="badge badge-gold" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
+                  {studentsList.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setPreviewSubMode('classes')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  background: previewSubMode === 'classes' ? 'rgba(56, 189, 248, 0.2)' : 'rgba(30, 41, 59, 0.6)',
+                  border: previewSubMode === 'classes' ? '1px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: previewSubMode === 'classes' ? '#38bdf8' : '#94a3b8',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>Scheduled Classes Timetable</span>
+                <span className="badge badge-blue" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>
+                  {classesList.length}
+                </span>
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              {previewSubMode === 'students'
+                ? `Showing ${filteredStudents.length} of ${studentsList.length} students`
+                : `Showing ${filteredClasses.length} of ${classesList.length} scheduled classes`
+              }
+            </div>
+          </div>
+
           {/* Filter Bar */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -653,7 +629,7 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
                 <Search size={15} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }} />
                 <input
                   type="text"
-                  placeholder="Search student or ID..."
+                  placeholder={previewSubMode === 'students' ? 'Search student or ID...' : 'Search coach, batch, date, student...'}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{
@@ -663,7 +639,7 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
                     padding: '8px 12px 8px 32px',
                     color: '#fff',
                     fontSize: '0.8rem',
-                    width: '220px'
+                    width: '260px'
                   }}
                 />
               </div>
@@ -691,67 +667,170 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
                 <option value="Intermediate 2">Intermediate 2</option>
               </select>
             </div>
+          </div>
 
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              Showing {filteredStudents.length} of {studentsList.length} students
+          {/* Empty State Banner if Not Uploaded */}
+          {statusData?.status === 'Not Uploaded' && (
+            <div
+              style={{
+                padding: '40px 20px',
+                textAlign: 'center',
+                background: 'rgba(15, 23, 42, 0.6)',
+                border: '1px dashed rgba(255, 255, 255, 0.15)',
+                borderRadius: '12px',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <Database size={40} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+              <h4 style={{ color: '#ffffff', margin: '0 0 6px 0', fontSize: '1rem', fontWeight: 800 }}>
+                No Active Baseline Saved for {selectedMonth}
+              </h4>
+              <p style={{ fontSize: '0.8rem', maxWidth: '440px', margin: '0 auto 16px auto', color: '#94a3b8' }}>
+                There is currently no saved absolute schedule for this period. You can upload an Excel baseline, or view September, October, November, or December schedules.
+              </p>
+              <button
+                onClick={() => setSelectedMonth('2026-10')}
+                className="btn btn-primary"
+                style={{ padding: '6px 14px', fontSize: '0.78rem' }}
+              >
+                Switch to October 2026
+              </button>
             </div>
-          </div>
+          )}
 
-          {/* Table Container */}
-          <div style={{ overflowX: 'auto', maxHeight: '550px', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.8rem' }}>
-              <thead>
-                <tr style={{ background: 'rgba(30, 41, 59, 0.9)', position: 'sticky', top: 0, zIndex: 10 }}>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '60px' }}>#</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', minWidth: '180px' }}>Student Name</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '110px' }}>Student ID</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '140px' }}>Level</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '90px' }}>Batch</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '90px' }}>Planned</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '90px' }}>Scheduled</th>
-                  <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', minWidth: '150px' }}>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStudents.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No students found in baseline for {selectedMonth}.
-                    </td>
+          {/* Table Container - Student Roster */}
+          {statusData?.status !== 'Not Uploaded' && previewSubMode === 'students' && (
+            <div style={{ overflowX: 'auto', maxHeight: '550px', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.8rem' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(30, 41, 59, 0.9)', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '60px' }}>#</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', minWidth: '180px' }}>Student Name</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '110px' }}>Student ID</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '140px' }}>Level</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '90px' }}>Batch</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '90px' }}>Planned</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '90px' }}>Scheduled</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', minWidth: '150px' }}>Notes</th>
                   </tr>
-                ) : (
-                  filteredStudents.map((s, idx) => (
-                    <tr
-                      key={s.student_id}
-                      style={{
-                        borderBottom: '1px solid rgba(51, 65, 85, 0.4)',
-                        background: idx % 2 === 0 ? 'rgba(15, 23, 42, 0.3)' : 'transparent'
-                      }}
-                    >
-                      <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                      <td style={{ padding: '10px 12px', fontWeight: 700, color: '#fff' }}>{s.student_name}</td>
-                      <td style={{ padding: '10px 12px', color: 'var(--accent-blue)', fontFamily: 'monospace' }}>{s.student_id}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <span className="badge badge-gold" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
-                          {s.student_level}
-                        </span>
+                </thead>
+                <tbody>
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No students found matching your filters for {selectedMonth}.
                       </td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <span className={`badge ${s.batch_type === 'I' ? 'badge-danger' : (s.batch_type === 'L' ? 'badge-blue' : 'badge-gold')}`} style={{ fontSize: '0.7rem', fontWeight: 800 }}>
-                          {s.batch_code || s.batch_name || s.batch || s.batch_type} [{s.batch_type}]
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 12px', fontWeight: 700, color: '#fff' }}>{s.required_classes || 12}</td>
-                      <td style={{ padding: '10px 12px', fontWeight: 800, color: (s.classes_scheduled_count >= (s.required_classes || 12)) ? '#22c55e' : '#f59e0b' }}>
-                        {s.classes_scheduled_count ?? s.actual_classes ?? 0}
-                      </td>
-                      <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{s.note || s.batch_name || '-'}</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    filteredStudents.map((s, idx) => (
+                      <tr
+                        key={s.student_id}
+                        style={{
+                          borderBottom: '1px solid rgba(51, 65, 85, 0.4)',
+                          background: idx % 2 === 0 ? 'rgba(15, 23, 42, 0.3)' : 'transparent'
+                        }}
+                      >
+                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, color: '#fff' }}>{s.student_name}</td>
+                        <td style={{ padding: '10px 12px', color: 'var(--accent-blue)', fontFamily: 'monospace' }}>{s.student_id}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span className="badge badge-gold" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                            {s.student_level}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span className={`badge ${s.batch_type === 'I' ? 'badge-danger' : (s.batch_type === 'L' ? 'badge-blue' : 'badge-gold')}`} style={{ fontSize: '0.7rem' }}>
+                            {s.batch_type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, color: '#fff' }}>{s.required_classes || 12}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 800, color: (s.classes_scheduled_count >= (s.required_classes || 12)) ? '#22c55e' : '#f59e0b' }}>
+                          {s.classes_scheduled_count || 0}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>{s.note || s.batch_name || '-'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Table Container - Scheduled Classes Timetable */}
+          {statusData?.status !== 'Not Uploaded' && previewSubMode === 'classes' && (
+            <div style={{ overflowX: 'auto', maxHeight: '550px', border: '1px solid var(--border-color)', borderRadius: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.8rem' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(30, 41, 59, 0.9)', position: 'sticky', top: 0, zIndex: 10 }}>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '50px' }}>#</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '105px' }}>Date</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '95px' }}>Day</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '135px' }}>Time Slot</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '120px' }}>Coach</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', minWidth: '150px' }}>Batch / Level</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', width: '70px' }}>Type</th>
+                    <th style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', minWidth: '220px' }}>Enrolled Students</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredClasses.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No classes found matching your filters for {selectedMonth}.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredClasses.map((c, idx) => (
+                      <tr
+                        key={c.class_id || idx}
+                        style={{
+                          borderBottom: '1px solid rgba(51, 65, 85, 0.4)',
+                          background: idx % 2 === 0 ? 'rgba(15, 23, 42, 0.3)' : 'transparent'
+                        }}
+                      >
+                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>{c.date}</td>
+                        <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{c.day}</td>
+                        <td style={{ padding: '10px 12px', color: '#fde047', fontWeight: 600 }}>{c.time_slot}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 800, color: '#38bdf8' }}>{c.coach_name}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span className="badge badge-gold" style={{ fontSize: '0.7rem', padding: '2px 8px' }}>
+                            {c.student_level || c.batch_name}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span className={`badge ${c.batch_type === 'I' ? 'badge-danger' : (c.batch_type === 'L' ? 'badge-blue' : 'badge-gold')}`} style={{ fontSize: '0.7rem' }}>
+                            {c.batch_type || 'G'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#ffffff' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>
+                              ({c.student_ids?.length || 0})
+                            </span>
+                            {(c.student_names || []).map((name, nIdx) => (
+                              <span
+                                key={nIdx}
+                                style={{
+                                  background: 'rgba(30, 41, 59, 0.8)',
+                                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.72rem'
+                                }}
+                              >
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -911,6 +990,140 @@ export default function AbsoluteScheduleView({ onBaselineActivated, activeMonth 
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* VIEW: Actual Completed Schedule (Rule 2) */}
+      {activeViewMode === 'completed' && (
+        <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Rule 2 Strict Exclusion Banner */}
+          <div
+            style={{
+              padding: '16px 20px',
+              borderRadius: 'var(--radius-md)',
+              background: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '12px'
+            }}
+          >
+            <CheckCircle size={20} style={{ color: '#10b981', flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#34d399' }}>
+                Rule 2: Actual Completed Schedule View (Non-Destructive)
+              </div>
+              <div style={{ fontSize: '0.825rem', color: '#d1fae5', marginTop: '4px', lineHeight: '1.4' }}>
+                Displaying schedule data <strong>only up to the previous completed calendar day ({completedScheduleData?.cutoff_date || 'Current Date - 1 Day'})</strong>.
+                Today ({completedScheduleData?.current_date || 'Current Date'}) and upcoming dates are strictly excluded from completed statistics until concluded.
+              </div>
+            </div>
+          </div>
+
+          {/* Metrics summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+            <div className="glass-card" style={{ padding: '14px 18px', borderLeft: '4px solid #10b981' }}>
+              <div style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                Completed Classes
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#10b981', marginTop: '4px' }}>
+                {completedScheduleData?.total_completed_classes ?? 0}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Concluded through {completedScheduleData?.cutoff_date}
+              </div>
+            </div>
+
+            <div className="glass-card" style={{ padding: '14px 18px', borderLeft: '4px solid #38bdf8' }}>
+              <div style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                Completed Student Sessions
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#38bdf8', marginTop: '4px' }}>
+                {completedScheduleData?.total_completed_student_sessions ?? 0}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Total student attendances logged
+              </div>
+            </div>
+
+            <div className="glass-card" style={{ padding: '14px 18px', borderLeft: '4px solid var(--accent-gold)' }}>
+              <div style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                Unique Students Attended
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: 'var(--accent-gold)', marginTop: '4px' }}>
+                {completedScheduleData?.unique_students_attended ?? 0}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Distinct active students
+              </div>
+            </div>
+
+            <div className="glass-card" style={{ padding: '14px 18px', borderLeft: '4px solid #c084fc' }}>
+              <div style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                Active Coaches
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#c084fc', marginTop: '4px' }}>
+                {completedScheduleData?.active_coaches_count ?? 0}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {(completedScheduleData?.active_coaches || []).slice(0, 4).join(', ')}
+              </div>
+            </div>
+          </div>
+
+          {/* Daily Breakdown List */}
+          {loadingCompleted ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <RefreshCw size={24} className="spin" style={{ margin: '0 auto 10px auto', display: 'block' }} />
+              Loading completed schedule data...
+            </div>
+          ) : !completedScheduleData?.daily_breakdown || completedScheduleData.daily_breakdown.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-md)' }}>
+              No completed days recorded prior to today in {selectedMonth}.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {completedScheduleData.daily_breakdown.map((dayItem, dIdx) => (
+                <div key={dIdx} className="glass-card" style={{ padding: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Calendar size={16} style={{ color: '#10b981' }} />
+                      <strong style={{ fontSize: '0.95rem', color: '#fff' }}>
+                        {dayItem.day}, {dayItem.date}
+                      </strong>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {dayItem.classes_count} Classes · {dayItem.student_sessions} Student Attendances
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+                    {dayItem.classes.map((cls, cIdx) => (
+                      <div
+                        key={cIdx}
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          padding: '12px',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-color)',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--accent-gold)' }}>⏰ {cls.time_slot}</span>
+                          <span className="badge badge-gold" style={{ fontSize: '0.65rem' }}>{cls.batch_type}</span>
+                        </div>
+                        <div style={{ color: '#fff', fontWeight: 600 }}>Coach {cls.coach_name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                          Level: {cls.student_level} · {(cls.student_ids || []).length} Students
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

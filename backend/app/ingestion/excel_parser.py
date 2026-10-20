@@ -54,7 +54,7 @@ STANDARD_COACH_DEFAULTS = {
     },
     "arshath": {
         "coach_name": "ARSHATH",
-        "levels_handled": ["Early Intermediate 2", "Intermediate 1", "Intermediate 2"],
+        "levels_handled": ["Early Intermediate 2", "Intermediate 1", "Intermediate 2", "Advanced"],
         "monthly_capacity_min": 16, "monthly_capacity_max": 20,
         "mon_max": 3, "tue_max": 3, "wed_max": 3, "thu_max": 3, "fri_max": 3, "sat_max": 4, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "Evening (6 PM - 9 PM)"
@@ -89,7 +89,7 @@ STANDARD_COACH_DEFAULTS = {
     },
     "prakash": {
         "coach_name": "PRAKASH",
-        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2"],
+        "levels_handled": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2", "Early Intermediate 1", "Early Intermediate 2", "Intermediate 1", "Intermediate 2", "Advanced"],
         "monthly_capacity_min": 40, "monthly_capacity_max": 90,
         "mon_max": 4, "tue_max": 4, "wed_max": 4, "thu_max": 4, "fri_max": 4, "sat_max": 5, "sun_max": 2,
         "sunday_pref": "Available", "preferred_timings": "All Operating Hours"
@@ -401,7 +401,7 @@ def parse_monthly_schedule_workbook(
 
         b_type = b_info["batch_type"]
         lvl = b_info["level"]
-        cap_min = 1
+        cap_min = 1 if b_type == "I" else (1 if b_type == "L" else 4)
         cap_max = 1 if b_type == "I" else (3 if b_type == "L" else 8)
 
         discovered_batches.append({

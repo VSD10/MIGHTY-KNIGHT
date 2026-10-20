@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import uuid
 import hashlib
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -17,23 +18,25 @@ def get_db_path() -> str:
     # Vercel serverless environment: root filesystem is read-only, copy to /tmp for write access
     if os.environ.get("VERCEL"):
         tmp_db = "/tmp/chess_scheduler.db"
-        should_copy = False
-        if not os.path.exists(tmp_db) or os.path.getsize(tmp_db) == 0:
-            should_copy = True
-        elif os.path.exists(DEFAULT_DB_PATH):
-            try:
-                if os.path.getmtime(DEFAULT_DB_PATH) > os.path.getmtime(tmp_db):
-                    should_copy = True
-            except Exception:
-                pass
-        if should_copy and os.path.exists(DEFAULT_DB_PATH):
+        if not os.path.exists(tmp_db) and os.path.exists(DEFAULT_DB_PATH):
             import shutil
             try:
                 shutil.copy2(DEFAULT_DB_PATH, tmp_db)
             except Exception as e:
                 print("Notice: Could not copy DB to /tmp:", e)
         return tmp_db
-    return DEFAULT_DB_PATH
+
+    # Canonical resolution: prioritize populated database
+    curr_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "data", "chess_scheduler.db")),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "..", "data", "chess_scheduler.db")),
+        DEFAULT_DB_PATH
+    ]
+    for cand in candidates:
+        if os.path.exists(cand) and os.path.getsize(cand) > 1000:
+            return cand
+    return candidates[0]
 
 def log_db_status(context: str, db_path: Optional[str] = None):
     target_path = db_path or get_db_path()
@@ -55,14 +58,14 @@ def log_db_status(context: str, db_path: Optional[str] = None):
         except Exception as e:
             print(f"[{context}] Error reading DB counts: {e}", flush=True)
 
-    print("==================================================", flush=True)
+    print(f"==================================================", flush=True)
     print(f"[{context}] DATABASE STATUS LOG", flush=True)
     print(f"  - DB Absolute Path: {abs_path}", flush=True)
     print(f"  - DB Exists       : {exists}", flush=True)
     print(f"  - DB File Size    : {size_bytes} bytes", flush=True)
     print(f"  - Student Count   : {student_count}", flush=True)
     print(f"  - Coach Count     : {coach_count}", flush=True)
-    print("==================================================", flush=True)
+    print(f"==================================================", flush=True)
 
 def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     target_path = db_path or get_db_path()
@@ -141,6 +144,11 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
+    # Rule 5: Indexes for high performance and zero table-scan latency
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_students_level_batch ON students(student_level, batch_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_batches_type_level ON batches(batch_type, level)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedules_created ON schedules(created_at)")
+
     # 6. Absolute Baselines table (Part E)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS absolute_baselines (
@@ -217,6 +225,23 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_month ON audit_logs(month, timestamp)")
+
+    # 10. Deleted & Archived Records table (Output 3 Management)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deleted_records (
+            record_id TEXT PRIMARY KEY,
+            record_type TEXT NOT NULL,
+            record_name TEXT NOT NULL,
+            deletion_scope TEXT NOT NULL,
+            deleted_at TEXT NOT NULL,
+            deleted_by TEXT DEFAULT 'Admin',
+            affected_future_classes INTEGER DEFAULT 0,
+            historical_classes_preserved INTEGER DEFAULT 0,
+            notes TEXT,
+            data_json TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_deleted_scope ON deleted_records(deletion_scope, record_type)")
     
     conn.commit()
     conn.close()
@@ -298,21 +323,6 @@ def save_master_data_db(
     conn.commit()
     conn.close()
 
-def get_single_student_db(student_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    target_path = db_path or get_db_path()
-    init_db(target_path)
-    conn = get_connection(target_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT data_json FROM students WHERE student_id = ?", (student_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row and row["data_json"]:
-        try:
-            return json.loads(row["data_json"])
-        except Exception:
-            return None
-    return None
-
 def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
     target_path = db_path or get_db_path()
     init_db(target_path)
@@ -331,21 +341,6 @@ def save_single_student_db(s: Dict[str, Any], db_path: Optional[str] = None):
         s.get("required_classes", 8),
         json.dumps(s)
     ))
-
-    # Also synchronize the student record into all Active baselines in absolute_baselines
-    try:
-        cursor.execute("SELECT id, month, students_data_json FROM absolute_baselines WHERE status = 'Active'")
-        b_rows = cursor.fetchall()
-        sid = s.get("student_id", "")
-        for b_row in b_rows:
-            b_s_list = json.loads(b_row["students_data_json"]) if b_row["students_data_json"] else []
-            b_s_list = [st for st in b_s_list if st.get("student_id") != sid]
-            b_s_list.append(s)
-            cursor.execute("UPDATE absolute_baselines SET students_data_json = ?, student_count = ? WHERE id = ?",
-                           (json.dumps(b_s_list), len(b_s_list), b_row["id"]))
-    except Exception:
-        pass
-
     conn.commit()
     conn.close()
 
@@ -378,18 +373,6 @@ def delete_single_student_db(student_id: str, db_path: Optional[str] = None):
         except Exception:
             pass
 
-    # Cascade: Remove student from active baselines
-    try:
-        cursor.execute("SELECT id, month, students_data_json FROM absolute_baselines WHERE status = 'Active'")
-        b_rows = cursor.fetchall()
-        for b_row in b_rows:
-            b_s_list = json.loads(b_row["students_data_json"]) if b_row["students_data_json"] else []
-            b_s_list = [st for st in b_s_list if st.get("student_id") != student_id]
-            cursor.execute("UPDATE absolute_baselines SET students_data_json = ?, student_count = ? WHERE id = ?",
-                           (json.dumps(b_s_list), len(b_s_list), b_row["id"]))
-    except Exception:
-        pass
-
     conn.commit()
     conn.close()
 
@@ -399,14 +382,16 @@ def save_single_coach_db(c: Dict[str, Any], db_path: Optional[str] = None):
     conn = get_connection(target_path)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM active_metadata WHERE key = 'master_cleared'")
+    c_name = c["coach_name"].strip()
+    cursor.execute("DELETE FROM coaches WHERE LOWER(coach_name) = LOWER(?)", (c_name,))
     cursor.execute("""
         INSERT OR REPLACE INTO coaches (coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max, data_json)
         VALUES (?, ?, ?, ?, ?)
     """, (
-        c["coach_name"],
-        json.dumps(c.get("levels_handled", [])),
-        c.get("monthly_capacity_min", 0),
-        c.get("monthly_capacity_max", 100),
+        c_name,
+        json.dumps(c.get("levels_handled", c.get("levels", []))),
+        c.get("monthly_capacity_min") if c.get("monthly_capacity_min") is not None else 0,
+        c.get("monthly_capacity_max") if c.get("monthly_capacity_max") is not None else 100,
         json.dumps(c)
     ))
     conn.commit()
@@ -417,7 +402,25 @@ def delete_single_coach_db(coach_name: str, db_path: Optional[str] = None):
     init_db(target_path)
     conn = get_connection(target_path)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM coaches WHERE coach_name = ?", (coach_name,))
+
+    # Rule 10 & Additional Rule 5: Maintain Historical Identity in Database
+    # Archive coach data before removing from active scheduling pool
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historical_coaches (
+            coach_name TEXT PRIMARY KEY,
+            deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            data_json TEXT
+        )
+    """)
+    cursor.execute("SELECT coach_name, data_json FROM coaches WHERE LOWER(coach_name) = LOWER(?)", (coach_name.strip(),))
+    existing_c = cursor.fetchone()
+    if existing_c:
+        cursor.execute("""
+            INSERT OR REPLACE INTO historical_coaches (coach_name, deleted_at, data_json)
+            VALUES (?, CURRENT_TIMESTAMP, ?)
+        """, (existing_c["coach_name"], existing_c["data_json"]))
+
+    cursor.execute("DELETE FROM coaches WHERE LOWER(coach_name) = LOWER(?)", (coach_name.strip(),))
 
     # Cascade: Unassign coach from master batches
     cursor.execute("SELECT batch_id, data_json FROM batches")
@@ -548,7 +551,6 @@ def clear_all_master_data_db(db_path: Optional[str] = None):
     cursor.execute("INSERT INTO active_metadata (key, value) VALUES ('master_cleared', 'true')")
     conn.commit()
     conn.close()
-    log_db_status("POST_CLEAR_ALL_MASTER_DATA", target_path)
 
 def is_master_cleared_db(db_path: Optional[str] = None) -> bool:
     target_path = db_path or get_db_path()
@@ -766,6 +768,72 @@ def load_system_config_db(db_path: Optional[str] = None) -> Optional[Dict[str, A
         except Exception:
             return None
     return None
+
+def save_engine_settings_db(settings_dict: Dict[str, Any], db_path: Optional[str] = None):
+    """
+    Persists current ENGINE_SETTINGS dictionary into SQLite active_metadata table.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('engine_settings', ?)", (json.dumps(settings_dict),))
+    conn.commit()
+    conn.close()
+
+def load_engine_settings_db(db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves persisted ENGINE_SETTINGS dictionary from SQLite active_metadata table.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM active_metadata WHERE key = 'engine_settings'")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        try:
+            return json.loads(row["value"])
+        except Exception:
+            return None
+    return None
+
+def clear_all_master_data_db(db_path: Optional[str] = None):
+    """
+    Wipes all students, coaches, batches, and schedules from the SQLite database,
+    and marks master_cleared flag as true so server restarts don't auto-reload sample data.
+    """
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM students")
+    cursor.execute("DELETE FROM coaches")
+    cursor.execute("DELETE FROM batches")
+    cursor.execute("DELETE FROM schedules")
+    cursor.execute("DELETE FROM active_metadata WHERE key = 'latest_schedule_id'")
+    cursor.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('master_cleared', 'true')")
+    conn.commit()
+    conn.close()
+    log_db_status("POST_CLEAR_ALL_MASTER_DATA", target_path)
+
+def is_master_cleared_db(db_path: Optional[str] = None) -> bool:
+    """
+    Returns True if master data was explicitly cleared by the user.
+    """
+    target_path = db_path or get_db_path()
+    if not os.path.exists(target_path):
+        return False
+    try:
+        conn = get_connection(target_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM active_metadata WHERE key = 'master_cleared'")
+        row = cursor.fetchone()
+        conn.close()
+        return bool(row and row["value"] == "true")
+    except Exception:
+        return False
 
 # ==============================================================================
 # ABSOLUTE BASELINES STORAGE (PART E)
@@ -1005,30 +1073,6 @@ def get_exception_records_db(month: str, status: Optional[str] = "active", db_pa
         })
     return results
 
-
-def update_exception_record_db(exception_id: str, after_patch: Dict[str, Any], subtype: Optional[str] = None, reason: Optional[str] = None, db_path: Optional[str] = None) -> bool:
-    """Updates the after_json, subtype, or reason of an existing ExceptionRecord."""
-    target_path = db_path or get_db_path()
-    init_db(target_path)
-    conn = get_connection(target_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT after_json, subtype, reason FROM exception_records WHERE id = ?", (exception_id,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return False
-    curr_after = json.loads(row["after_json"]) if row["after_json"] else {}
-    curr_after.update(after_patch or {})
-    new_subtype = subtype if subtype is not None else row["subtype"]
-    new_reason = reason if reason is not None else row["reason"]
-    cursor.execute(
-        "UPDATE exception_records SET after_json = ?, subtype = ?, reason = ? WHERE id = ?",
-        (json.dumps(curr_after), new_subtype, new_reason, exception_id)
-    )
-    conn.commit()
-    conn.close()
-    return True
-
 def revert_exception_record_db(exception_id: str, db_path: Optional[str] = None) -> bool:
     """Marks an exception record as reverted."""
     target_path = db_path or get_db_path()
@@ -1059,7 +1103,6 @@ def log_audit_event_db(
 ):
     """Writes an entry to audit_logs table."""
     import uuid
-    from datetime import datetime
     target_path = db_path or get_db_path()
     init_db(target_path)
     conn = get_connection(target_path)
@@ -1120,12 +1163,20 @@ def get_audit_logs_db(month: Optional[str] = None, limit: int = 100, db_path: Op
 
 def seed_october_baseline_if_missing(db_path: Optional[str] = None):
     """
-    Guarantees October 2026 has an Active Baseline (v1) loaded from reference_oct_schedule.json,
-    and ensures Master Data tables (students, coaches, batches) and initial ⓒ compensation records
-    are populated when starting fresh (unless explicitly cleared by user via Reset to Scratch).
+    Guarantees October 2026 has an Active Baseline (v1) loaded from reference schedule,
+    so the app boots up immediately with the full 119-student schedule.
     """
     target_path = db_path or get_db_path()
     init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-10' AND status = 'Active'")
+    cnt = cursor.fetchone()[0]
+    conn.close()
+    if cnt > 0:
+        seed_september_baseline_if_missing(target_path)
+        seed_november_and_december_baselines_if_missing(target_path)
+        return
 
     # Check for pre-compiled JSON reference
     ref_json_paths = [
@@ -1146,123 +1197,352 @@ def seed_october_baseline_if_missing(db_path: Optional[str] = None):
         return
 
     students_raw = ref_data.get("students_raw", [])
-    coaches_raw = ref_data.get("coaches_list", [])
-    batches_raw = ref_data.get("batches_list", [])
-    comp_exceptions = ref_data.get("compensation_exceptions", [])
     classes_by_date = ref_data.get("oct_exact_classes_by_date", {})
+    all_classes = []
+    seat_count = 0
+    for dt, cls_list in classes_by_date.items():
+        for c in cls_list:
+            all_classes.append(c)
+            seat_count += len(c.get("student_ids", []))
 
+    save_baseline_db({
+        "month": "2026-10",
+        "version": 1,
+        "status": "Active",
+        "file_name": "Oct'26 Schedule_FRESH-1.xlsx",
+        "uploaded_by": "System Baseline Seed",
+        "uploaded_at": "2026-10-01 12:00 PM",
+        "student_count": len(students_raw),
+        "class_count": len(all_classes),
+        "student_class_count": seat_count,
+        "students_data": students_raw,
+        "classes_data": all_classes,
+        "baseline_exceptions": [],
+        "validation_report": {"blocking": [], "baseline_exceptions": [], "info": []},
+        "created_at": "2026-10-01 12:00:00"
+    }, target_path)
+
+    # Ensure master batches are also seeded if missing
     conn = get_connection(target_path)
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-10' AND status = 'Active'")
-    base_cnt = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM students")
-    stu_cnt = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM coaches")
-    coach_cnt = cursor.fetchone()[0]
     cursor.execute("SELECT COUNT(*) FROM batches")
-    batch_cnt = cursor.fetchone()[0]
-    cursor.execute("SELECT COUNT(*) FROM exception_records WHERE month = '2026-10'")
-    exc_cnt = cursor.fetchone()[0]
+    b_cnt = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM coaches")
+    c_cnt = cursor.fetchone()[0]
+    conn.close()
+    if b_cnt == 0:
+        from app.constants.batch_naming import allocate_students_to_subdivisions
+        subdivisions, _ = allocate_students_to_subdivisions(students_raw)
+        save_all_master_batches_db(subdivisions, target_path)
+
+    if c_cnt == 0:
+        from app.engine.rule_engine import COACH_REFERENCE
+        for c_name, c_info in COACH_REFERENCE.items():
+            save_single_coach_db({
+                "coach_name": c_name,
+                "levels_handled": c_info.get("levels", []),
+                "monthly_capacity_min": c_info.get("monthly_min") or 30,
+                "monthly_capacity_max": c_info.get("monthly_max") or 100,
+                "is_active": True,
+                "qualified_levels_priority": {lvl: idx + 1 for idx, lvl in enumerate(c_info.get("levels", []))}
+            }, target_path)
+
+    print(f"[BASE_SEED] Successfully seeded October 2026 Active Baseline (v1): {len(students_raw)} students, {len(all_classes)} classes, {seat_count} seats.", flush=True)
+
+    # Ensure other months are seeded
+    seed_september_baseline_if_missing(target_path)
+    seed_november_and_december_baselines_if_missing(target_path)
+
+def seed_september_baseline_if_missing(db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-09' AND status = 'Active'")
+    cnt = cursor.fetchone()[0]
+    conn.close()
+    if cnt > 0:
+        return
+
+    cand_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "september_raw.txt"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backend", "data", "september_raw.txt")
+    ]
+    raw_path = next((p for p in cand_paths if os.path.exists(p)), None)
+    if not raw_path:
+        return
+
+    import re
+    from collections import defaultdict, Counter
+
+    ref_json_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "reference_oct_schedule.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backend", "data", "reference_oct_schedule.json")
+    ]
+    name_to_stu = {}
+    for p in ref_json_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    oct_ref = json.load(f)
+                    for s in oct_ref.get("students_raw", []):
+                        name = s.get("student_name", "").strip()
+                        sid = s.get("student_id", "")
+                        lvl = s.get("student_level", "Basic 1")
+                        btype = s.get("batch_type", "G")
+                        req = s.get("required_classes", 8)
+                        clean = name.lower()
+                        name_to_stu[clean] = {"student_id": sid, "student_name": name, "student_level": lvl, "batch_type": btype, "required_classes": req}
+                        clean_no_dot = re.sub(r'[\.\s]+', '', clean)
+                        name_to_stu[clean_no_dot] = name_to_stu[clean]
+                break
+            except Exception:
+                pass
+
+    try:
+        with open(raw_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return
+
+    current_date = None
+    current_coach = None
+    current_time = None
+    schedule_records = []
+
+    date_pattern = re.compile(r'📅\s*DATE:\s*(\d{2}-[A-Za-z]{3})')
+    coach_pattern = re.compile(r'♟️\s*([A-Za-z\s]+)')
+    time_pattern = re.compile(r'^(\d{1,2}:\d{2}\s*(?:AM|PM)|\d{1,2}\s*(?:AM|PM)|TIME NOT PROVIDED|\d{1,2}\s*&\s*\d{1,2}\.\d{2}[a-z]+)', re.IGNORECASE)
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("━"):
+            continue
+        m_date = date_pattern.match(line)
+        if m_date:
+            d_str = m_date.group(1)
+            day_num, month_str = d_str.split("-")
+            current_date = f"2026-09-{day_num.zfill(2)}"
+            current_coach = None
+            current_time = None
+            continue
+        m_coach = coach_pattern.match(line)
+        if m_coach:
+            c_raw = m_coach.group(1).strip()
+            current_coach = c_raw.upper()
+            current_time = None
+            continue
+        m_time = time_pattern.match(line)
+        if m_time:
+            current_time = m_time.group(1).strip()
+            continue
+        if line.startswith("-"):
+            stu_str = line[1:].strip()
+            if "CANCELLED" in stu_str or "~~" in stu_str:
+                continue
+            clean_name = stu_str.replace("Extra", "").replace("Individual", "").replace("Trainer", "").strip()
+            if not clean_name:
+                continue
+            if current_date and current_coach and current_time:
+                try:
+                    d_obj = datetime.strptime(current_date, "%Y-%m-%d")
+                    day_name = d_obj.strftime("%A")
+                except Exception:
+                    day_name = "Monday"
+                schedule_records.append({
+                    "date": current_date,
+                    "day": day_name,
+                    "coach": current_coach,
+                    "time_slot": current_time,
+                    "student_name": clean_name
+                })
+
+    class_groups = defaultdict(lambda: {"student_ids": [], "student_names": []})
+    student_counts = Counter()
+    student_objects = {}
+
+    for r in schedule_records:
+        clean = r["student_name"].lower()
+        clean_no_dot = re.sub(r'[\.\s]+', '', clean)
+        matched = name_to_stu.get(clean) or name_to_stu.get(clean_no_dot)
+        sid = matched["student_id"] if matched else f"STU_{abs(hash(r['student_name'])) % 10000}"
+        sname = matched["student_name"] if matched else r["student_name"]
+        slvl = matched["student_level"] if matched else "Basic 1"
+        sbtype = matched["batch_type"] if matched else "G"
+        k = (r["date"], r["day"], r["coach"], r["time_slot"])
+        if sid not in class_groups[k]["student_ids"]:
+            class_groups[k]["student_ids"].append(sid)
+            class_groups[k]["student_names"].append(sname)
+        student_counts[sid] += 1
+        if sid not in student_objects:
+            student_objects[sid] = {
+                "student_id": sid,
+                "student_name": sname,
+                "student_level": slvl,
+                "batch_type": sbtype,
+                "required_classes": matched["required_classes"] if matched else 8,
+                "scheduled_classes": 0
+            }
+
+    for sid, cnt in student_counts.items():
+        if sid in student_objects:
+            student_objects[sid]["scheduled_classes"] = cnt
+
+    all_classes = []
+    cls_idx = 1
+    total_seats = 0
+    for (dt, dy, coach, ts), grp in class_groups.items():
+        s_count = len(grp["student_ids"])
+        total_seats += s_count
+        b_type = "I" if s_count <= 1 else ("L" if s_count <= 4 else "G")
+        lvls = [student_objects.get(sid, {}).get("student_level", "Basic 1") for sid in grp["student_ids"]]
+        dominant_lvl = Counter(lvls).most_common(1)[0][0] if lvls else "Basic 1"
+        all_classes.append({
+            "class_id": f"CLS_SEP_{str(cls_idx).zfill(4)}",
+            "date": dt,
+            "day": dy,
+            "time_slot": ts,
+            "coach_name": coach,
+            "batch_name": f"{dominant_lvl} - {coach}",
+            "student_level": dominant_lvl,
+            "batch_type": b_type,
+            "student_ids": grp["student_ids"],
+            "student_names": grp["student_names"]
+        })
+        cls_idx += 1
+
+    students_list = list(student_objects.values())
+    save_baseline_db({
+        "month": "2026-09",
+        "version": 1,
+        "status": "Active",
+        "file_name": "september_raw.txt",
+        "uploaded_by": "System Baseline Seed",
+        "uploaded_at": "2026-09-01 12:00 PM",
+        "student_count": len(students_list),
+        "class_count": len(all_classes),
+        "student_class_count": total_seats,
+        "students_data": students_list,
+        "classes_data": all_classes,
+        "baseline_exceptions": [],
+        "validation_report": {"blocking": [], "baseline_exceptions": [], "info": []},
+        "created_at": "2026-09-01 12:00:00"
+    }, target_path)
+    print(f"[BASE_SEED] Successfully seeded September 2026 Active Baseline (v1): {len(students_list)} students, {len(all_classes)} classes, {total_seats} seats.", flush=True)
+
+def seed_november_and_december_baselines_if_missing(db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-11' AND status = 'Active'")
+    nov_cnt = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM absolute_baselines WHERE month = '2026-12' AND status = 'Active'")
+    dec_cnt = cursor.fetchone()[0]
     conn.close()
 
-    if base_cnt == 0:
-        all_classes = []
-        seat_count = 0
-        for dt, cls_list in classes_by_date.items():
-            for c in cls_list:
-                all_classes.append(c)
-                seat_count += len(c.get("student_ids", []))
+    if nov_cnt > 0 and dec_cnt > 0:
+        return
 
-        save_baseline_db({
-            "month": "2026-10",
-            "version": 1,
-            "status": "Active",
-            "file_name": "Oct26_Schedule_Approach1_Updated_preFinal 14.10.26 11.00pm.xlsx",
-            "uploaded_by": "System Baseline Seed",
-            "uploaded_at": "2026-10-14 11:00 PM",
-            "student_count": len(students_raw),
-            "class_count": len(all_classes),
-            "student_class_count": seat_count,
-            "students_data": students_raw,
-            "classes_data": all_classes,
-            "baseline_exceptions": [],
-            "validation_report": {"blocking": [], "baseline_exceptions": [], "info": []},
-            "created_at": "2026-10-14 23:00:00"
-        }, target_path)
-        print(f"[BASE_SEED] Successfully seeded October 2026 Active Baseline (v1): {len(students_raw)} students, {len(all_classes)} classes, {seat_count} seats.", flush=True)
+    from app.engine.baseline_service import generate_next_month_draft
+    
+    if nov_cnt == 0:
+        try:
+            nov_draft = generate_next_month_draft("2026-10", 2026, 11, user="System Baseline Seed")
+            nov_record = dict(nov_draft)
+            nov_record["status"] = "Active"
+            nov_record["file_name"] = "Nov'26 Schedule.xlsx"
+            nov_record["uploaded_at"] = "2026-11-01 12:00 PM"
+            save_baseline_db(nov_record, target_path)
+            print(f"[BASE_SEED] Successfully seeded November 2026 Active Baseline (v1): {nov_record.get('student_count')} students, {nov_record.get('class_count')} classes, {nov_record.get('student_class_count')} seats.", flush=True)
+        except Exception as e:
+            print("[BASE_SEED] Notice: Could not seed November baseline:", e)
 
-    # Seed Master Data tables if not explicitly cleared
-    if not is_master_cleared_db(target_path):
-        conn = get_connection(target_path)
-        cursor = conn.cursor()
-        if stu_cnt == 0 and students_raw:
-            for s in students_raw:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO students (student_id, student_name, student_level, batch_type, region_timezone, required_classes, data_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    s["student_id"],
-                    s["student_name"],
-                    s["student_level"],
-                    s["batch_type"],
-                    s.get("region_timezone", "IST"),
-                    s.get("required_classes", 12),
-                    json.dumps(s)
-                ))
-        if coach_cnt == 0 and coaches_raw:
-            for c in coaches_raw:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO coaches (coach_name, levels_handled_json, monthly_capacity_min, monthly_capacity_max, data_json)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    c["coach_name"],
-                    json.dumps(c.get("levels_handled", [])),
-                    c.get("monthly_capacity_min", 0),
-                    c.get("monthly_capacity_max", 100),
-                    json.dumps(c)
-                ))
-        if batch_cnt == 0 and batches_raw:
-            for b in batches_raw:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO batches (batch_id, batch_name, level, batch_type, fixed_trainer, schedule_timings, student_ids_json, data_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    b["batch_id"],
-                    b.get("batch_name", b["batch_id"]),
-                    b.get("level", "Beginner 1"),
-                    b.get("batch_type", "G"),
-                    b.get("fixed_trainer", "Unassigned"),
-                    b.get("schedule_timings", ""),
-                    json.dumps(b.get("student_ids", [])),
-                    json.dumps(b)
-                ))
-        if exc_cnt == 0 and comp_exceptions:
-            for rec in comp_exceptions:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO exception_records (
-                        id, month, date, start_time, coach_id, class_key, action_type,
-                        affected_student_ids_json, before_json, after_json, subtype,
-                        violated_rules_json, reason, created_by, created_at, status, version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    rec["id"],
-                    rec["month"],
-                    rec["date"],
-                    rec["start_time"],
-                    rec["coach_id"],
-                    rec["class_key"],
-                    rec["action_type"],
-                    json.dumps(rec.get("affected_student_ids", [])),
-                    json.dumps(rec.get("before", {})),
-                    json.dumps(rec.get("after", {})),
-                    rec.get("subtype", "compensation"),
-                    json.dumps(rec.get("violated_rules", [])),
-                    rec.get("reason", ""),
-                    rec.get("created_by", "Admin"),
-                    rec.get("created_at", ""),
-                    rec.get("status", "active"),
-                    rec.get("version", 1)
-                ))
-        conn.commit()
-        conn.close()
+    if dec_cnt == 0:
+        try:
+            dec_draft = generate_next_month_draft("2026-10", 2026, 12, user="System Baseline Seed")
+            dec_record = dict(dec_draft)
+            dec_record["status"] = "Active"
+            dec_record["file_name"] = "Dec'26 Schedule.xlsx"
+            dec_record["uploaded_at"] = "2026-12-01 12:00 PM"
+            save_baseline_db(dec_record, target_path)
+            print(f"[BASE_SEED] Successfully seeded December 2026 Active Baseline (v1): {dec_record.get('student_count')} students, {dec_record.get('class_count')} classes, {dec_record.get('student_class_count')} seats.", flush=True)
+        except Exception as e:
+            print("[BASE_SEED] Notice: Could not seed December baseline:", e)
+
+def save_deleted_record_db(record: Dict[str, Any], db_path: Optional[str] = None) -> str:
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    r_id = record.get("record_id") or f"DEL_{uuid.uuid4().hex[:8].upper()}"
+    cursor.execute("""
+        INSERT OR REPLACE INTO deleted_records (
+            record_id, record_type, record_name, deletion_scope, deleted_at,
+            deleted_by, affected_future_classes, historical_classes_preserved, notes, data_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        r_id,
+        record.get("record_type", "coach"),
+        record.get("record_name", ""),
+        record.get("deletion_scope", "remove_from_schedule"),
+        record.get("deleted_at") or datetime.now().strftime("%Y-%m-%d %I:%M %p"),
+        record.get("deleted_by", "Admin"),
+        record.get("affected_future_classes", 0),
+        record.get("historical_classes_preserved", 0),
+        record.get("notes", ""),
+        json.dumps(record.get("data", {}))
+    ))
+    conn.commit()
+    conn.close()
+    return r_id
+
+def get_deleted_records_db(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM deleted_records ORDER BY deleted_at DESC")
+    rows = cursor.fetchall()
+    results = []
+    for r in rows:
+        results.append({
+            "record_id": r["record_id"],
+            "record_type": r["record_type"],
+            "record_name": r["record_name"],
+            "deletion_scope": r["deletion_scope"],
+            "deleted_at": r["deleted_at"],
+            "deleted_by": r["deleted_by"],
+            "affected_future_classes": r["affected_future_classes"],
+            "historical_classes_preserved": r["historical_classes_preserved"],
+            "notes": r["notes"],
+            "data": json.loads(r["data_json"]) if r["data_json"] else {}
+        })
+    conn.close()
+    return results
+
+def update_deleted_record_scope_db(record_id: str, new_scope: str, db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE deleted_records SET deletion_scope = ? WHERE record_id = ?", (new_scope, record_id))
+    conn.commit()
+    conn.close()
+
+def permanently_delete_record_db(record_id: str, db_path: Optional[str] = None):
+    target_path = db_path or get_db_path()
+    init_db(target_path)
+    conn = get_connection(target_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM deleted_records WHERE record_id = ?", (record_id,))
+    conn.commit()
+    conn.close()
+
+def load_all_coaches_db(db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    return load_master_data_db(db_path).get("coaches", [])
+
+get_db_connection = get_connection
+
+
+

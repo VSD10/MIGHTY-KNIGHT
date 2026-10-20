@@ -130,31 +130,6 @@ def validate_schedule_state(
     # 9. Sunday operating hours: Authoritative rule: Preserve real academy Sunday sessions
     # (Authoritative schedules and administrator assignments on Sunday evening are valid and permitted)
 
-    # 8. Batch type & Level compatibility (Rule 1 Mandatory Hard Constraints)
-    from app.engine.rule_engine import check_regular_level_compatibility
-    for cls in classes:
-        cls_btype = (cls.get("batch_type") or "G").upper()
-        cls_sids = cls.get("student_ids", [])
-        cls_levels = []
-        for sid in cls_sids:
-            s_obj = student_model_map.get(sid)
-            if s_obj:
-                s_btype = (s_obj.batch_type or cls_btype).upper()
-                if s_btype != cls_btype:
-                    violations.append(
-                        f"Strict Batch Type Compatibility Violation: Student {s_obj.student_name} ({sid}) is {s_btype} batch type, but assigned to a {cls_btype} batch."
-                    )
-                if s_btype == "I" and len(cls_sids) > 1:
-                    violations.append(
-                        f"Individual Batch Compatibility Violation: Individual student {s_obj.student_name} ({sid}) is in a shared class of {len(cls_sids)}. Individual students must never be combined."
-                    )
-                cls_levels.append(s_obj.student_level)
-
-        if not cls.get("is_tournament") and cls_levels:
-            comp_ok, comp_reason, comp_sev = check_regular_level_compatibility(cls_levels)
-            if not comp_ok and comp_sev == "hard":
-                violations.append(f"Level Compatibility Violation: {comp_reason} in class {cls.get('class_id')}")
-
     # 10. Date within requested range
     if start_date_str and end_date_str:
         for cls in classes:

@@ -259,7 +259,7 @@ export default function ManualEditModal({
         action_type: 'edit'
       });
       if (res?.violations?.length > 0) {
-        setWarnings(res.violations.map(v => `[${v.rule_name || v.rule || 'Rule'}] ${v.reason || v.message || ''}`));
+        setWarnings(res.violations.map(v => `[${v.rule}] ${v.message}`));
       } else {
         setWarnings([]);
       }
@@ -480,7 +480,7 @@ export default function ManualEditModal({
                 background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 600
               }}
             >
-              <option value="G">G — Group Batch (1–8 students)</option>
+              <option value="G">G — Group Batch (4–8 students)</option>
               <option value="L">L — Limited Students Batch (1–3 students)</option>
               <option value="I">I — Individual Batch (1 student)</option>
             </select>
@@ -518,7 +518,7 @@ export default function ManualEditModal({
           <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>STUDENTS ASSIGNED TO THIS BATCH ({studentIds.length})</span>
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              Batch Target: {batchType === 'I' ? '1 student (Individual)' : (batchType === 'L' ? '1–3 students (Limited)' : '1–8 students (Group)')}
+              Batch Target: {batchType === 'I' ? '1 student (Individual)' : (batchType === 'L' ? '1–3 students (Limited)' : '4–8 students (Group)')}
             </span>
           </div>
 

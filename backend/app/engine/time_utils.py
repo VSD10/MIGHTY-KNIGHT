@@ -1,15 +1,12 @@
-from __future__ import annotations
 import re
-from functools import lru_cache
 from datetime import datetime, date, timedelta
-from typing import List, Tuple, Optional, Any, Dict, Set, Union
+from typing import List, Tuple, Optional
 
-@lru_cache(maxsize=2048)
 def parse_time_to_minutes(time_str: str) -> Optional[int]:
     """Converts strings like '6:00 AM', '5:00 PM', '17:00', '9 PM' into minutes from midnight."""
     if not time_str:
         return None
-    s = str(time_str).strip().upper()
+    s = time_str.strip().upper()
     
     # Check 12-hour format e.g. "6:00 AM", "05:00 PM", "9 PM"
     match12 = re.search(r'(\d{1,2})(?::(\d{2}))?\s*(AM|PM)', s)
@@ -32,12 +29,11 @@ def parse_time_to_minutes(time_str: str) -> Optional[int]:
 
     return None
 
-@lru_cache(maxsize=2048)
 def parse_slot_range(slot_str: str) -> Tuple[Optional[int], Optional[int]]:
     """Parses a slot string like '06:00 PM – 07:00 PM' or range '5 PM - 9 PM' into (start_min, end_min)."""
     if not slot_str:
         return (None, None)
-    parts = re.split(r'[\-–—\ufffd]+|\s+to\s+|\s+till\s+', str(slot_str))
+    parts = re.split(r'[\-–—to]+', slot_str)
     if len(parts) >= 2:
         start_min = parse_time_to_minutes(parts[0])
         end_min = parse_time_to_minutes(parts[1])
@@ -103,7 +99,6 @@ DAY_NAME_MAP = {
     "sun": "Sunday", "sunday": "Sunday"
 }
 
-@lru_cache(maxsize=1024)
 def parse_coach_preferred_timings(pref_str: Optional[str]) -> dict:
     """
     Parses a coach's Preferred Timings string into a structured day-wise dictionary.
@@ -219,83 +214,3 @@ def eval_coach_timing_preference(
             break
 
     return (True, matches, pref_max)
-
-def is_slot_in_coach_preference(coach_obj: Any, day_name: str, time_slot: str) -> Tuple[bool, str]:
-    """
-    Mandatory eligibility constraint: Never recommend or assign a new class to a coach
-    outside their configured preference timings or daily limits.
-    Validates teaching availability, daily class caps, Sunday rules, and timing windows.
-    Returns: (is_valid, failure_reason)
-    """
-    if not coach_obj:
-        return (False, "Coach record is missing or invalid")
-
-    c_dict = coach_obj.model_dump() if hasattr(coach_obj, "model_dump") else (coach_obj if isinstance(coach_obj, dict) else {})
-    c_name = c_dict.get("coach_name") or getattr(coach_obj, "coach_name", "Coach")
-
-    # 1. Daily limit check (mon_max..sun_max)
-    day_map = {
-        "Monday": "mon_max", "Tuesday": "tue_max", "Wednesday": "wed_max",
-        "Thursday": "thu_max", "Friday": "fri_max", "Saturday": "sat_max", "Sunday": "sun_max"
-    }
-    field_key = day_map.get(day_name, "mon_max")
-    d_max = None
-    if hasattr(coach_obj, "get_daily_max"):
-        d_max = coach_obj.get_daily_max(day_name)
-    elif field_key in c_dict and c_dict[field_key] is not None:
-        d_max = c_dict[field_key]
-    elif "daily_limits" in c_dict and day_name in c_dict["daily_limits"]:
-        d_max = c_dict["daily_limits"][day_name]
-
-    if d_max is not None and d_max <= 0:
-        return (False, f"{c_name}: Configured daily class limit is 0 on {day_name} (Not Available)")
-
-    # 2. Sunday Preference & Maximum check
-    if day_name == "Sunday":
-        sun_pref = str(c_dict.get("sunday_pref") or getattr(coach_obj, "sunday_pref", "Available")).strip().lower()
-        if sun_pref in ["not available", "no", "off", "na", "unavailable"]:
-            return (False, f"{c_name}: Marked 'Not Available' on Sundays")
-        sun_max = c_dict.get("sun_max") if c_dict.get("sunday_max_classes") is None else c_dict.get("sunday_max_classes")
-        if sun_max is not None and sun_max <= 0:
-            return (False, f"{c_name}: Sunday max classes configured as 0")
-
-    slot_start, slot_end = parse_slot_range(time_slot)
-    if slot_start is None or slot_end is None:
-        return (False, f"Invalid time slot '{time_slot}'")
-
-    # 3. Multi-window availability dictionary check
-    avail = c_dict.get("availability") or getattr(coach_obj, "availability", {}) or {}
-    if isinstance(avail, dict) and day_name in avail:
-        day_windows = avail[day_name]
-        if isinstance(day_windows, list):
-            if len(day_windows) == 0:
-                return (False, f"{c_name}: No availability windows configured on {day_name}")
-            matched_avail = False
-            for w in day_windows:
-                if isinstance(w, (list, tuple)) and len(w) >= 2:
-                    ws = parse_time_to_minutes(w[0]) if isinstance(w[0], str) else w[0]
-                    we = parse_time_to_minutes(w[1]) if isinstance(w[1], str) else w[1]
-                    if ws is not None and we is not None and slot_start >= ws and slot_end <= we:
-                        matched_avail = True
-                        break
-            if not matched_avail:
-                return (False, f"{c_name}: Slot {time_slot} is outside configured availability windows for {day_name}")
-
-    # 4. Preferred timings string check
-    pref_str = str(c_dict.get("preferred_timings") or getattr(coach_obj, "preferred_timings", "") or "").strip()
-    if pref_str and pref_str.lower() not in ["no preference", "available", "any", "all", "none", "", "nan", "null"]:
-        parsed_days = parse_coach_preferred_timings(pref_str)
-        if parsed_days and day_name in parsed_days:
-            is_avail, matches_w, pref_dmax = eval_coach_timing_preference(parsed_days, day_name, time_slot)
-            if not is_avail:
-                return (False, f"{c_name}: Marked Not Available on {day_name} in Preferred Timings")
-            if pref_dmax is not None and pref_dmax <= 0:
-                return (False, f"{c_name}: Daily limit is 0 on {day_name} in Preferred Timings")
-            if not matches_w:
-                return (False, f"{c_name}: Slot {time_slot} is outside configured preference timing window for {day_name}")
-        elif not parsed_days:
-            # Single range without day name (e.g. "5 PM - 9 PM")
-            if not is_slot_in_preference(time_slot, pref_str):
-                return (False, f"{c_name}: Slot {time_slot} is outside preferred timings ({pref_str})")
-
-    return (True, "")

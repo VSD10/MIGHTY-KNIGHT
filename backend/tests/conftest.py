@@ -1,5 +1,10 @@
 import os
+import sys
 import pytest
+
+_backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 @pytest.fixture(autouse=True, scope="session")
 def setup_isolated_test_db(tmp_path_factory):

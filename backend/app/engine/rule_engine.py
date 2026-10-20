@@ -34,30 +34,31 @@ TOURNAMENT_GROUPS = [
     {"Intermediate 2"} # Friday tournament only
 ]
 
-# Coach Reference Seed Data (Part B7)
-class _CoachReferenceDict(dict):
-    def _canon(self, key):
-        if not isinstance(key, str):
-            return key
-        k_up = key.strip().upper()
-        if super().__contains__(k_up):
-            return k_up
-        k_low = key.strip().lower()
-        for canon, data in super().items():
-            if k_low == canon.lower() or k_low in [a.lower() for a in data.get("aliases", [])]:
-                return canon
-        return k_up
-
+class CaseInsensitiveDict(dict):
     def __getitem__(self, key):
-        return super().__getitem__(self._canon(key))
+        if super().__contains__(key):
+            return super().__getitem__(key)
+        for k in self:
+            if isinstance(k, str) and isinstance(key, str) and k.lower() == key.lower():
+                return super().__getitem__(k)
+        raise KeyError(key)
 
     def get(self, key, default=None):
-        return super().get(self._canon(key), default)
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
     def __contains__(self, key):
-        return super().__contains__(self._canon(key))
+        if super().__contains__(key):
+            return True
+        for k in self:
+            if isinstance(k, str) and isinstance(key, str) and k.lower() == key.lower():
+                return True
+        return False
 
-COACH_REFERENCE = _CoachReferenceDict({
+# Coach Reference Seed Data (Part B7)
+COACH_REFERENCE = CaseInsensitiveDict({
     "GURU": {
         "aliases": ["guru", "guruvanthana"],
         "levels": ["Basic 1", "Basic 2", "Beginner 1", "Beginner 2"],
@@ -214,24 +215,6 @@ COACH_REFERENCE = _CoachReferenceDict({
         "is_flex": False,
         "tournaments_only": True,
         "tournament_tier": 1
-    },
-    "VIGNESH": {
-        "aliases": ["vignesh"],
-        "levels": ["Basic 1", "Basic 2", "Beginner 1"],
-        "monthly_max": None,
-        "daily_limits": {"Sunday": 3, "Monday": 4, "Tuesday": 4, "Wednesday": 4, "Thursday": 4, "Friday": 4, "Saturday": 5},
-        "availability": {
-            "Sunday": [("09:00", "14:30")],
-            "Monday": [("06:00", "08:00"), ("16:00", "21:00")],
-            "Tuesday": [("06:00", "08:00"), ("16:00", "21:00")],
-            "Wednesday": [("06:00", "08:00"), ("16:00", "21:00")],
-            "Thursday": [("06:00", "08:00"), ("16:00", "21:00")],
-            "Friday": [("06:00", "08:00"), ("16:00", "21:00")],
-            "Saturday": [("06:00", "08:00"), ("16:00", "21:00")]
-        },
-        "is_flex": False,
-        "tournaments_only": False,
-        "tournament_tier": 1
     }
 })
 
@@ -254,6 +237,8 @@ def parse_time_to_minutes(time_str: str) -> Optional[int]:
     if not time_str:
         return None
     s = str(time_str).strip()
+    if "-" in s:
+        s = s.split("-")[0].strip()
     # Normalize formats like 7pm, 7:30pm
     s = re.sub(r'(\d+)(am|pm)', r'\1 \2', s, flags=re.IGNORECASE)
     formats = ["%I:%M %p", "%I %p", "%H:%M", "%H:%M:%S"]
@@ -358,40 +343,41 @@ def check_tournament_grouping(levels: List[str], day_name: str) -> Tuple[bool, s
 def check_regular_level_compatibility(levels: List[str]) -> Tuple[bool, str, str]:
     """
     Level compatibility inside one regular class (Rule 1):
-    Hierarchy (1 to 8):
-    1: Basic 1, 2: Basic 2, 3: Beginner 1, 4: Beginner 2,
-    5: Early Intermediate 1, 6: Early Intermediate 2, 7: Intermediate 1, 8: Intermediate 2.
-
-    Rules:
-    - Default hard constraint: Exact same-level matching (Preferred).
-    - Basic 1 is an ABSOLUTE EXCEPTION: Basic 1 students must attend Basic 1 batches only
-      and must never be assigned to another level. No other level can be assigned to Basic 1.
-    - Adjacent-level flexibility (±1 level step) is an optional soft fallback recommendation
-      requiring authorized confirmation (except Basic 1 which cannot be combined with anything).
-    - 2 or more levels apart: Hard violation (skipping levels or non-adjacent levels strictly prohibited).
+    - Preferred: exact same level
+    - Basic 1 Absolute Exception: Basic 1 students must attend Basic 1 batches ONLY and can NEVER be mixed with any other level.
+    - Controlled Adjacent-Level Fallback: (±1 step, non-Basic 1) within exact same batch type is permitted as flexible fallback with soft confirmation.
+    - NEVER: 2 or more levels apart.
     Returns (is_valid, reason, severity: 'hard'|'soft'|'ok')
     """
     distinct = list(set(levels))
     if len(distinct) <= 1:
-        return True, "Same-level batch match (Preferred)", "ok"
-
+        return True, "", "ok"
+    
     nums = [LEVEL_MAP.get(l, 0) for l in distinct if l in LEVEL_MAP]
     if not nums:
-        return True, "Same-level batch match (Preferred)", "ok"
-
-    # Absolute Exception: Basic 1 students must attend Basic 1 batches only and never mixed!
+        return True, "", "ok"
+    
+    # Check NEVER: Basic 1 mixed with ANY other level (Rule 1 Absolute Exception)
     if "Basic 1" in distinct:
-        return False, "Level compatibility violation (Hard): Basic 1 is an absolute exception. Basic 1 students must attend Basic 1 batches only and must never be assigned to another level.", "hard"
-
+        return False, "Level compatibility violation (Hard): Basic 1 students must attend Basic 1 batches ONLY and can NEVER be mixed with any other level (Rule 1).", "hard"
+    
+    # Check NEVER: 2 or more levels apart (Rule 1)
     min_num, max_num = min(nums), max(nums)
-    step_diff = max_num - min_num
-
-    # Hard rejection: 2 or more steps apart
-    if step_diff >= 2:
-        return False, f"Level compatibility violation (Hard): Levels are {step_diff} steps apart ({LEVEL_BY_NUM.get(min_num)} vs {LEVEL_BY_NUM.get(max_num)}). Combining non-adjacent levels or skipping levels is strictly prohibited.", "hard"
-
-    # Exactly 1 step apart: permitted as conditional adjacent-level soft fallback recommendation
-    return True, f"Adjacent-level combination ({', '.join(distinct)}) is permitted as an optional fallback recommendation requiring authorized confirmation.", "soft"
+    if max_num - min_num >= 2:
+        return False, f"Level compatibility violation (Hard): Levels are 2 or more steps apart ({LEVEL_BY_NUM.get(min_num)} vs {LEVEL_BY_NUM.get(max_num)}). Combining non-adjacent levels is strictly prohibited (Rule 1).", "hard"
+    
+    # Check if they belong to same stage
+    same_stage = False
+    for stg in STAGES:
+        if set(distinct).issubset(stg):
+            same_stage = True
+            break
+            
+    if same_stage:
+        return True, "Same stage level grouping (Preferred)", "ok"
+    
+    # 1 level apart across stages is allowed with soft penalty (confirmation-gated)
+    return True, f"Controlled adjacent-level combination ({', '.join(distinct)}) is permitted as flexible fallback.", "soft"
 
 def validate_all_rules_for_occurrence(
     cls_dict: Dict[str, Any],
@@ -498,26 +484,47 @@ def validate_all_rules_for_occurrence(
                     "severity": "hard"
                 })
 
-    # 2b. Strict Batch Type Compatibility (Rule 1 Mandatory Hard Constraint)
-    cls_btype = (batch_type or "G").upper()
+    # Rule 1.4: Conflict Flagging (Duplicate Student IDs in same class/subdivision)
+    if len(student_ids) != len(set(student_ids)):
+        violations.append({
+            "rule_name": "Conflict Warning: Duplicate Student Assignment",
+            "reason": "Subdivision contains duplicate enrollments for the same student ID.",
+            "exact_values": f"Student count: {len(student_ids)}, unique count: {len(set(student_ids))}",
+            "severity": "hard"
+        })
+
+    # Rule 2.3: Flag missing coach assignment
+    if not coach_name or coach_name.strip().lower() in ["unassigned", "requires assignment"]:
+        violations.append({
+            "rule_name": "Conflict Warning: Requires Assignment",
+            "reason": "Class has no coach assigned. Requires assignment.",
+            "exact_values": f"Coach: {coach_name or 'Missing'}",
+            "severity": "soft"
+        })
+
+    # Rule 1: Strict Batch Type Compatibility (Mandatory Hard Constraint — Zero Exceptions)
+    # Group (G) students in G only, Limited (L) in L only, Individual (I) in I only.
+    distinct_btypes = set()
     for sid in student_ids:
         s_obj = student_master_map.get(sid, {})
-        s_btype = (s_obj.get("batch_type") or cls_btype).upper()
-        s_name = s_obj.get("student_name", sid)
-        if s_btype != cls_btype:
+        s_btype = s_obj.get("batch_type", batch_type)
+        if s_btype:
+            distinct_btypes.add(s_btype)
+        if s_btype and batch_type and s_btype != batch_type:
+            s_name = s_obj.get("student_name", sid)
             violations.append({
-                "rule_name": "Strict Batch Type Compatibility",
-                "reason": f"Batch type mismatch (Hard): Student {s_name} ({sid}) is enrolled as {s_btype} batch type, but is assigned to a {cls_btype} batch. Mixing students from different batch types is strictly prohibited.",
-                "exact_values": f"Student Batch: {s_btype}, Class Batch: {cls_btype}",
+                "rule_name": "Batch Type Incompatibility",
+                "reason": f"Batch type violation (Hard): Student {s_name} ({sid}) is enrolled in '{s_btype}' but assigned to a '{batch_type}' batch. Mixing batch types is strictly prohibited (Rule 1).",
+                "exact_values": f"Student Batch Type: {s_btype}, Class Batch Type: {batch_type}",
                 "severity": "hard"
             })
-        if s_btype == "I" and seat_count > 1:
-            violations.append({
-                "rule_name": "Individual Batch Single Student Rule",
-                "reason": f"Individual batch student {s_name} ({sid}) is in a shared class of {seat_count} students. Individual students must remain individually assigned and never combined into shared batches.",
-                "exact_values": f"Individual student in batch of {seat_count}",
-                "severity": "hard"
-            })
+    if len(distinct_btypes) > 1:
+        violations.append({
+            "rule_name": "Batch Type Incompatibility",
+            "reason": f"Batch type violation (Hard): Class contains mixed student batch types ({', '.join(distinct_btypes)}). Group (G), Limited (L), and Individual (I) students must never be mixed (Rule 1).",
+            "exact_values": f"Batch types in class: {list(distinct_btypes)}",
+            "severity": "hard"
+        })
 
     # 3. Student Levels & Compatibility (Part B3 & Part C)
     student_levels = []
@@ -559,6 +566,40 @@ def validate_all_rules_for_occurrence(
                 "exact_values": f"Levels in class: {student_levels}",
                 "severity": comp_sev
             })
+
+        # Check student level vs designated class level (Rule 1)
+        class_lvl = cls_dict.get("student_level")
+        if class_lvl:
+            for sid, s_lvl in zip(student_ids, student_levels):
+                if s_lvl != class_lvl:
+                    s_obj = student_master_map.get(sid, {})
+                    s_name = s_obj.get("student_name", sid)
+                    if s_lvl == "Basic 1" or class_lvl == "Basic 1":
+                        violations.append({
+                            "rule_name": "Basic 1 Absolute Exception",
+                            "reason": f"Level compatibility violation (Hard): Basic 1 students must attend Basic 1 batches ONLY. Student {s_name} ({s_lvl}) cannot be placed in a {class_lvl} batch (Rule 1).",
+                            "exact_values": f"Student Level: {s_lvl}, Class Level: {class_lvl}",
+                            "severity": "hard"
+                        })
+                    else:
+                        s_num = LEVEL_MAP.get(s_lvl, 0)
+                        c_num = LEVEL_MAP.get(class_lvl, 0)
+                        diff = abs(s_num - c_num)
+                        if diff >= 2:
+                            violations.append({
+                                "rule_name": "Level Incompatibility",
+                                "reason": f"Level compatibility violation (Hard): Student {s_name} ({s_lvl}) is non-adjacent (>=2 steps) to class level {class_lvl}. Combining non-adjacent levels is strictly prohibited (Rule 1).",
+                                "exact_values": f"Student Level: {s_lvl}, Class Level: {class_lvl}",
+                                "severity": "hard"
+                            })
+                        elif diff == 1:
+                            violations.append({
+                                "rule_name": "Adjacent-Level Flexibility",
+                                "reason": f"Adjacent-level placement (+/-1 step): Student {s_name} ({s_lvl}) is placed in a {class_lvl} batch. Explicit authorized confirmation required before assignment (Rule 1).",
+                                "exact_values": f"Student Level: {s_lvl}, Class Level: {class_lvl}",
+                                "severity": "soft",
+                                "requires_confirmation": True
+                            })
 
     # 4. Coach Overlap & Limits (Part B6, B7 & Part C6)
     c_ref = COACH_REFERENCE.get(coach_name)
@@ -670,9 +711,4 @@ def validate_all_rules_for_occurrence(
                 "severity": "soft" # Extra (ⓒ) allowed after acknowledgement
             })
 
-    for v in violations:
-        if "rule" not in v and "rule_name" in v:
-            v["rule"] = v["rule_name"]
-        if "message" not in v and "reason" in v:
-            v["message"] = v["reason"]
     return violations

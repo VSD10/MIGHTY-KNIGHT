@@ -1,1300 +1,128 @@
-// Official Mighty Knight Student Database (Synced with October 2026 Absolute Schedule & Batch Matrix)
 export const STUDENT_DATABASE = [
-  {
-    "id": "MKS00172",
-    "name": "A R Thatchiraa Shree",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00214",
-    "name": "A.Bavinesh",
-    "rating": "0.6",
-    "rawLevel": "G Basic 1",
-    "level": "Basic 1",
-    "batchType": "G",
-    "batchCode": "GB1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00149",
-    "name": "A.T.Vagish",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00170",
-    "name": "Aadhav Mithun",
-    "rating": "1.1",
-    "rawLevel": "I Basic 2",
-    "level": "Basic 2",
-    "batchType": "I",
-    "batchCode": "IB2-05",
-    "plannedClasses": 5
-  },
-  {
-    "id": "MKS00225",
-    "name": "Aaradheya P",
-    "rating": "0.2",
-    "rawLevel": "G Basic 1",
-    "level": "Basic 1",
-    "batchType": "G",
-    "batchCode": "GB1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00202",
-    "name": "Abhijay",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00204",
-    "name": "Adhigan Amarnath",
-    "rating": "1.3",
-    "rawLevel": "L Basic 2",
-    "level": "Basic 2",
-    "batchType": "L",
-    "batchCode": "LB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00067",
-    "name": "Akshadhasree",
-    "rating": "3.0",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-03",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00141",
-    "name": "Alagu Durai",
-    "rating": "4.8",
-    "rawLevel": "I Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "I",
-    "batchCode": "IEM2-01",
-    "plannedClasses": 5
-  },
-  {
-    "id": "MKS00235",
-    "name": "AMBARISH RAM A",
-    "rating": "-",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00066",
-    "name": "Anikha",
-    "rating": "3.1",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-03",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00072",
-    "name": "Arishmithran",
-    "rating": "5.0",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00174",
-    "name": "Avyukt A Praveen",
-    "rating": "3.3",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-03",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00092",
-    "name": "Ayaan Haris",
-    "rating": "4.3",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00239",
-    "name": "B Mughil",
-    "rating": "-",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00108",
-    "name": "B SARVESSH",
-    "rating": "4.1",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00098",
-    "name": "B.AARAV NARAYAN",
-    "rating": "4.5",
-    "rawLevel": "L Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "L",
-    "batchCode": "LEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00211",
-    "name": "B.SAI SRI",
-    "rating": "1.1",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00219",
-    "name": "B.V.Tijesh",
-    "rating": "0.5",
-    "rawLevel": "G Basic 1",
-    "level": "Basic 1",
-    "batchType": "G",
-    "batchCode": "GB1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00189",
-    "name": "BHAANAVI.V",
-    "rating": "2.2",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00203",
-    "name": "Bhavadharani.B",
-    "rating": "1.3",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00015",
-    "name": "Bhumika sisti",
-    "rating": "-",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00197",
-    "name": "C S Sharwin",
-    "rating": "2.4",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-03",
-    "plannedClasses": 13
-  },
-  {
-    "id": "MKS00196",
-    "name": "C.V.Chanvika",
-    "rating": "0.7",
-    "rawLevel": "L Basic 1",
-    "level": "Basic 1",
-    "batchType": "L",
-    "batchCode": "LB1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00163",
-    "name": "Charvi",
-    "rating": "3.0",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 0
-  },
-  {
-    "id": "MKS00192",
-    "name": "Cholamithran BR",
-    "rating": "2.1",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 0
-  },
-  {
-    "id": "MKS00079",
-    "name": "D KAVISH",
-    "rating": "4.2",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00176",
-    "name": "D R RAJAGOPALAN",
-    "rating": "3.9",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00127",
-    "name": "D. Tharun",
-    "rating": "4.0",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00142",
-    "name": "Dev dharsan",
-    "rating": "2.6",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00218",
-    "name": "Devansh gade",
-    "rating": "0.7",
-    "rawLevel": "I Basic 2",
-    "level": "Basic 2",
-    "batchType": "I",
-    "batchCode": "IB2-03",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00114",
-    "name": "Dhanya sri S S",
-    "rating": "3.5",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00154",
-    "name": "H V Kanishk",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00115",
-    "name": "HAASHINI  SHRIVY V",
-    "rating": "2.9",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-04",
-    "plannedClasses": 10
-  },
-  {
-    "id": "MKS00073",
-    "name": "Harini",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00014",
-    "name": "Hitesh prabu",
-    "rating": "4.7",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 0
-  },
-  {
-    "id": "MKS00206",
-    "name": "Hithesh",
-    "rating": "4.8",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00050",
-    "name": "Ineya Individual",
-    "rating": "7.3",
-    "rawLevel": "I Intermediate 1",
-    "level": "Intermediate 1",
-    "batchType": "I",
-    "batchCode": "IIM1-01",
-    "plannedClasses": 4
-  },
-  {
-    "id": "MKS00230",
-    "name": "J Jerwin",
-    "rating": "1.8",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00220",
-    "name": "Jayasudhan",
-    "rating": "1.1",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00224",
-    "name": "Jeevith. N.M",
-    "rating": "1.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00075",
-    "name": "Jovinya",
-    "rating": "4.0",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00228",
-    "name": "K. Sudhir",
-    "rating": "3.0",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-02",
-    "plannedClasses": 10
-  },
-  {
-    "id": "MKS00184",
-    "name": "Kaashvi Prakash",
-    "rating": "1.5",
-    "rawLevel": "I Basic 2",
-    "level": "Basic 2",
-    "batchType": "I",
-    "batchCode": "IB2-04",
-    "plannedClasses": 4
-  },
-  {
-    "id": "MKS00231",
-    "name": "Kamesh kumar c",
-    "rating": "6.0",
-    "rawLevel": "I Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "I",
-    "batchCode": "IIM2-01",
-    "plannedClasses": 10
-  },
-  {
-    "id": "MKS00023",
-    "name": "Kavinpriyan",
-    "rating": "4.8",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00217",
-    "name": "Kavinth P",
-    "rating": "1.1",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-02",
-    "plannedClasses": 0
-  },
-  {
-    "id": "YTC",
-    "name": "Keshav Krishna",
-    "rating": "3.3",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00048",
-    "name": "Kirthik",
-    "rating": "5.4",
-    "rawLevel": "I Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "I",
-    "batchCode": "IEM1-01",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00037",
-    "name": "Krishiv Ajay",
-    "rating": "7.5",
-    "rawLevel": "G Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00020",
-    "name": "M Nethran",
-    "rating": "3.8",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00166",
-    "name": "M VARUNESH PANDI",
-    "rating": "3.1",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00101",
-    "name": "M. R. Darshan",
-    "rating": "3.5",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-02",
-    "plannedClasses": 10
-  },
-  {
-    "id": "MKS00118",
-    "name": "M.Nalini Hirthika",
-    "rating": "3.4",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00113",
-    "name": "M.Nishik",
-    "rating": "6.5",
-    "rawLevel": "G Intermediate 1",
-    "level": "Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GIM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00186",
-    "name": "M.Srisaran",
-    "rating": "2.2",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00194",
-    "name": "Madesh",
-    "rating": "4.8",
-    "rawLevel": "L Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "L",
-    "batchCode": "LEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00213",
-    "name": "Magizh",
-    "rating": "0.4",
-    "rawLevel": "I Basic 1",
-    "level": "Basic 1",
-    "batchType": "I",
-    "batchCode": "IB1-01",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00100",
-    "name": "MELWIN G",
-    "rating": "3.0",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00161",
-    "name": "Mithra sree A",
-    "rating": "4.0",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00112",
-    "name": "Mithun Rajamani chakravarthi",
-    "rating": "3.5",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00064",
-    "name": "Mohhan",
-    "rating": "4.6",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00148",
-    "name": "N.Charan",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-04",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00055",
-    "name": "N.sri dharshni",
-    "rating": "4.4",
-    "rawLevel": "L Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "L",
-    "batchCode": "LBN2-01",
-    "plannedClasses": 16
-  },
-  {
-    "id": "MKS00227",
-    "name": "Nakshathra. C",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-04",
-    "plannedClasses": 10
-  },
-  {
-    "id": "MKS00185",
-    "name": "Nirupan",
-    "rating": "3.0",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-06",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00171",
-    "name": "Nishwanth R",
-    "rating": "2.4",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-03",
-    "plannedClasses": 9
-  },
-  {
-    "id": "MKS00095",
-    "name": "Nitharsana",
-    "rating": "3.3",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00054",
-    "name": "Nithesh Nagarathinam",
-    "rating": "5.8",
-    "rawLevel": "L Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "L",
-    "batchCode": "LEM1-01",
-    "plannedClasses": 24
-  },
-  {
-    "id": "MKS00240",
-    "name": "Nivashini",
-    "rating": "-",
-    "rawLevel": "G Basic 1",
-    "level": "Basic 1",
-    "batchType": "G",
-    "batchCode": "GB1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00208",
-    "name": "Nyvan",
-    "rating": "1.7",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00038",
-    "name": "Oviya B",
-    "rating": "3.2",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00241",
-    "name": "P KALAIMANI",
-    "rating": "-",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00150",
-    "name": "P.V Subhiksha",
-    "rating": "3.3",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-06",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00091",
-    "name": "Praduksha",
-    "rating": "5.1",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 0
-  },
-  {
-    "id": "MKS00233",
-    "name": "Prakanya. P",
-    "rating": "-",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 14
-  },
-  {
-    "id": "MKS00143",
-    "name": "Pranith",
-    "rating": "3.8",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00162",
-    "name": "Priyan",
-    "rating": "3.7",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-04",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00156",
-    "name": "Pugazhini Navaneethan",
-    "rating": "3.2",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-05",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00234",
-    "name": "Pughazharasan",
-    "rating": "-",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-06",
-    "plannedClasses": 17
-  },
-  {
-    "id": "MKS00222",
-    "name": "R Logeshwaran",
-    "rating": "1.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00049",
-    "name": "Reyhan nawaz",
-    "rating": "5.6",
-    "rawLevel": "L Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "L",
-    "batchCode": "LEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00178",
-    "name": "Ridhanya Sri.V",
-    "rating": "2.4",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00193",
-    "name": "RITHIKNATH K.M",
-    "rating": "2.1",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00207",
-    "name": "Rohith kumar.B",
-    "rating": "3.4",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00215",
-    "name": "Rooban",
-    "rating": "3.0",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-03",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00007",
-    "name": "Ryan Stalin",
-    "rating": "3.4",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00226",
-    "name": "S Mounitha",
-    "rating": "0.7",
-    "rawLevel": "I Basic 2",
-    "level": "Basic 2",
-    "batchType": "I",
-    "batchCode": "IB2-02",
-    "plannedClasses": 15
-  },
-  {
-    "id": "MKS00223",
-    "name": "S R Sabeshwar",
-    "rating": "4.5",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00155",
-    "name": "S. Thashwin Raj",
-    "rating": "2.6",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00039",
-    "name": "S. YASWANNTH",
-    "rating": "3.8",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-01",
-    "plannedClasses": 0
-  },
-  {
-    "id": "MKS00198",
-    "name": "S.Kabilan",
-    "rating": "1.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00199",
-    "name": "S.Kavirenu",
-    "rating": "1.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00157",
-    "name": "S.P.NEHASRI",
-    "rating": "1.8",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00009",
-    "name": "S.Raagavarshenee",
-    "rating": "4.3",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00111",
-    "name": "S.V.Kavisree",
-    "rating": "3.4",
-    "rawLevel": "L Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "L",
-    "batchCode": "LBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00059",
-    "name": "Sachin",
-    "rating": "7.6",
-    "rawLevel": "L Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "L",
-    "batchCode": "LIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00236",
-    "name": "Saisuhana P",
-    "rating": "-",
-    "rawLevel": "I Basic 2",
-    "level": "Basic 2",
-    "batchType": "I",
-    "batchCode": "IB2-01",
-    "plannedClasses": 4
-  },
-  {
-    "id": "MKS00182",
-    "name": "Samuel Rajan",
-    "rating": "5.6",
-    "rawLevel": "G Intermediate 1",
-    "level": "Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GIM1-01",
-    "plannedClasses": 0
-  },
-  {
-    "id": "MKS00070",
-    "name": "Sanjumithra",
-    "rating": "5.2",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00175",
-    "name": "Sarvesh K",
-    "rating": "3.2",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-04",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00060",
-    "name": "Sarvin",
-    "rating": "7.6",
-    "rawLevel": "G Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00167",
-    "name": "Selvakrishna RK",
-    "rating": "6.6",
-    "rawLevel": "G Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00034",
-    "name": "Shakthivishakan A",
-    "rating": "5.2",
-    "rawLevel": "G Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00242",
-    "name": "Sharvin.S.N",
-    "rating": "-",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-06",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00232",
-    "name": "Sri Varshini",
-    "rating": "0.2",
-    "rawLevel": "G Basic 1",
-    "level": "Basic 1",
-    "batchType": "G",
-    "batchCode": "GB1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00045",
-    "name": "Srikavi Bharathi",
-    "rating": "7.0",
-    "rawLevel": "G Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00216",
-    "name": "Sudharshika",
-    "rating": "1.1",
-    "rawLevel": "G Basic 2",
-    "level": "Basic 2",
-    "batchType": "G",
-    "batchCode": "GB2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00076",
-    "name": "Syed Individual",
-    "rating": "3.5",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-08",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00200",
-    "name": "Thenamilthan.S",
-    "rating": "1.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00056",
-    "name": "Thivya",
-    "rating": "6.2",
-    "rawLevel": "L Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "L",
-    "batchCode": "LEM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00181",
-    "name": "Thiyashwar S",
-    "rating": "1.7",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00237",
-    "name": "V Magizhnan karky",
-    "rating": "-",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-06",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00110",
-    "name": "V. Dhaksha",
-    "rating": "3.4",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-07",
-    "plannedClasses": 10
-  },
-  {
-    "id": "MKS00131",
-    "name": "V. Srikaviyazhini",
-    "rating": "3.2",
-    "rawLevel": "G Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "G",
-    "batchCode": "GBN2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00212",
-    "name": "V.D. THARUN ADITHYA",
-    "rating": "3.3",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00093",
-    "name": "V.Dharmasastha Individual",
-    "rating": "5.8",
-    "rawLevel": "I Early Intermediate 2",
-    "level": "Early Intermediate 2",
-    "batchType": "I",
-    "batchCode": "IEM2-02",
-    "plannedClasses": 4
-  },
-  {
-    "id": "MKS00173",
-    "name": "V.Pranav",
-    "rating": "3.5",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00165 & MKS00164",
-    "name": "Vaishnavi Krishna & vaibhavi Krishna",
-    "rating": "2.6",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-03",
-    "plannedClasses": 9
-  },
-  {
-    "id": "MKS00190",
-    "name": "Vedh Pabba",
-    "rating": "2.9",
-    "rawLevel": "I Beginner 2",
-    "level": "Beginner 2",
-    "batchType": "I",
-    "batchCode": "IBN2-01",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00238",
-    "name": "Vedhanth Gaddam",
-    "rating": "3.0",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-01",
-    "plannedClasses": 8
-  },
-  {
-    "id": "MKS00102",
-    "name": "Vedhanth V",
-    "rating": "6.1",
-    "rawLevel": "G Intermediate 1",
-    "level": "Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GIM1-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00221",
-    "name": "Vikaesh",
-    "rating": "2.1",
-    "rawLevel": "I Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "I",
-    "batchCode": "IBN1-02",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00168",
-    "name": "Vikash",
-    "rating": "2.8",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-05",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00153",
-    "name": "Viraaj Shanmugam",
-    "rating": "2.0",
-    "rawLevel": "I Basic 2",
-    "level": "Basic 2",
-    "batchType": "I",
-    "batchCode": "IB2-06",
-    "plannedClasses": 9
-  },
-  {
-    "id": "MKS00053",
-    "name": "Vivaan Aaditya",
-    "rating": "8.0",
-    "rawLevel": "L Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "L",
-    "batchCode": "LIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00065",
-    "name": "YAASHVIN A/L SATEESHKUMAR",
-    "rating": "6.9",
-    "rawLevel": "G Intermediate 2",
-    "level": "Intermediate 2",
-    "batchType": "G",
-    "batchCode": "GIM2-01",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00147",
-    "name": "yaazhini",
-    "rating": "3.5",
-    "rawLevel": "G Beginner 1",
-    "level": "Beginner 1",
-    "batchType": "G",
-    "batchCode": "GBN1-04",
-    "plannedClasses": 12
-  },
-  {
-    "id": "MKS00107",
-    "name": "Yuviga",
-    "rating": "4.2",
-    "rawLevel": "G Early Intermediate 1",
-    "level": "Early Intermediate 1",
-    "batchType": "G",
-    "batchCode": "GEM1-02",
-    "plannedClasses": 12
-  }
+  { name: "M VARUNESH PANDI", id: "MKS00166", rating: "3.1", rawLevel: "L Beginner1" },
+  { name: "Akshadhasree", id: "MKS00067", rating: "3", rawLevel: "L Beginner1B" },
+  { name: "Anikha", id: "MKS00066", rating: "3.1", rawLevel: "L Beginner1B" },
+  { name: "Krishiv Ajay", id: "MKS00037", rating: "7.5", rawLevel: "G Intermediate2" },
+  { name: "Srikavi Bharathi", id: "MKS00045", rating: "7", rawLevel: "G Intermediate2" },
+  { name: "M.Nalini Hirthika", id: "MKS00118", rating: "3.4", rawLevel: "G Beginner2" },
+  { name: "V. Srikaviyazhini", id: "MKS00131", rating: "3.2", rawLevel: "G Beginner2" },
+  { name: "Viraaj Shanmugam", id: "MKS00153", rating: "2", rawLevel: "I Basic2" },
+  { name: "Vedh Pabba", id: "MKS00190", rating: "2.9", rawLevel: "I Beginner2" },
+  { name: "Selvakrishna RK", id: "MKS00167", rating: "6.6", rawLevel: "G Intermediate2" },
+  { name: "Sarvin", id: "MKS00060", rating: "7.6", rawLevel: "G Intermediate2" },
+  { name: "YAASHVIN A/L SATEESHKUMAR", id: "MKS00065", rating: "6.9", rawLevel: "G Intermediate2" },
+  { name: "Sarvesh K", id: "MKS00175", rating: "3.2", rawLevel: "G beginner1C" },
+  { name: "N.Charan", id: "MKS00148", rating: "2.8", rawLevel: "G beginner1" },
+  { name: "Harini", id: "MKS00073", rating: "2.8", rawLevel: "G Beginner2" },
+  { name: "MELWIN G", id: "MKS00100", rating: "3", rawLevel: "G Beginner2" },
+  { name: "yaazhini", id: "MKS00147", rating: "3.5", rawLevel: "G Beginner1B" },
+  { name: "Kavinpriyan", id: "MKS00023", rating: "4.8", rawLevel: "G Early Intermediate1A" },
+  { name: "K. Sudhir", id: "MKS00228", rating: "3", rawLevel: "G Beginner2" },
+  { name: "HAASHINI SHRIVY V", id: "MKS00115", rating: "2.9", rawLevel: "G beginner1" },
+  { name: "Nakshathra. C", id: "MKS00227", rating: "2.8", rawLevel: "G Beginner2" },
+  { name: "Madesh", id: "MKS00194", rating: "4.8", rawLevel: "L Early Intrmediate1" },
+  { name: "V.Dharmasastha Individual", id: "MKS00093", rating: "5.8", rawLevel: "I Early Intermediate2" },
+  { name: "Kamesh kumar c", id: "MKS00231", rating: "6", rawLevel: "I Intermediate2" },
+  { name: "Jayasudhan", id: "MKS00220", rating: "1.1", rawLevel: "G Beginner1" },
+  { name: "Nyvan", id: "MKS00208", rating: "1.7", rawLevel: "G Beginner1" },
+  { name: "Thiyashwar S", id: "MKS00181", rating: "1.7", rawLevel: "G Beginner1" },
+  { name: "RITHIKNATH K.M", id: "MKS00193", rating: "2.1", rawLevel: "G Beginner1" },
+  { name: "Cholamithran BR", id: "MKS00192", rating: "2.1", rawLevel: "G Beginner1" },
+  { name: "BHAANAVI.V", id: "MKS00189", rating: "2.2", rawLevel: "G Beginner1" },
+  { name: "Jeevith. N.M", id: "MKS00224", rating: "1.8", rawLevel: "G beginner1" },
+  { name: "Ridhanya Sri.V", id: "MKS00178", rating: "2.4", rawLevel: "G beginner1" },
+  { name: "Bhavadharani.B", id: "MKS00203", rating: "1.3", rawLevel: "G Beginner1" },
+  { name: "Nishwanth R", id: "MKS00171", rating: "2.4", rawLevel: "G beginner1" },
+  { name: "Vaishnavi Krishna & vaibhavi Krishna", id: "MKS00165 & MKS00164", rating: "2.6 & 2.7", rawLevel: "I Beginner1" },
+  { name: "Priyan", id: "MKS00162", rating: "3.7", rawLevel: "I Beginner1" },
+  { name: "Alagu Durai", id: "MKS00141", rating: "4.8", rawLevel: "I Early Intermediate2" },
+  { name: "Devansh gade", id: "MKS00218", rating: "0.7", rawLevel: "I basic2" },
+  { name: "Oviya B", id: "MKS00038", rating: "3.2", rawLevel: "G Early Intermediate1" },
+  { name: "Jovinya", id: "MKS00075", rating: "4", rawLevel: "L Beginner1" },
+  { name: "S.V.Kavisree", id: "MKS00111", rating: "3.4", rawLevel: "L Beginner1" },
+  { name: "Vikaesh", id: "MKS00221", rating: "2.1", rawLevel: "I Beginner1" },
+  { name: "Kaashvi Prakash", id: "MKS00184", rating: "1.5", rawLevel: "I Basic2" },
+  { name: "C.V.Chanvika", id: "MKS00196", rating: "0.7", rawLevel: "L Basic1" },
+  { name: "A.Bavinesh", id: "MKS00214", rating: "0.6", rawLevel: "G Basic1" },
+  { name: "B.V.Tijesh", id: "MKS00219", rating: "0.5", rawLevel: "G Basic1" },
+  { name: "V. Dhaksha", id: "MKS00110", rating: "3.4", rawLevel: "I Beginner1" },
+  { name: "Samuel Rajan", id: "MKS00182", rating: "5.6", rawLevel: "G Intermediate1" },
+  { name: "S.Raagavarshenee", id: "MKS00009", rating: "4.3", rawLevel: "G Early Intermediate2" },
+  { name: "Praduksha", id: "MKS00091", rating: "5.1", rawLevel: "G Early Intermediate2" },
+  { name: "Arishmithran", id: "MKS00072", rating: "5", rawLevel: "G Early Intermediate2" },
+  { name: "Sanjumithra", id: "MKS00070", rating: "5.2", rawLevel: "G Early Intermediate2" },
+  { name: "Shakthivishakan A", id: "MKS00034", rating: "5.2", rawLevel: "G Early Intermediate2" },
+  { name: "S R Sabeshwar", id: "MKS00223", rating: "4.5", rawLevel: "G Early Intermediate1" },
+  { name: "M.Nishik", id: "MKS00113", rating: "6.5", rawLevel: "G Intermediate1" },
+  { name: "Vedhanth V", id: "MKS00102", rating: "6.1", rawLevel: "G Intermediate1" },
+  { name: "J Jerwin", id: "MKS00230", rating: "1.8", rawLevel: "G Basic2" },
+  { name: "Mohhan", id: "MKS00064", rating: "4.6", rawLevel: "G Early Intermediate2" },
+  { name: "Kavinth P", id: "MKS00217", rating: "1.1", rawLevel: "G Beginner1" },
+  { name: "Thenamilthan.S", id: "MKS00200", rating: "1.8", rawLevel: "G Beginner1" },
+  { name: "S.Kavirenu", id: "MKS00199", rating: "1.8", rawLevel: "G Beginner1" },
+  { name: "S.Kabilan", id: "MKS00198", rating: "1.8", rawLevel: "G Beginner1" },
+  { name: "M.Srisaran", id: "MKS00186", rating: "2.2", rawLevel: "G Beginner1" },
+  { name: "Kirthik", id: "MKS00048", rating: "5.4", rawLevel: "L Early Intermediate1" },
+  { name: "Pugazhini Navaneethan", id: "MKS00156", rating: "3.2", rawLevel: "I Beginner1" },
+  { name: "Magizh", id: "MKS00213", rating: "0.4", rawLevel: "I Basic1" },
+  { name: "P.V Subhiksha", id: "MKS00150", rating: "3.3", rawLevel: "I Beginner1" },
+  { name: "Thivya", id: "MKS00056", rating: "6.2", rawLevel: "L Early Intermediate2" },
+  { name: "Reyhan nawaz", id: "MKS00049", rating: "5.6", rawLevel: "L Early Intermediate2" },
+  { name: "B.AARAV NARAYAN", id: "MKS00098", rating: "4.5", rawLevel: "L Early Intrmediate1" },
+  { name: "B.SAI SRI", id: "MKS00211", rating: "1.1", rawLevel: "G Basic2" },
+  { name: "Sudharshika", id: "MKS00216", rating: "1.1", rawLevel: "G Basic2" },
+  { name: "Aaradheya P", id: "MKS00225", rating: "0.2", rawLevel: "G Basic1" },
+  { name: "Sri Varshini", id: "MKS00232", rating: "0.2", rawLevel: "G Basic1" },
+  { name: "Syed Individual", id: "MKS00076", rating: "3.5", rawLevel: "I Beginner1" },
+  { name: "Rooban", id: "MKS00215", rating: "3", rawLevel: "G beginner2" },
+  { name: "Mithun Rajamani chakravarthi", id: "MKS00112", rating: "3.5", rawLevel: "G Beginner2" },
+  { name: "Charvi", id: "MKS00163", rating: "3", rawLevel: "G Beginner1" },
+  { name: "Mithra sree A", id: "MKS00161", rating: "4", rawLevel: "G Beginner1" },
+  { name: "Rohith kumar.B", id: "MKS00207", rating: "3.4", rawLevel: "G Early Intermediate1" },
+  { name: "V.D. THARUN ADITHYA", id: "MKS00212", rating: "3.3", rawLevel: "G Early Intermediate1" },
+  { name: "D. Tharun", id: "MKS00127", rating: "4", rawLevel: "G Early Intermediate1" },
+  { name: "Ayaan Haris", id: "MKS00092", rating: "4.3", rawLevel: "G Early Intermediate1" },
+  { name: "Abhijay", id: "MKS00202", rating: "2.8", rawLevel: "G Beginner2" },
+  { name: "Yuviga", id: "MKS00107", rating: "4.2", rawLevel: "G Early Intermediate1" },
+  { name: "B SARVESSH", id: "MKS00108", rating: "4.1", rawLevel: "G Early Intermediate1" },
+  { name: "Adhigan Amarnath", id: "MKS00204", rating: "1.3", rawLevel: "L Basic2" },
+  { name: "Hitesh prabu", id: "MKS00014", rating: "4.7", rawLevel: "G Early Intermediate2" },
+  { name: "D KAVISH", id: "MKS00079", rating: "4.2", rawLevel: "G Beginner2" },
+  { name: "V.Pranav", id: "MKS00173", rating: "3.5", rawLevel: "G Early Intermediate1A" },
+  { name: "Pranith", id: "MKS00143", rating: "3.8", rawLevel: "G Early Intermediate1A" },
+  { name: "Hithesh", id: "MKS00206", rating: "4.8", rawLevel: "G Early Intermediate2" },
+  { name: "Ryan Stalin", id: "MKS00007", rating: "3.4", rawLevel: "G Beginner2s" },
+  { name: "Nirupan", id: "MKS00185", rating: "3", rawLevel: "G Beginner1B" },
+  { name: "Dhanya sri S S", id: "MKS00114", rating: "3.5", rawLevel: "G Beginner2" },
+  { name: "M Nethran", id: "MKS00020", rating: "3.8", rawLevel: "G Early Intermediate1A" },
+  { name: "Keshav Krishna", id: "YTC", rating: "3.3", rawLevel: "G Early Intermediate1A" },
+  { name: "R Logeshwaran", id: "MKS00222", rating: "1.8", rawLevel: "G beginner1" },
+  { name: "Dev dharsan", id: "MKS00142", rating: "2.6", rawLevel: "L Beginner1" },
+  { name: "Avyukt A Praveen", id: "MKS00174", rating: "3.3", rawLevel: "G Beginner2" },
+  { name: "M. R. Darshan", id: "MKS00101", rating: "3.5", rawLevel: "G Beginner2" },
+  { name: "Nitharsana", id: "MKS00095", rating: "3.3", rawLevel: "G Beginner2" },
+  { name: "A.T.Vagish", id: "MKS00149", rating: "2.8", rawLevel: "G Beginner1" },
+  { name: "A R Thatchiraa Shree", id: "MKS00172", rating: "2.8", rawLevel: "G beginner1s" },
+  { name: "H V Kanishk", id: "MKS00154", rating: "2.8", rawLevel: "G beginner1C" },
+  { name: "S. Thashwin Raj", id: "MKS00155", rating: "2.6", rawLevel: "G beginner1C" },
+  { name: "Vikash", id: "MKS00168", rating: "2.8", rawLevel: "G beginner1C" },
+  { name: "S.P.NEHASRI", id: "MKS00157", rating: "1.8", rawLevel: "G Basic2A" },
+  { name: "Aadhav Mithun", id: "MKS00170", rating: "1.1", rawLevel: "I Basic2" },
+  { name: "Ineya Individual", id: "MKS00050", rating: "7.3", rawLevel: "I Intermediate" },
+  { name: "S. YASWANNTH", id: "MKS00039", rating: "3.8", rawLevel: "G Beginner2" },
+  { name: "C S Sharwin", id: "MKS00197", rating: "2.4", rawLevel: "G Beginner1B" },
+  { name: "D R RAJAGOPALAN", id: "MKS00176", rating: "3.9", rawLevel: "G beginner1D" },
+  { name: "N.sri dharshni", id: "MKS00055", rating: "4.4", rawLevel: "L Beginner2" },
+  { name: "Sachin", id: "MKS00059", rating: "7.6", rawLevel: "L Intermediate2" },
+  { name: "Vivaan Aaditya", id: "MKS00053", rating: "8", rawLevel: "L Intermediate2" },
+  { name: "Nithesh Nagarathinam", id: "MKS00054", rating: "5.8", rawLevel: "L Early Intermediate1" },
+  { name: "S Mounitha", id: "MKS00233", rating: "3.0", rawLevel: "G Beginner2" }
 ];
 
-export function normalizeBatchLevel(raw) {
-  if (!raw) return 'Basic 1';
-  const s = String(raw).trim().toLowerCase();
+export function normalizeBatchLevel(rawLevel) {
+  if (!rawLevel) return 'Basic 1';
+  const s = rawLevel.toString().trim().toLowerCase();
+  
   if (s.includes('basic 1') || s.includes('basic1')) return 'Basic 1';
   if (s.includes('basic 2') || s.includes('basic2')) return 'Basic 2';
   if (s.includes('early intermediate 1') || s.includes('early intrmediate1') || s.includes('early intermediate1')) return 'Early Intermediate 1';
@@ -1303,5 +131,48 @@ export function normalizeBatchLevel(raw) {
   if (s.includes('beginner 2') || s.includes('beginner2')) return 'Beginner 2';
   if (s.includes('intermediate 2') || s.includes('intermediate2')) return 'Intermediate 2';
   if (s.includes('intermediate 1') || s.includes('intermediate1') || s === 'i intermediate') return 'Intermediate 1';
+
   return 'Basic 1';
+}
+
+const dbByStudentId = {};
+const dbByStudentName = {};
+
+STUDENT_DATABASE.forEach(item => {
+  const normLevel = normalizeBatchLevel(item.rawLevel);
+  const entry = {
+    ...item,
+    student_name: item.name,
+    student_id: item.id,
+    mkca_rating: item.rating,
+    student_level: normLevel,
+    batch_level: normLevel
+  };
+  
+  if (item.id) {
+    dbByStudentId[item.id.toLowerCase().trim()] = entry;
+  }
+  if (item.name) {
+    dbByStudentName[item.name.toLowerCase().trim()] = entry;
+  }
+});
+
+export function getStudentMetadata(studentId, studentName) {
+  if (studentId && dbByStudentId[studentId.toLowerCase().trim()]) {
+    return dbByStudentId[studentId.toLowerCase().trim()];
+  }
+  if (studentName && dbByStudentName[studentName.toLowerCase().trim()]) {
+    return dbByStudentName[studentName.toLowerCase().trim()];
+  }
+  
+  // Loose matching for student name if exact match failed
+  if (studentName) {
+    const clean = studentName.toLowerCase().trim();
+    const foundKey = Object.keys(dbByStudentName).find(k => k.includes(clean) || clean.includes(k));
+    if (foundKey) {
+      return dbByStudentName[foundKey];
+    }
+  }
+
+  return null;
 }

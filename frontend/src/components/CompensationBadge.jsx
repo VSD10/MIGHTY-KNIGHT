@@ -194,7 +194,7 @@ export default function CompensationBadge({
                 <div style={{ maxHeight: '90px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {violatedRules.map((v, i) => (
                     <div key={i} style={{ fontSize: '0.675rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', padding: '4px 6px', borderRadius: '4px', color: '#fca5a5' }}>
-                      <strong>{v.rule_name || v.rule || 'Rule'}:</strong> {v.reason || v.message || ''}
+                      <strong>{v.rule}:</strong> {v.message}
                     </div>
                   ))}
                 </div>

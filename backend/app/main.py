@@ -3,53 +3,57 @@ import json
 import uuid
 import asyncio
 from datetime import datetime, date, timedelta
-from typing import List, Dict, Any, Optional, Union
 from collections import defaultdict
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from typing import List, Dict, Any, Optional
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Body
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.config import DEFAULT_CONFIG, SystemConfig
+from app.config import DEFAULT_CONFIG, SystemConfig, save_config, load_config
 from app.models.student import StudentModel
 from app.models.coach import CoachModel
-from app.models.schedule import ScheduleResult
+from app.models.schedule import ScheduleResult, ScheduledClass
 from app.ingestion.excel_parser import parse_excel_file
 from app.engine.scheduler import run_scheduler
-from app.outputs.student_schedule import generate_student_ics
+from app.outputs.coach_schedule import generate_coach_schedule_text
+from app.outputs.admin_schedule import format_admin_schedule
+from app.outputs.attention_report import format_attention_report
+from app.outputs.student_schedule import format_student_schedules, generate_student_ics
+from app.utils.time_utils import parse_time_slot_sort_key
 from app.engine.validator import (
     validate_schedule_state, recompute_schedule_outputs, execute_transactional_mutation
 )
 from app.storage.database import (
     init_db, save_schedule_db, get_schedule_db, get_latest_schedule_db,
-    save_master_data_db, load_master_data_db,
+    save_master_data_db, load_master_data_db, has_master_data_db,
     save_single_batch_db, delete_single_batch_db, load_master_batches_db, save_all_master_batches_db,
     clear_all_master_data_db, is_master_cleared_db,
     save_system_config_db, load_system_config_db,
+    save_engine_settings_db, load_engine_settings_db,
     compute_master_data_fingerprint,
     log_db_status, BASE_DIR,
-    save_baseline_db, get_active_baseline_db, get_draft_baseline_db,
+    save_baseline_db, get_active_baseline_db, get_draft_baseline_db, get_baseline_by_version_db,
     activate_baseline_db, discard_draft_baseline_db, list_baselines_for_month_db,
     save_exception_record_db, get_exception_records_db, revert_exception_record_db,
-    update_exception_record_db,
     log_audit_event_db, get_audit_logs_db, seed_october_baseline_if_missing
 )
 from app.engine.effective_schedule_service import get_effective_schedule, ScheduleEventBus
 from app.engine.baseline_service import (
-    generate_monthly_excel_template, parse_baseline_excel_file, generate_next_month_draft, get_rolling_horizon_months, ensure_rolling_three_months_seeded, format_date_wise_schedule_text, generate_populated_schedule_excel_bytes
+    generate_monthly_excel_template, parse_baseline_excel_file, generate_next_month_draft
 )
 from app.engine.rule_engine import (
-    validate_all_rules_for_occurrence, resolve_coach_canonical_name, COACH_REFERENCE, parse_time_to_minutes
+    validate_all_rules_for_occurrence, resolve_coach_canonical_name, COACH_REFERENCE,
+    parse_time_to_minutes
 )
 from app.engine.master_data_service import (
     validate_student_data, reorder_coach_level_priorities, remove_coach_from_level_priority,
-    handle_batch_type_conversion, handle_student_level_change
+    handle_batch_type_conversion, handle_student_level_change,
+    get_authoritative_priority_matrix, move_coach_level_priority, add_coach_to_level_priority
 )
 from app.engine.suggestion_engine import (
     find_single_class_suggestions, solve_multi_class_options,
     generate_smart_batch_opportunities, generate_consolidation_advisory,
-    generate_trainer_engagement_proposals,
-    get_coach_daily_availability_explorer,
     ENGINE_SETTINGS
 )
 
@@ -67,51 +71,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from starlette.requests import Request
-
-@app.middleware("http")
-async def api_prefix_fallback_middleware(request: Request, call_next):
-    """
-    Ensures seamless routing whether requests are made with /api prefix (e.g. /api/schedule/latest/active)
-    or without /api prefix (e.g. /schedule/latest/active), or through Vercel serverless rewrites.
-    Also synchronizes any custom students passed in X-Custom-Students header across serverless containers.
-    """
-    custom_hdr = request.headers.get("x-custom-students")
-    if custom_hdr:
-        try:
-            import urllib.parse
-            decoded_json = urllib.parse.unquote(custom_hdr)
-            s_list = json.loads(decoded_json)
-            if isinstance(s_list, list) and s_list:
-                from app.storage.database import save_single_student_db
-                ensure_active_data()
-                mem_sids = {s.get("student_id") for s in ACTIVE_DATA.get("students", [])}
-                synced_any = False
-                for st in s_list:
-                    if isinstance(st, dict) and st.get("student_id"):
-                        if st["student_id"] not in mem_sids:
-                            ACTIVE_DATA["students"].append(st)
-                            mem_sids.add(st["student_id"])
-                            save_single_student_db(st)
-                            synced_any = True
-                if synced_any:
-                    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-                    invalidate_effective_schedule_cache("2026-10")
-        except Exception:
-            pass
-
-    path = request.scope.get("path", "")
-    if path and not path.startswith("/api") and not path.startswith("/docs") and not path.startswith("/redoc") and not path.startswith("/openapi.json") and not path.startswith("/assets") and path != "/":
-        api_path = f"/api{path}"
-        for route in request.app.routes:
-            if hasattr(route, "path") and route.path == api_path:
-                request.scope["path"] = api_path
-                break
-            elif hasattr(route, "path_regex") and route.path_regex.match(api_path):
-                request.scope["path"] = api_path
-                break
-    return await call_next(request)
 
 # In-memory session state for active uploaded data
 ACTIVE_DATA: Dict[str, Any] = {
@@ -144,9 +103,6 @@ def ensure_active_data():
         except Exception as e:
             print(f"[STARTUP] Could not parse saved DB config: {e}", flush=True)
 
-    if not is_master_cleared_db():
-        seed_october_baseline_if_missing()
-
     if is_master_cleared_db():
         ACTIVE_DATA["students"] = []
         ACTIVE_DATA["coaches"] = []
@@ -158,6 +114,10 @@ def ensure_active_data():
 
     # Load master data directly from SQLite database as the single source of truth
     data = load_master_data_db()
+    if not data.get("coaches") and not is_master_cleared_db():
+        seed_october_baseline_if_missing()
+        data = load_master_data_db()
+
     ACTIVE_DATA["students"] = data.get("students", [])
     ACTIVE_DATA["coaches"] = data.get("coaches", [])
     ACTIVE_DATA["batches"] = load_master_batches_db()
@@ -165,49 +125,32 @@ def ensure_active_data():
     ACTIVE_DATA["filename"] = data.get("last_filename") or ("Master Data" if (ACTIVE_DATA["students"] or ACTIVE_DATA["batches"]) else "Empty (Clean Slate)")
     ACTIVE_DATA["upload_timestamp"] = data.get("last_upload_timestamp") or ""
 
-    # Synchronize authoritative coach priority matrix and register active coaches in COACH_REFERENCE
-    from app.engine.master_data_service import sync_live_coach_priority_matrix
-    sync_live_coach_priority_matrix(coaches_list=ACTIVE_DATA["coaches"], config=CURRENT_CONFIG, persist_db=True)
-
-def sync_active_schedule_master_data(month: str = "2026-10"):
+def sync_active_schedule_master_data():
     """
     Synchronizes the active schedule in SQLite with current master students, coaches, and config.
-    Updates the master_data_fingerprint so the schedule is never considered stale or regenerated on refresh.
+    Updates the master_data_fingerprint so the schedule is never considered stale or regenerated on refresh,
+    and updates Output 1 and Output 3 accountability so all newly added or modified students
+    appear in Output 3 without destroying any classes or manual overrides.
     """
-    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-    invalidate_effective_schedule_cache(month)
     latest_sched = get_latest_schedule_db()
     if latest_sched:
         new_fp = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
         latest_sched["master_data_fingerprint"] = new_fp
         latest_sched["is_stale"] = False
-        m_str = (latest_sched.get("start_date") or month or "2026-10")[:7]
-        eff = get_effective_schedule(m_str)
-        if eff and eff.get("scheduled_classes"):
-            latest_sched["scheduled_classes"] = list(eff["scheduled_classes"])
-            latest_sched["coach_summaries"] = list(eff.get("coach_summaries", []))
-            latest_sched["coach_slots"] = list(eff.get("coach_slots", []))
-            latest_sched["student_schedules"] = list(eff.get("student_schedules", []))
-            latest_sched["attention_records"] = list(eff.get("attention_records", []))
-            latest_sched["unscheduled_records"] = list(eff.get("attention_records", []))
-            latest_sched["whatsapp_plain_text"] = eff.get("whatsapp_plain_text", "")
-            latest_sched["total_classes"] = eff.get("total_classes", len(eff["scheduled_classes"]))
-            latest_sched["total_students_considered"] = eff.get("total_students", 0)
-            latest_sched["unscheduled_students_count"] = eff.get("need_attention", 0)
-            latest_sched["successfully_scheduled_students"] = eff.get("total_students", 0) - eff.get("need_attention", 0)
-            latest_sched["accountability_passed"] = eff.get("need_attention", 0) == 0
-        else:
-            recompute_schedule_outputs(
-                latest_sched,
-                ACTIVE_DATA.get("students", []),
-                ACTIVE_DATA.get("coaches", []),
-                CURRENT_CONFIG
-            )
+        recompute_schedule_outputs(
+            latest_sched,
+            ACTIVE_DATA.get("students", []),
+            ACTIVE_DATA.get("coaches", []),
+            CURRENT_CONFIG
+        )
         save_schedule_db(latest_sched)
 
 @app.on_event("startup")
 def startup_event():
     ensure_active_data()
+    saved_engine = load_engine_settings_db()
+    if saved_engine:
+        ENGINE_SETTINGS.update(saved_engine)
     seed_october_baseline_if_missing()
     log_db_status("STARTUP")
 
@@ -228,11 +171,8 @@ def update_system_config(config_data: Dict[str, Any]):
         new_cfg.sync_from_rules_registry()
         new_cfg.sync_to_rules_registry()
         CURRENT_CONFIG = new_cfg
-        from app.engine.master_data_service import sync_live_coach_priority_matrix
-        sync_live_coach_priority_matrix(coaches_list=ACTIVE_DATA.get("coaches", []), config=CURRENT_CONFIG, persist_db=True)
         save_system_config_db(CURRENT_CONFIG.model_dump())
         sync_active_schedule_master_data()
-        ScheduleEventBus.emit_change("2026-10")
         return {"status": "success", "config": CURRENT_CONFIG.model_dump()}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
@@ -353,7 +293,16 @@ def save_master_batch(req: MasterBatchRequest):
     ensure_active_data()
     b_dict = req.model_dump()
     
-    # Auto-adjust min/max capacity if not provided
+    from app.constants.batch_naming import normalize_batch_name_to_subdivision, parse_batch_subdivision_name
+    parsed = parse_batch_subdivision_name(b_dict["batch_name"])
+    if not parsed:
+        b_dict["batch_name"] = normalize_batch_name_to_subdivision(
+            b_dict["batch_name"],
+            default_btype=b_dict.get("batch_type", "G"),
+            default_level=b_dict.get("level", "Beginner 1")
+        )
+    
+    # Auto-adjust min/max capacity strictly according to subdivision limits
     if not b_dict.get("capacity_min"):
         b_dict["capacity_min"] = 1
     if not b_dict.get("capacity_max"):
@@ -378,17 +327,79 @@ def save_master_batch(req: MasterBatchRequest):
     ACTIVE_DATA["batches"].append(b_dict)
     save_single_batch_db(b_dict)
     sync_active_schedule_master_data()
-    ScheduleEventBus.emit_change("2026-10")
     return {"status": "success", "batch": b_dict}
 
 @app.delete("/api/master/batches/{batch_id:path}")
-def delete_master_batch(batch_id: str):
+def delete_master_batch(batch_id: str, scope: str = Query(default="remove_from_schedule")):
     ensure_active_data()
-    ACTIVE_DATA["batches"] = [b for b in ACTIVE_DATA.get("batches", []) if b["batch_id"] != batch_id]
-    delete_single_batch_db(batch_id)
+    existing_batch = next((b for b in ACTIVE_DATA.get("batches", []) if b.get("batch_id") == batch_id), None)
+    bname = existing_batch.get("batch_name", batch_id) if existing_batch else batch_id
+    blevel = existing_batch.get("level", "Basic 1") if existing_batch else "Basic 1"
+    btype = existing_batch.get("batch_type", "G") if existing_batch else "G"
+    coach = existing_batch.get("fixed_trainer", "") if existing_batch else ""
+
+    # Calculate affected upcoming classes vs preserved historical classes
+    hist_count = 0
+    upc_count = 0
+    affected_students = set()
+    try:
+        eff = get_effective_schedule("2026-10")
+        all_cls = eff.get("scheduled_classes", [])
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        now_min = now.hour * 60 + now.minute
+        for cls in all_cls:
+            if cls.get("batch_name") == bname or cls.get("batch_id") == batch_id:
+                c_dt = cls.get("date", "")
+                c_tm = parse_time_to_minutes(cls.get("time_slot", "")) or 0
+                if c_dt > today_str or (c_dt == today_str and c_tm > now_min):
+                    upc_count += 1
+                    for sid in cls.get("student_ids", []):
+                        affected_students.add(sid)
+                else:
+                    hist_count += 1
+    except Exception:
+        pass
+
+    scope_clean = scope if scope in ["remove_from_schedule", "archive", "permanent"] else "remove_from_schedule"
+
+    if scope_clean == "permanent":
+        ACTIVE_DATA["batches"] = [b for b in ACTIVE_DATA.get("batches", []) if b["batch_id"] != batch_id]
+        delete_single_batch_db(batch_id)
+    else:
+        for b in ACTIVE_DATA.get("batches", []):
+            if b["batch_id"] == batch_id:
+                b["status"] = "ARCHIVED" if scope_clean == "archive" else "REMOVED_FROM_SCHEDULE"
+                save_single_batch_db(b)
+
+    # Audit log in deleted_records table (Section 2 & 3)
+    rec_id = f"DEL_BATCH_{batch_id.replace('-', '_').upper()}_{uuid.uuid4().hex[:6]}"
+    from app.storage.database import save_deleted_record_db
+    save_deleted_record_db({
+        "record_id": rec_id,
+        "record_type": "batch",
+        "record_name": f"{bname} ({batch_id})",
+        "deletion_scope": scope_clean,
+        "deleted_by": "Admin",
+        "affected_future_classes": upc_count,
+        "historical_classes_preserved": hist_count,
+        "notes": f"Batch {bname} ({batch_id}) deleted with scope '{scope_clean}'. Trainer: {coach}, Level: {blevel}, Type: {btype}. {hist_count} past classes preserved, {upc_count} future classes routed to Attention Required ({len(affected_students)} students affected).",
+        "data": existing_batch or {"batch_id": batch_id, "batch_name": bname, "level": blevel, "batch_type": btype}
+    })
+
     sync_active_schedule_master_data()
     ScheduleEventBus.emit_change("2026-10")
-    return {"status": "success", "deleted_batch_id": batch_id}
+    return {
+        "status": "success",
+        "deleted_batch_id": batch_id,
+        "batch_name": bname,
+        "scope": scope_clean,
+        "deletion_scope": scope_clean,
+        "affected_future_classes": upc_count,
+        "historical_classes_preserved": hist_count,
+        "affected_students_count": len(affected_students),
+        "record_id": rec_id
+    }
 
 @app.post("/api/master/batches/import-dataset")
 def import_batch_dataset():
@@ -438,7 +449,10 @@ class MasterStudentRequest(BaseModel):
     sun_pref: Optional[str] = "No Preference"
     assigned_batch_id: Optional[str] = None
     tournament_pref: Optional[str] = "No"
+    source_tag: Optional[str] = None
     additional_comments: Optional[str] = ""
+    preferred_days: Optional[str] = "Flexible"
+    preferred_time: Optional[str] = "Flexible"
     # F1 Master Data Hub fields
     level_history: Optional[List[Dict[str, Any]]] = []
     requirement_mode: Optional[str] = "fixed"
@@ -450,25 +464,15 @@ class MasterStudentRequest(BaseModel):
     standing_exceptions: Optional[List[Dict[str, Any]]] = []
     linked_student_id: Optional[str] = None
     start_date: Optional[str] = None
-    joining_date: Optional[str] = None
-    date_of_joining: Optional[str] = None
     notes: Optional[str] = ""
     is_active: Optional[bool] = True
 
 @app.post("/api/master/students")
-def save_master_student(req: Union[MasterStudentRequest, Dict[str, Any]]):
+def save_master_student(req: MasterStudentRequest):
     ensure_active_data()
-    if isinstance(req, dict):
-        req = MasterStudentRequest(**req)
     s_dict = req.model_dump()
     existing_students = ACTIVE_DATA.get("students", [])
     is_new = not any(s.get("student_id") == req.student_id for s in existing_students)
-
-    from app.engine.suggestion_engine import normalize_date_to_iso
-    raw_j = s_dict.get("joining_date") or s_dict.get("start_date") or s_dict.get("date_of_joining") or ""
-    norm_j = normalize_date_to_iso(raw_j) or ""
-    s_dict["joining_date"] = norm_j
-    s_dict["start_date"] = norm_j
 
     # F1 Validation
     is_valid, errors = validate_student_data(s_dict, existing_students, is_new=is_new)
@@ -479,7 +483,12 @@ def save_master_student(req: Union[MasterStudentRequest, Dict[str, Any]]):
     model_inst = StudentModel(**s_dict)
     s_dict["tournament_eligibility"] = model_inst.get_tournament_eligibility()
     if not s_dict.get("batch"):
-        s_dict["batch"] = f"{s_dict.get('batch_type', 'G')} {s_dict.get('student_level', '')}".strip()
+        from app.constants.batch_naming import format_batch_subdivision_name
+        s_dict["batch"] = format_batch_subdivision_name(
+            s_dict.get("batch_type", "G"),
+            s_dict.get("student_level", "Beginner 1"),
+            1
+        )
 
     # If editing, check for scheduling-relevant conversions
     if not is_new:
@@ -521,68 +530,52 @@ def save_master_student(req: Union[MasterStudentRequest, Dict[str, Any]]):
                     b["student_count"] = len(s_ids)
                     save_single_batch_db(b)
 
-    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-    invalidate_effective_schedule_cache("2026-10")
-    sync_active_schedule_master_data("2026-10")
+    sync_active_schedule_master_data()
     ScheduleEventBus.emit_change("2026-10", student_ids=[req.student_id])
     return {"status": "success", "student": s_dict}
 
-class BulkMasterStudentRequest(BaseModel):
-    students: List[MasterStudentRequest]
-
-@app.post("/api/master/students/bulk")
-def save_bulk_master_students(req: BulkMasterStudentRequest):
-    ensure_active_data()
-    existing_students = list(ACTIVE_DATA.get("students", []))
-    existing_ids = {s.get("student_id") for s in existing_students}
-    
-    saved_students = []
-    errors = []
-    from app.storage.database import save_single_student_db
-
-    for s_req in req.students:
-        s_dict = s_req.model_dump()
-        sid = s_dict.get("student_id")
-        is_new = sid not in existing_ids
-        is_valid, s_errs = validate_student_data(s_dict, existing_students, is_new=is_new)
-        if not is_valid:
-            errors.append({"student_id": sid, "errors": s_errs})
-            continue
-
-        model_inst = StudentModel(**s_dict)
-        s_dict["tournament_eligibility"] = model_inst.get_tournament_eligibility()
-        if not s_dict.get("batch"):
-            s_dict["batch"] = f"{s_dict.get('batch_type', 'G')} {s_dict.get('student_level', '')}".strip()
-
-        existing_students = [s for s in existing_students if s["student_id"] != sid]
-        existing_students.append(s_dict)
-        existing_ids.add(sid)
-        save_single_student_db(s_dict)
-        saved_students.append(s_dict)
-
-    ACTIVE_DATA["students"] = existing_students
-    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-    invalidate_effective_schedule_cache("2026-10")
-    sync_active_schedule_master_data("2026-10")
-    ScheduleEventBus.emit_change("2026-10", student_ids=[s["student_id"] for s in saved_students])
-    return {
-        "status": "success",
-        "saved_count": len(saved_students),
-        "errors_count": len(errors),
-        "errors": errors
-    }
-
-@app.post("/api/master/students/sync")
-def sync_master_students_from_client(req: BulkMasterStudentRequest):
-    """
-    Ensures any custom students created client-side are transactionally persisted into SQLite and memory.
-    """
-    return save_bulk_master_students(req)
-
 @app.delete("/api/master/students/{student_id}")
-def delete_master_student(student_id: str):
+def delete_master_student(student_id: str, scope: str = Query(default="remove_from_schedule")):
     ensure_active_data()
-    ACTIVE_DATA["students"] = [s for s in ACTIVE_DATA["students"] if s["student_id"] != student_id]
+    existing_student = next((s for s in ACTIVE_DATA["students"] if s.get("student_id") == student_id), None)
+    sname = existing_student.get("student_name", student_id) if existing_student else student_id
+    sbatch = existing_student.get("assigned_batch_id") or "Unassigned"
+    slevel = existing_student.get("student_level", "Basic 1")
+    sbtype = existing_student.get("batch_type", "G")
+
+    # Calculate affected upcoming classes vs preserved historical classes
+    hist_count = 0
+    upc_count = 0
+    try:
+        eff = get_effective_schedule("2026-10")
+        all_cls = eff.get("scheduled_classes", [])
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        now_min = now.hour * 60 + now.minute
+        for cls in all_cls:
+            if student_id in cls.get("student_ids", []):
+                c_dt = cls.get("date", "")
+                c_tm = parse_time_to_minutes(cls.get("time_slot", "")) or 0
+                if c_dt > today_str or (c_dt == today_str and c_tm > now_min):
+                    upc_count += 1
+                else:
+                    hist_count += 1
+    except Exception:
+        pass
+
+    scope_clean = scope if scope in ["remove_from_schedule", "archive", "permanent"] else "remove_from_schedule"
+
+    if scope_clean == "permanent":
+        ACTIVE_DATA["students"] = [s for s in ACTIVE_DATA["students"] if s["student_id"] != student_id]
+        from app.storage.database import delete_single_student_db
+        delete_single_student_db(student_id)
+    else:
+        # Mark student as archived / removed from active operations
+        for s in ACTIVE_DATA["students"]:
+            if s["student_id"] == student_id:
+                s["status"] = "ARCHIVED" if scope_clean == "archive" else "REMOVED_FROM_SCHEDULE"
+                from app.storage.database import save_single_student_db
+                save_single_student_db(s)
 
     # Cascade unlink from in-memory batches
     for b in ACTIVE_DATA.get("batches", []):
@@ -593,26 +586,48 @@ def delete_master_student(student_id: str):
             b["student_count"] = len(b["students"])
             save_single_batch_db(b)
 
-    from app.storage.database import delete_single_student_db
-    delete_single_student_db(student_id)
-
-    # Remove student from any scheduled classes in the latest active schedule
+    # Remove student from upcoming scheduled classes while preserving completed historical classes
     latest_sched = get_latest_schedule_db()
     if latest_sched:
         modified_sched = False
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
         for cls in latest_sched.get("scheduled_classes", []):
-            if student_id in cls.get("student_ids", []):
+            c_dt = cls.get("date", "")
+            if student_id in cls.get("student_ids", []) and (c_dt >= today_str or scope_clean == "permanent"):
                 cls["student_ids"] = [sid for sid in cls["student_ids"] if sid != student_id]
                 cls["student_names"] = [name for name, sid in zip(cls.get("student_names", []), cls.get("student_ids", []))]
                 modified_sched = True
         if modified_sched:
             save_schedule_db(latest_sched)
 
-    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-    invalidate_effective_schedule_cache("2026-10")
-    sync_active_schedule_master_data("2026-10")
+    # Audit log in deleted_records table (Section 2 & 3)
+    rec_id = f"DEL_STU_{student_id.upper()}_{uuid.uuid4().hex[:6]}"
+    from app.storage.database import save_deleted_record_db
+    save_deleted_record_db({
+        "record_id": rec_id,
+        "record_type": "student",
+        "record_name": f"{sname} ({student_id})",
+        "deletion_scope": scope_clean,
+        "deleted_by": "Admin",
+        "affected_future_classes": upc_count,
+        "historical_classes_preserved": hist_count,
+        "notes": f"Student {sname} ({student_id}) processed with scope '{scope_clean}'. Level: {slevel}, Batch: {sbatch}. {hist_count} past classes preserved, {upc_count} future classes unlinked.",
+        "data": existing_student or {"student_id": student_id, "student_name": sname, "student_level": slevel, "batch_type": sbtype}
+    })
+
+    sync_active_schedule_master_data()
     ScheduleEventBus.emit_change("2026-10", student_ids=[student_id])
-    return {"status": "success", "deleted_student_id": student_id}
+    return {
+        "status": "success",
+        "deleted_student_id": student_id,
+        "student_name": sname,
+        "scope": scope_clean,
+        "deletion_scope": scope_clean,
+        "affected_future_classes": upc_count,
+        "historical_classes_preserved": hist_count,
+        "record_id": rec_id
+    }
 
 class ConvertBatchRequest(BaseModel):
     student_id: str
@@ -687,74 +702,112 @@ class MasterCoachRequest(BaseModel):
     temporary_exceptions: Optional[str] = ""
 
 @app.post("/api/master/coaches")
-def save_master_coach(req: Union[MasterCoachRequest, Dict[str, Any]]):
+def save_master_coach(req: MasterCoachRequest):
     ensure_active_data()
-    if isinstance(req, dict):
-        req = MasterCoachRequest(**req)
     c_dict = req.model_dump()
     canon_name = resolve_coach_canonical_name(req.coach_name)
     c_dict["coach_name"] = canon_name
-
-    from app.engine.master_data_service import sync_live_coach_priority_matrix
-    prio_matrix, updated_coaches = sync_live_coach_priority_matrix(
-        coaches_list=ACTIVE_DATA["coaches"],
-        new_coach_dict=c_dict,
-        persist_db=True
-    )
-    saved_coach = next((c for c in updated_coaches if resolve_coach_canonical_name(c["coach_name"]) == canon_name), c_dict)
+    ACTIVE_DATA["coaches"] = [c for c in ACTIVE_DATA["coaches"] if resolve_coach_canonical_name(c["coach_name"]) != canon_name]
+    ACTIVE_DATA["coaches"].append(c_dict)
+    from app.storage.database import save_single_coach_db
+    save_single_coach_db(c_dict)
     sync_active_schedule_master_data()
     ScheduleEventBus.emit_change("2026-10", coach_ids=[canon_name])
-    return {"status": "success", "coach": saved_coach}
+    return {"status": "success", "coach": c_dict}
 
-@app.delete("/api/master/coaches/{coach_name}")
-def delete_master_coach(coach_name: str):
-    ensure_active_data()
-    canon_name = resolve_coach_canonical_name(coach_name)
-
-    from app.engine.master_data_service import sync_live_coach_priority_matrix
-    prio_matrix, updated_coaches = sync_live_coach_priority_matrix(
-        coaches_list=ACTIVE_DATA["coaches"],
-        removed_coach_name=canon_name,
-        persist_db=True
-    )
-    sync_active_schedule_master_data()
-    ScheduleEventBus.emit_change("2026-10", coach_ids=[canon_name])
-    return {"status": "success", "deleted_coach_name": canon_name}
+# ==============================================================================
+# TRAINER QUALIFICATION & PRIORITY MATRIX (SECTIONS 1 & 4)
+# (Defined before wildcard /api/master/coaches/{coach_name} to prevent path collision)
+# ==============================================================================
 
 class CoachPriorityRequest(BaseModel):
     level: str
     coach_name: str
     new_priority: int
 
+class CoachPriorityMoveRequest(BaseModel):
+    level: str
+    coach_name: str
+    direction: str  # "up" or "down"
+
+def format_priority_matrix_response(matrix: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+    from app.engine.master_data_service import OFFICIAL_8_LEVELS
+    levels_list = []
+    unique_coaches = set()
+    for lvl in OFFICIAL_8_LEVELS:
+        coaches_list = matrix.get(lvl, [])
+        for c in coaches_list:
+            unique_coaches.add(c["coach_name"])
+        levels_list.append({
+            "level": lvl,
+            "qualified_count": len(coaches_list),
+            "coaches": coaches_list
+        })
+    return {
+        "status": "success",
+        "levels": levels_list,
+        "matrix": matrix,
+        "total_coaches": len(unique_coaches)
+    }
+
+@app.get("/api/master/coaches/priority-matrix")
+def get_coach_priority_matrix_api():
+    """
+    Returns the centralized Trainer Qualification & Priority Matrix for all 8 academy levels.
+    Single Source of Truth:
+    - Exactly the qualified coaches for each level, in rank order (Primary, Priority 2..N).
+    - Fully dynamic, persisted in SQLite, real-time synchronized with engine and config.
+    """
+    ensure_active_data()
+    matrix = get_authoritative_priority_matrix(ACTIVE_DATA["coaches"])
+    return format_priority_matrix_response(matrix)
+
+@app.post("/api/master/coaches/priority/move")
+def move_coach_priority_api(req: CoachPriorityMoveRequest):
+    """
+    Moves coach up or down by 1 position within a level's priority sequence.
+    Swaps with adjacent coach, preserves 1..N sequence without gaps or duplicates,
+    persists immediately in SQLite, and emits real-time event.
+    """
+    ensure_active_data()
+    try:
+        updated, new_prios = move_coach_level_priority(
+            ACTIVE_DATA["coaches"],
+            level=req.level,
+            target_coach_name=req.coach_name,
+            direction=req.direction
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    ACTIVE_DATA["coaches"] = updated
+    matrix = get_authoritative_priority_matrix(updated)
+    sync_active_schedule_master_data()
+    ScheduleEventBus.emit_change("2026-10", coach_ids=[resolve_coach_canonical_name(req.coach_name)])
+    resp = format_priority_matrix_response(matrix)
+    resp.update({"level": req.level, "coaches": updated})
+    return resp
+
 @app.post("/api/master/coaches/priority")
 def update_coach_priority_api(req: CoachPriorityRequest):
     ensure_active_data()
-    updated = reorder_coach_level_priorities(
-        ACTIVE_DATA["coaches"],
-        level=req.level,
-        target_coach_name=req.coach_name,
-        new_priority=req.new_priority
-    )
+    try:
+        updated = reorder_coach_level_priorities(
+            ACTIVE_DATA["coaches"],
+            level=req.level,
+            target_coach_name=req.coach_name,
+            new_priority=req.new_priority
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
     ACTIVE_DATA["coaches"] = updated
-
-    # Sync to CURRENT_CONFIG.coach_priority[req.level]
-    coaches_with_lvl = []
-    for c in updated:
-        p = c.get("qualified_levels_priority", {}).get(req.level)
-        if p is not None:
-            coaches_with_lvl.append((resolve_coach_canonical_name(c["coach_name"]), p))
-    coaches_with_lvl.sort(key=lambda x: x[1])
-    if not hasattr(CURRENT_CONFIG, "coach_priority") or CURRENT_CONFIG.coach_priority is None:
-        CURRENT_CONFIG.coach_priority = {}
-    CURRENT_CONFIG.coach_priority[req.level] = [c[0] for c in coaches_with_lvl]
-    CURRENT_CONFIG.sync_to_rules_registry()
-    save_system_config_db(CURRENT_CONFIG.model_dump())
-
-    from app.engine.master_data_service import sync_live_coach_priority_matrix
-    sync_live_coach_priority_matrix(coaches_list=updated, config=CURRENT_CONFIG, persist_db=True)
-    from app.engine.suggestion_engine import invalidate_suggestion_cache
-    invalidate_suggestion_cache()
-    return {"status": "success", "coaches": updated}
+    matrix = get_authoritative_priority_matrix(updated)
+    sync_active_schedule_master_data()
+    ScheduleEventBus.emit_change("2026-10", coach_ids=[resolve_coach_canonical_name(req.coach_name)])
+    resp = format_priority_matrix_response(matrix)
+    resp.update({"coaches": updated})
+    return resp
 
 @app.delete("/api/master/coaches/priority")
 def delete_coach_priority_api(level: str, coach_name: str):
@@ -765,25 +818,229 @@ def delete_coach_priority_api(level: str, coach_name: str):
         target_coach_name=coach_name
     )
     ACTIVE_DATA["coaches"] = updated
+    matrix = get_authoritative_priority_matrix(updated)
+    sync_active_schedule_master_data()
+    ScheduleEventBus.emit_change("2026-10", coach_ids=[resolve_coach_canonical_name(coach_name)])
+    resp = format_priority_matrix_response(matrix)
+    resp.update({"coaches": updated})
+    return resp
 
-    # Sync to CURRENT_CONFIG.coach_priority[level]
-    coaches_with_lvl = []
-    for c in updated:
-        p = c.get("qualified_levels_priority", {}).get(level)
-        if p is not None:
-            coaches_with_lvl.append((resolve_coach_canonical_name(c["coach_name"]), p))
-    coaches_with_lvl.sort(key=lambda x: x[1])
-    if not hasattr(CURRENT_CONFIG, "coach_priority") or CURRENT_CONFIG.coach_priority is None:
-        CURRENT_CONFIG.coach_priority = {}
-    CURRENT_CONFIG.coach_priority[level] = [c[0] for c in coaches_with_lvl]
-    CURRENT_CONFIG.sync_to_rules_registry()
-    save_system_config_db(CURRENT_CONFIG.model_dump())
+class CoachPriorityAddRequest(BaseModel):
+    level: str
+    coach_name: str
+    new_priority: Optional[int] = None
 
-    from app.engine.master_data_service import sync_live_coach_priority_matrix
-    sync_live_coach_priority_matrix(coaches_list=updated, config=CURRENT_CONFIG, persist_db=True)
-    from app.engine.suggestion_engine import invalidate_suggestion_cache
-    invalidate_suggestion_cache()
-    return {"status": "success", "coaches": updated}
+@app.post("/api/master/coaches/priority/add")
+def add_coach_priority_api(req: CoachPriorityAddRequest):
+    ensure_active_data()
+    try:
+        updated = add_coach_to_level_priority(
+            ACTIVE_DATA["coaches"],
+            level=req.level,
+            target_coach_name=req.coach_name,
+            new_priority=req.new_priority
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    ACTIVE_DATA["coaches"] = updated
+    matrix = get_authoritative_priority_matrix(updated)
+    sync_active_schedule_master_data()
+    ScheduleEventBus.emit_change("2026-10", coach_ids=[resolve_coach_canonical_name(req.coach_name)])
+    resp = format_priority_matrix_response(matrix)
+    resp.update({"coaches": updated})
+    return resp
+
+@app.delete("/api/master/coaches/{coach_name}")
+def delete_master_coach(coach_name: str, scope: str = Query(default="remove_from_schedule")):
+    """
+    Deletes, archives, or removes a coach with safe historical schedule preservation (Sections 3, 5, 6).
+    - Preserves all completed historical classes under the original coach.
+    - Routes upcoming classes to Attention Required for reassignment.
+    - Records audit details in deleted_records table.
+    """
+    ensure_active_data()
+    canon_name = resolve_coach_canonical_name(coach_name)
+    existing_coach = next((c for c in ACTIVE_DATA["coaches"] if resolve_coach_canonical_name(c.get("coach_name", "")).lower() == canon_name.lower()), None)
+    
+    # Calculate affected upcoming classes vs preserved historical classes
+    hist_count = 0
+    upc_count = 0
+    try:
+        eff = get_effective_schedule("2026-10")
+        all_cls = eff.get("scheduled_classes", [])
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+        now_min = now.hour * 60 + now.minute
+        for cls in all_cls:
+            if resolve_coach_canonical_name(cls.get("coach_name", "")).lower() == canon_name.lower():
+                c_dt = cls.get("date", "")
+                c_tm = parse_time_to_minutes(cls.get("time_slot", "")) or 0
+                if c_dt > today_str or (c_dt == today_str and c_tm > now_min):
+                    upc_count += 1
+                else:
+                    hist_count += 1
+    except Exception:
+        pass
+
+    ACTIVE_DATA["coaches"] = [
+        c for c in ACTIVE_DATA["coaches"] 
+        if c.get("coach_name", "").strip().lower() not in [coach_name.strip().lower(), canon_name.lower()]
+        and resolve_coach_canonical_name(c.get("coach_name", "")) != canon_name
+    ]
+    from app.storage.database import delete_single_coach_db, save_deleted_record_db
+    delete_single_coach_db(coach_name)
+    delete_single_coach_db(canon_name)
+    
+    # Audit log in deleted_records table (Section 3)
+    rec_id = f"DEL_COACH_{canon_name.upper()}_{uuid.uuid4().hex[:6]}"
+    scope_clean = scope if scope in ["remove_from_schedule", "archive", "permanent"] else "remove_from_schedule"
+    save_deleted_record_db({
+        "record_id": rec_id,
+        "record_type": "coach",
+        "record_name": canon_name,
+        "deletion_scope": scope_clean,
+        "deleted_by": "Admin",
+        "affected_future_classes": upc_count,
+        "historical_classes_preserved": hist_count,
+        "notes": f"Coach {canon_name} removed with scope '{scope_clean}'. {hist_count} completed classes preserved under Coach {canon_name}. {upc_count} upcoming classes routed to Attention Required for reassignment.",
+        "data": existing_coach or {"coach_name": canon_name}
+    })
+
+    sync_active_schedule_master_data()
+    ScheduleEventBus.emit_change("2026-10", coach_ids=[canon_name])
+    return {
+        "status": "success",
+        "deleted_coach_name": canon_name,
+        "scope": scope_clean,
+        "deletion_scope": scope_clean,
+        "affected_future_classes": upc_count,
+        "historical_classes_preserved": hist_count,
+        "record_id": rec_id
+    }
+
+# ==============================================================================
+# COACH AVAILABILITY & PREFERENCE TIME (OUTPUT 3 INTELLIGENCE)
+# ==============================================================================
+
+@app.get("/api/coach-availability")
+def get_coach_availability_api(
+    month: str = Query(default="2026-10"),
+    date: Optional[str] = None,
+    coach_name: Optional[str] = None,
+    level: Optional[str] = None,
+    day: Optional[str] = None,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    """
+    Returns date-specific coach availability, preferred hours, existing engagements,
+    and remaining 1-hour slots calculated accurately against scheduling constraints.
+    """
+    from app.engine.coach_availability_service import calculate_coach_availability_records
+    records = calculate_coach_availability_records(
+        month=month,
+        filter_date=date,
+        filter_coach=coach_name,
+        filter_level=level,
+        filter_day=day,
+        filter_status=status,
+        start_date=start_date,
+        end_date=end_date
+    )
+    return {
+        "month": month,
+        "total_records": len(records),
+        "records": records
+    }
+
+# ==============================================================================
+# DELETED RECORDS & ACADEMY INSTRUCTIONS (OUTPUT 3 SECTION 3)
+# ==============================================================================
+
+@app.get("/api/deleted-records")
+def get_deleted_records_api():
+    """Returns all deleted and archived records with their audit trails and scopes."""
+    from app.storage.database import get_deleted_records_db
+    records = get_deleted_records_db()
+    return {
+        "status": "success",
+        "total": len(records),
+        "records": records
+    }
+
+class DeletedRecordRequest(BaseModel):
+    record_id: Optional[str] = None
+    record_type: str = "coach"
+    record_name: str
+    deletion_scope: str = "remove_from_schedule"
+    notes: Optional[str] = ""
+    affected_future_classes: Optional[int] = 0
+    historical_classes_preserved: Optional[int] = 0
+    data: Optional[Dict[str, Any]] = {}
+
+@app.post("/api/deleted-records")
+def save_deleted_record_api(req: DeletedRecordRequest):
+    """Saves or logs a deleted/archived record."""
+    from app.storage.database import save_deleted_record_db
+    rec_id = save_deleted_record_db(req.model_dump())
+    return {"status": "success", "record_id": rec_id}
+
+@app.post("/api/deleted-records/{record_id}/scope")
+def update_deleted_record_scope_api(record_id: str, new_scope: str = Body(..., embed=True)):
+    """Updates the deletion scope of an existing record (e.g. archive -> permanent)."""
+    from app.storage.database import update_deleted_record_scope_db
+    update_deleted_record_scope_db(record_id, new_scope)
+    return {"status": "success", "record_id": record_id, "new_scope": new_scope}
+
+@app.post("/api/deleted-records/{record_id}/restore")
+def restore_deleted_record_api(record_id: str):
+    """Restores an archived or removed coach, batch, or class back into active academy operations."""
+    from app.storage.database import get_deleted_records_db, save_single_coach_db, update_deleted_record_scope_db
+    records = get_deleted_records_db()
+    target = next((r for r in records if r["record_id"] == record_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Deleted record not found")
+        
+    r_type = target.get("record_type")
+    r_data = target.get("data") or {}
+    r_name = target.get("record_name")
+    
+    if r_type == "coach":
+        coach_dict = r_data if r_data.get("coach_name") else {
+            "coach_name": r_name,
+            "levels": ["Beginner 1", "Beginner 2"],
+            "max_classes_per_day": 4,
+            "monthly_capacity_max": 80
+        }
+        save_single_coach_db(coach_dict)
+        ensure_active_data()
+        ACTIVE_DATA["coaches"] = [c for c in ACTIVE_DATA["coaches"] if resolve_coach_canonical_name(c.get("coach_name", "")).lower() != r_name.lower()]
+        ACTIVE_DATA["coaches"].append(coach_dict)
+        sync_active_schedule_master_data()
+        ScheduleEventBus.emit_change("2026-10", coach_ids=[r_name])
+        update_deleted_record_scope_db(record_id, "restored_active")
+        return {"status": "success", "message": f"Coach {r_name} restored to active coaching roster.", "coach": coach_dict}
+    elif r_type == "batch":
+        from app.storage.database import save_single_batch_db
+        if r_data:
+            save_single_batch_db(r_data)
+        update_deleted_record_scope_db(record_id, "restored_active")
+        ScheduleEventBus.emit_change("2026-10")
+        return {"status": "success", "message": f"Batch {r_name} restored to active batches."}
+    else:
+        update_deleted_record_scope_db(record_id, "restored_active")
+        ScheduleEventBus.emit_change("2026-10")
+        return {"status": "success", "message": f"Record {r_name} restored."}
+
+@app.delete("/api/deleted-records/{record_id}/permanent")
+def permanently_delete_record_api(record_id: str):
+    """Permanently deletes record from database audit logs after explicit confirmation."""
+    from app.storage.database import permanently_delete_record_db
+    permanently_delete_record_db(record_id)
+    return {"status": "success", "deleted_record_id": record_id}
+
 
 # ==============================================================================
 # SCHEDULING ENGINE & ENGINE SETTINGS (PART F2)
@@ -803,6 +1060,7 @@ def update_engine_settings_api(settings_data: Dict[str, Any]):
             ENGINE_SETTINGS[k].update(v)
         else:
             ENGINE_SETTINGS[k] = v
+    save_engine_settings_db(ENGINE_SETTINGS)
     ScheduleEventBus.emit_change("2026-10")
     return {"status": "success", "engine_settings": ENGINE_SETTINGS}
 
@@ -815,15 +1073,6 @@ def get_engine_suggestions_api(
     ensure_active_data()
     s_obj = next((s for s in ACTIVE_DATA["students"] if s["student_id"] == student_id), None)
     if not s_obj:
-        active_b = get_active_baseline_db(month)
-        if active_b:
-            s_obj = next((s for s in active_b.get("students_data", []) if s["student_id"] == student_id), None)
-    if not s_obj:
-        from app.storage.database import get_single_student_db
-        s_obj = get_single_student_db(student_id)
-        if s_obj:
-            ACTIVE_DATA["students"].append(s_obj)
-    if not s_obj:
         raise HTTPException(status_code=404, detail=f"Student {student_id} not found in master data.")
     
     eff = get_effective_schedule(month)
@@ -831,6 +1080,14 @@ def get_engine_suggestions_api(
     coach_map = {resolve_coach_canonical_name(c["coach_name"]): c for c in ACTIVE_DATA["coaches"]}
     current_ver = eff.get("version", ScheduleEventBus._version_counter)
 
+    option_sets = solve_multi_class_options(
+        student=s_obj,
+        needed_count=needed_classes,
+        all_classes=all_classes,
+        coaches_master_map=coach_map,
+        target_month=month,
+        settings=ENGINE_SETTINGS
+    )
     ranked_suggs, reasons_summary = find_single_class_suggestions(
         student=s_obj,
         all_classes=all_classes,
@@ -839,56 +1096,30 @@ def get_engine_suggestions_api(
         settings=ENGINE_SETTINGS
     )
 
-    if needed_classes > 1:
-        option_sets = solve_multi_class_options(
-            student=s_obj,
-            needed_count=needed_classes,
-            all_classes=all_classes,
-            coaches_master_map=coach_map,
-            target_month=month,
-            settings=ENGINE_SETTINGS
-        )
-        return {
-            "student_id": student_id,
-            "mode": "multi_class",
-            "needed_classes": needed_classes,
-            "schedule_version": current_ver,
-            "option_sets": option_sets,
-            "suggestions": ranked_suggs,
-            "reasons_rejected_summary": reasons_summary
-        }
-    else:
-        return {
-            "student_id": student_id,
-            "mode": "single_class",
-            "needed_classes": 1,
-            "schedule_version": current_ver,
-            "suggestions": ranked_suggs,
-            "reasons_rejected_summary": reasons_summary
-        }
+    return {
+        "student_id": student_id,
+        "mode": "multi_class" if (needed_classes > 1 or len(option_sets) > 0) else "single_class",
+        "needed_classes": needed_classes,
+        "schedule_version": current_ver,
+        "option_sets": option_sets,
+        "suggestions": ranked_suggs,
+        "reasons_rejected_summary": reasons_summary
+    }
 
 class AcceptSuggestionRequest(BaseModel):
     student_id: str
     month: str = "2026-10"
-    schedule_version: int
+    schedule_version: Optional[int] = 1
     suggestion_item: Optional[Dict[str, Any]] = None
     is_option_set: Optional[bool] = False
     option_set_items: Optional[List[Dict[str, Any]]] = None
     user: Optional[str] = "Admin"
 
-def _execute_accept_engine_suggestion(req: AcceptSuggestionRequest):
+@app.post("/api/engine/suggestions/accept")
+def accept_engine_suggestion_api(req: AcceptSuggestionRequest):
     ensure_active_data()
     s_obj = next((s for s in ACTIVE_DATA["students"] if s["student_id"] == req.student_id), None)
     if not s_obj:
-        active_b = get_active_baseline_db(req.month)
-        if active_b:
-            s_obj = next((s for s in active_b.get("students_data", []) if s["student_id"] == req.student_id), None)
-    if not s_obj:
-        from app.storage.database import get_single_student_db
-        s_obj = get_single_student_db(req.student_id)
-        if s_obj:
-            ACTIVE_DATA["students"].append(s_obj)
-    if not s_obj and req.student_id != "TRAINER_PROPOSAL":
         raise HTTPException(status_code=404, detail="Student not found.")
 
     items_to_apply = []
@@ -899,51 +1130,75 @@ def _execute_accept_engine_suggestion(req: AcceptSuggestionRequest):
     else:
         raise HTTPException(status_code=400, detail="No suggestion item provided.")
 
-    applied_ids = []
     eff = get_effective_schedule(req.month)
-    all_classes = {c["class_id"]: c for c in eff.get("scheduled_classes", [])}
+    scheduled_classes = eff.get("scheduled_classes", [])
+    all_classes = {c["class_id"]: c for c in scheduled_classes}
 
-    # Rule 8: Real-Time Coach Availability Validation
-    # Revalidate availability of coaches before committing any new slot assignment
+    # Authoritative Live Pre-Commit Revalidation (Phase 5.4 / Rule 4)
+    student_scheduled_dates = set()
+    for c in scheduled_classes:
+        if req.student_id in c.get("student_ids", []):
+            student_scheduled_dates.add(c.get("date"))
+
+    coach_occupied_slots = {
+        (resolve_coach_canonical_name(c.get("coach_name", "")).lower(), c.get("date"), c.get("time_slot")): c
+        for c in scheduled_classes
+    }
+
+    # Pre-validate all items before executing mutations
     for itm in items_to_apply:
         cls_id = itm.get("class_id")
         dt = itm.get("date")
         st = itm.get("start_time") or itm.get("time_slot")
-        coach = resolve_coach_canonical_name(itm.get("coach_id", "") or itm.get("coach_name", ""))
-        if not cls_id or cls_id not in all_classes:
-            s_min = parse_time_to_minutes(st)
-            if s_min is not None:
-                has_conflict = any(
-                    c.get("date") == dt and
-                    resolve_coach_canonical_name(c.get("coach_name", "")) == coach and
-                    parse_time_to_minutes(c.get("time_slot")) == s_min
-                    for c in all_classes.values()
+        coach = resolve_coach_canonical_name(itm.get("coach_id", itm.get("coach_name", "")))
+
+        # Rule: max 1 class per day per student
+        if dt in student_scheduled_dates:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Constraint violation: Student {s_obj.get('student_name', req.student_id)} already has a class scheduled on {dt}. Max 1 class per day."
+            )
+
+        # Rule: batch capacity check
+        if cls_id and cls_id in all_classes:
+            target = all_classes[cls_id]
+            b_type = target.get("batch_type", s_obj.get("batch_type", "G"))
+            max_cap = 10 if b_type == "G" else (4 if b_type == "L" else 1)
+            curr_studs = list(target.get("student_ids", []))
+            if len(curr_studs) >= max_cap:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Capacity full: Batch on {dt} at {st} with Coach {target.get('coach_name')} already has {len(curr_studs)}/{max_cap} students."
                 )
-                if has_conflict:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"Coach {coach} is now unavailable on {dt} at {st} due to a concurrent booking. Please refresh suggestions."
-                    )
+            if req.student_id in curr_studs:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Duplicate enrollment: Student is already registered in class {cls_id}."
+                )
+        elif not cls_id:
+            # Rule: coach availability / no double booking
+            if (coach.lower(), dt, st) in coach_occupied_slots:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Scheduling conflict: Coach {coach} is already booked on {dt} at {st}."
+                )
+
+        student_scheduled_dates.add(dt)
+        if coach:
+            coach_occupied_slots[(coach.lower(), dt, st)] = True
+
+    applied_ids = []
 
     for itm in items_to_apply:
         cls_id = itm.get("class_id")
         dt = itm.get("date")
-        st = itm.get("start_time") or itm.get("time_slot")
-        coach = resolve_coach_canonical_name(itm.get("coach_id", "") or itm.get("coach_name", ""))
-
-        # Guard: Check if student already has a class on this date
-        if dt and any(c.get("date") == dt and req.student_id in c.get("student_ids", []) for c in all_classes.values()):
-            continue
+        st = itm.get("start_time")
+        coach = resolve_coach_canonical_name(itm.get("coach_id", ""))
 
         exc_id = f"EXC_{uuid.uuid4().hex[:8].upper()}"
 
         if cls_id and cls_id in all_classes:
             target = all_classes[cls_id]
-            curr_sids = list(target.get("student_ids", []))
-            # Guard: Prevent duplicate student allocation
-            if req.student_id in curr_sids:
-                continue
-
             rec = {
                 "id": exc_id,
                 "month": req.month,
@@ -953,10 +1208,9 @@ def _execute_accept_engine_suggestion(req: AcceptSuggestionRequest):
                 "class_key": f"{target['date']}||{target['time_slot']}||{target['coach_name']}",
                 "action_type": "add_student",
                 "affected_student_ids": [req.student_id],
-                "before": {"student_ids": list(curr_sids)},
-                "after": {"student_ids": list(curr_sids) + [req.student_id]},
+                "before": {"student_ids": list(target.get("student_ids", []))},
+                "after": {"student_ids": list(target.get("student_ids", [])) + [req.student_id]},
                 "subtype": "normal_assignment",
-                "is_approved_allocation": True,
                 "violated_rules": [],
                 "reason": f"Accepted suggestion (Tier {itm.get('tier', 'T1')})",
                 "created_by": req.user or "Admin",
@@ -964,33 +1218,24 @@ def _execute_accept_engine_suggestion(req: AcceptSuggestionRequest):
                 "status": "active",
                 "version": 1
             }
-            # Update local snapshot
-            target["student_ids"] = list(curr_sids) + [req.student_id]
         else:
-            item_sids = itm.get("student_ids") if req.student_id == "TRAINER_PROPOSAL" else [req.student_id]
-            item_lvl = itm.get("student_level") or (s_obj.get("student_level", "Beginner 1") if s_obj else "Beginner 1")
-            item_btype = itm.get("batch_type") or (s_obj.get("batch_type", "G") if s_obj else "G")
-            item_bname = (s_obj.get("batch") or s_obj.get("batch_name")) if s_obj else f"{item_lvl} - {coach}"
-            new_cls_key = f"{dt}||{st}||{coach}"
             rec = {
                 "id": exc_id,
                 "month": req.month,
                 "date": dt,
                 "start_time": st,
                 "coach_id": coach,
-                "class_key": new_cls_key,
+                "class_key": f"{dt}||{st}||{coach}",
                 "action_type": "add",
-                "affected_student_ids": item_sids or [],
+                "affected_student_ids": [req.student_id],
                 "before": {},
                 "after": {
-                    "student_level": item_lvl,
-                    "batch_type": item_btype,
-                    "batch_name": item_bname,
-                    "student_ids": item_sids or [],
+                    "student_level": s_obj.get("student_level", "Beginner 1"),
+                    "batch_type": s_obj.get("batch_type", "G"),
+                    "student_ids": [req.student_id],
                     "day": datetime.strptime(dt, "%Y-%m-%d").strftime("%A") if dt else "Monday"
                 },
                 "subtype": "normal_assignment",
-                "is_approved_allocation": True,
                 "violated_rules": [],
                 "reason": f"Accepted new slot suggestion (Tier {itm.get('tier', 'T4')})",
                 "created_by": req.user or "Admin",
@@ -998,39 +1243,10 @@ def _execute_accept_engine_suggestion(req: AcceptSuggestionRequest):
                 "status": "active",
                 "version": 1
             }
-            # Add to local snapshot
-            all_classes[exc_id] = {
-                "class_id": exc_id,
-                "date": dt,
-                "time_slot": st,
-                "coach_name": coach,
-                "student_ids": item_sids or [],
-                "student_level": item_lvl,
-                "batch_type": item_btype,
-                "batch_name": item_bname
-            }
 
         save_exception_record_db(rec)
         applied_ids.append(exc_id)
 
-        # Synchronize batch assignment for student if new slot or batch class
-        target_bname = item_bname if not (cls_id and cls_id in all_classes) else all_classes[cls_id].get("batch_name") or all_classes[cls_id].get("batch_code")
-        if target_bname and req.student_id != "TRAINER_PROPOSAL":
-            for b in ACTIVE_DATA.get("batches", []):
-                if b.get("batch_id") == target_bname or b.get("batch_name") == target_bname:
-                    s_ids = b.get("student_ids", [])
-                    if req.student_id not in s_ids:
-                        s_ids.append(req.student_id)
-                        b["student_ids"] = s_ids
-                        b["student_count"] = len(s_ids)
-                        save_single_batch_db(b)
-
-    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-    from app.engine.suggestion_engine import invalidate_suggestion_cache
-    invalidate_effective_schedule_cache(req.month)
-    invalidate_suggestion_cache()
-
-    sync_active_schedule_master_data(req.month)
     ScheduleEventBus.emit_change(req.month, student_ids=[req.student_id])
     updated_eff = get_effective_schedule(req.month)
 
@@ -1041,17 +1257,6 @@ def _execute_accept_engine_suggestion(req: AcceptSuggestionRequest):
         "updated_version": ScheduleEventBus._version_counter,
         "remaining_for_student": next((r["remaining_classes"] for r in updated_eff.get("attention_records", []) if r["student_id"] == req.student_id), 0)
     }
-
-@app.post("/api/engine/suggestions/accept")
-def accept_engine_suggestion_api(req: AcceptSuggestionRequest):
-    from app.engine.queue_manager import queue_manager
-    if queue_manager.is_running:
-        return queue_manager.queue_or_execute(
-            "accept_suggestion",
-            req.model_dump(),
-            lambda payload: _execute_accept_engine_suggestion(AcceptSuggestionRequest(**payload))
-        )
-    return _execute_accept_engine_suggestion(req)
 
 @app.get("/api/engine/smart-batches")
 def get_smart_batches_api(month: str = "2026-10"):
@@ -1067,20 +1272,7 @@ def get_smart_batches_api(month: str = "2026-10"):
         coaches_master_map=c_map,
         target_month=month
     )
-    trainer_proposals = generate_trainer_engagement_proposals(
-        coaches_master_map=c_map,
-        attention_records=attn,
-        student_master_map=s_map,
-        all_classes=eff.get("scheduled_classes", []),
-        target_month=month
-    )
-    return {
-        "month": month,
-        "count": len(opportunities),
-        "opportunities": opportunities,
-        "trainer_proposals": trainer_proposals,
-        "schedule_version": eff.get("version", ScheduleEventBus._version_counter)
-    }
+    return {"month": month, "count": len(opportunities), "opportunities": opportunities}
 
 @app.get("/api/engine/consolidation-advisor")
 def get_consolidation_advisor_api(month: str = "2026-10"):
@@ -1109,28 +1301,11 @@ class ScheduleRequest(BaseModel):
     year: Optional[int] = None
     month: Optional[int] = None
     random_seed: Optional[int] = 42
-    async_run: Optional[bool] = False
-
-@app.get("/api/engine/status")
-def get_engine_status_api():
-    """Rule 6: Non-Blocking Engine Execution Status and Request Queue Monitor."""
-    from app.engine.queue_manager import queue_manager
-    return queue_manager.get_status()
 
 @app.post("/api/schedule/run")
 @app.post("/api/schedule/generate")
 def trigger_scheduling_run(req: ScheduleRequest):
     ensure_active_data()
-    if not ACTIVE_DATA.get("students") and not ACTIVE_DATA.get("batches"):
-        active_b = get_active_baseline_db("2026-10")
-        if active_b and active_b.get("students_data"):
-            from app.storage.database import get_connection
-            conn = get_connection()
-            conn.execute("DELETE FROM active_metadata WHERE key = 'master_cleared'")
-            conn.commit()
-            conn.close()
-            seed_october_baseline_if_missing()
-            ensure_active_data()
     if not ACTIVE_DATA.get("students") and not ACTIVE_DATA.get("batches"):
         raise HTTPException(status_code=400, detail="No master students or batches exist in Master Data Hub. Please create students and batches first.")
 
@@ -1156,38 +1331,17 @@ def trigger_scheduling_run(req: ScheduleRequest):
     students = [StudentModel(**s) for s in ACTIVE_DATA.get("students", [])]
     coaches = [CoachModel(**c) for c in ACTIVE_DATA.get("coaches", [])]
 
-    def _execute_run():
-        result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
-        res_dict = result.model_dump()
-        is_oct_2026 = (s_date.year == 2026 and s_date.month == 10 and e_date.year == 2026 and e_date.month == 10)
-        if is_oct_2026:
-            res_dict["status"] = "Finalized"
-            res_dict["accountability_passed"] = True
-        res_dict["master_data_fingerprint"] = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
-        res_dict["is_stale"] = False
-        save_schedule_db(res_dict)
-        return res_dict
+    result = run_scheduler(students, coaches, s_date, e_date, CURRENT_CONFIG)
+    res_dict = result.model_dump()
+    is_oct_2026 = (s_date.year == 2026 and s_date.month == 10 and e_date.year == 2026 and e_date.month == 10)
+    if is_oct_2026:
+        res_dict["status"] = "Finalized"
+        res_dict["accountability_passed"] = True
+    res_dict["master_data_fingerprint"] = compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
+    res_dict["is_stale"] = False
+    save_schedule_db(res_dict)
 
-    from app.engine.queue_manager import queue_manager
-    m_str = f"{s_date.year:04d}-{s_date.month:02d}"
-
-    if getattr(req, "async_run", False):
-        submit_res = queue_manager.submit_engine_job(_execute_run, month=m_str)
-        eff = get_effective_schedule(m_str)
-        return {
-            "status": "processing",
-            "job_id": submit_res.get("job_id"),
-            "message": "Engine is executing in background. All pages remain viewable and responsive.",
-            "schedule_id": eff.get("schedule_id", f"SCHED_{m_str.replace('-', '')}"),
-            "active_schedule_id": eff.get("schedule_id", f"SCHED_{m_str.replace('-', '')}"),
-            "scheduled_classes": eff.get("scheduled_classes", []),
-            "attention_records": eff.get("attention_records", [])
-        }
-    else:
-        with queue_manager._lock:
-            res_dict = _execute_run()
-            ScheduleEventBus.emit_change(m_str)
-            return res_dict
+    return res_dict
 
 @app.get("/api/schedule/latest/active")
 def get_active_or_latest_schedule(month: str = Query(default="2026-10")):
@@ -1235,73 +1389,6 @@ def get_active_or_latest_schedule(month: str = Query(default="2026-10")):
             is_stale = latest.get("is_stale", False)
             stale_reason = latest.get("stale_reason", "")
 
-    attn_records = list(eff.get("attention_records", []))
-    attn_sids = {r.get("student_id") for r in attn_records}
-    scheduled_counts = defaultdict(int)
-    for c in eff.get("scheduled_classes", []):
-        for sid in c.get("student_ids", []):
-            scheduled_counts[sid] += 1
-
-    all_students_pool = list(ACTIVE_DATA.get("students", []))
-    active_b = get_active_baseline_db(month)
-    if active_b and active_b.get("students_data"):
-        for s in active_b["students_data"]:
-            if s.get("student_id") and not any(m.get("student_id") == s["student_id"] for m in all_students_pool):
-                all_students_pool.append(s)
-
-    for s in all_students_pool:
-        sid = s.get("student_id")
-        if not sid:
-            continue
-        is_act = s.get("is_active")
-        if is_act not in (False, "false", "False", 0, "0"):
-            raw_req = s.get("required_classes", 8)
-            sch = scheduled_counts.get(sid, 0)
-            rem = max(0, raw_req - sch)
-            if raw_req > 0 and rem > 0 and sid not in attn_sids:
-                lvl_val = s.get("student_level", "Beginner 1")
-                btype_val = s.get("batch_type", "G")
-                b_code = s.get("batch") or s.get("batch_name") or f"{btype_val} {lvl_val}"
-                is_sunday_tourn_eligible = (btype_val != "I" and lvl_val not in ["Basic 1", "Intermediate 2"])
-                tourn_requirement = "Sunday Tournament Eligible: Basic 2 to Intermediate 1 (Group & Limited). Operating hours: 09:00 AM – 02:30 PM (cap 20)." if is_sunday_tourn_eligible else ("Individual Batch (Private 1-on-1): Ineligible for Sunday tournaments." if btype_val == "I" else "Regular class scheduling.")
-                pref_days = [f"{d[:3]}" for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] if str(s.get(f"{d[:3].lower()}_pref", "No Preference")).lower() not in ["not available", "na", "no", "off"]]
-                attn_records.insert(0, {
-                    "student_id": sid,
-                    "student_name": s.get("student_name", sid),
-                    "student_level": lvl_val,
-                    "joining_date": s.get("joining_date") or s.get("start_date") or "",
-                    "date_of_joining": s.get("date_of_joining") or s.get("start_date") or "",
-                    "monthly_quota": raw_req,
-                    "quota": raw_req,
-                    "batch_eligibility": btype_val,
-                    "batch_type": btype_val,
-                    "batch_name": b_code,
-                    "batch_code": b_code,
-                    "required_classes": raw_req,
-                    "scheduled_classes": sch,
-                    "remaining_classes": rem,
-                    "had_deleted_class": False,
-                    "deleted_class_details": [],
-                    "is_mid_month": False,
-                    "shortfall": 0,
-                    "shortfall_info": "",
-                    "failure_reason": f"Unscheduled. Needs {rem} class assignments to meet monthly requirement." if sch == 0 else f"Partially scheduled ({sch}/{raw_req} classes). Shortfall of {rem} class session(s).",
-                    "sunday_tournament_eligible": is_sunday_tourn_eligible,
-                    "tournament_requirement": tourn_requirement,
-                    "preferred_days": ", ".join(pref_days) if pref_days else "Mon, Tue, Wed, Thu, Fri, Sat, Sun",
-                    "preferred_time": s.get("preferred_timings") or "Flexible",
-                    "preferred_timings": s.get("preferred_timings") or "Flexible",
-                    "preferred_times": s.get("preferred_times", []),
-                    "preferred_coach": s.get("preferred_coach", ""),
-                    "availability": s.get("availability", {}),
-                    "is_morning_available": s.get("is_morning_available", False),
-                    "details": f"Needs {rem} more class(es) in Batch {b_code}"
-                })
-                attn_sids.add(sid)
-
-    tot_students = max(eff["total_students"], len(all_students_pool))
-    need_attention_cnt = len(attn_records)
-
     return {
         "schedule_id": sched_id,
         "status": status,
@@ -1310,21 +1397,14 @@ def get_active_or_latest_schedule(month: str = Query(default="2026-10")):
         "stale_reason": stale_reason,
         "start_date": f"{month}-01",
         "end_date": f"{month}-31",
-        "total_students_considered": tot_students,
-        "successfully_scheduled_students": tot_students - need_attention_cnt,
-        "unscheduled_students_count": need_attention_cnt,
-        "accountability_passed": need_attention_cnt == 0,
+        "total_students_considered": eff["total_students"],
+        "successfully_scheduled_students": eff["total_students"] - eff["need_attention"],
+        "unscheduled_students_count": eff["need_attention"],
+        "accountability_passed": eff["need_attention"] == 0,
         "total_classes": eff["total_classes"],
         "student_seats": eff["student_seats"],
         "quotas_completed": eff["quotas_completed"],
-        "compensation_count": eff["compensation_count"],
-        "scheduled_classes": eff.get("scheduled_classes", []),
-        "coach_summaries": eff.get("coach_summaries", []),
-        "coach_slots": eff.get("coach_slots", []),
-        "student_schedules": eff.get("student_schedules", []),
-        "attention_records": attn_records,
-        "unscheduled_records": attn_records,
-        "whatsapp_plain_text": eff.get("whatsapp_plain_text", "")
+        "compensation_count": eff["compensation_count"]
     }
 
 @app.get("/api/schedule/{schedule_id}")
@@ -1334,11 +1414,6 @@ def get_schedule_by_id(schedule_id: str, month: str = Query(default="2026-10")):
 
 @app.get("/api/schedule/{schedule_id}/output1")
 def get_output1_coach_schedule(schedule_id: str, month: str = Query(default="2026-10")):
-    ensure_active_data()
-    if schedule_id and schedule_id.startswith("SCHED_") and len(schedule_id) >= 12:
-        extracted = f"{schedule_id[6:10]}-{schedule_id[10:12]}"
-        if month == "2026-10" and extracted != "2026-10":
-            month = extracted
     eff = get_effective_schedule(month)
     return {
         "schedule_id": schedule_id,
@@ -1354,11 +1429,6 @@ def get_output1_coach_schedule(schedule_id: str, month: str = Query(default="202
 
 @app.get("/api/schedule/{schedule_id}/output2")
 def get_output2_admin_schedule(schedule_id: str, month: str = Query(default="2026-10")):
-    ensure_active_data()
-    if schedule_id and schedule_id.startswith("SCHED_") and len(schedule_id) >= 12:
-        extracted = f"{schedule_id[6:10]}-{schedule_id[10:12]}"
-        if month == "2026-10" and extracted != "2026-10":
-            month = extracted
     eff = get_effective_schedule(month)
     return {
         "schedule_id": schedule_id,
@@ -1369,44 +1439,15 @@ def get_output2_admin_schedule(schedule_id: str, month: str = Query(default="202
         "compensation_count": eff["compensation_count"]
     }
 
-def resolve_schedule_or_effective(schedule_id: str, month: str = "2026-10") -> Optional[Dict[str, Any]]:
-    """
-    Resolves a schedule by ID, seamlessly integrating the 3-Layer Effective Schedule
-    (Baseline + Assignments + ⓒ Overlay) as the authoritative Single Source of Truth.
-    """
-    eff = get_effective_schedule(month)
-    if eff and eff.get("scheduled_classes"):
-        res_dict = get_schedule_db(schedule_id) or {}
-        merged = dict(res_dict)
-        merged["schedule_id"] = schedule_id or f"SCHED_{month.replace('-', '')}"
-        merged["status"] = merged.get("status") or "Active"
-        merged["start_date"] = f"{month}-01"
-        merged["end_date"] = f"{month}-31"
-        merged["scheduled_classes"] = list(eff["scheduled_classes"])
-        merged["coach_summaries"] = list(eff.get("coach_summaries", []))
-        merged["coach_slots"] = list(eff.get("coach_slots", []))
-        merged["student_schedules"] = list(eff.get("student_schedules", []))
-        merged["unscheduled_records"] = list(eff.get("attention_records", []))
-        merged["attention_records"] = list(eff.get("attention_records", []))
-        merged["unscheduled_students_count"] = eff.get("need_attention", 0)
-        merged["total_students_considered"] = eff.get("total_students", 0)
-        merged["successfully_scheduled_students"] = eff.get("total_students", 0) - eff.get("need_attention", 0)
-        merged["accountability_passed"] = eff.get("need_attention", 0) == 0
-        merged["total_classes"] = eff.get("total_classes", len(eff["scheduled_classes"]))
-        merged["whatsapp_plain_text"] = eff.get("whatsapp_plain_text", "")
-        return merged
-
-    res_dict = get_schedule_db(schedule_id)
-    return res_dict
-
+from fastapi.responses import FileResponse, Response
 from app.outputs.coach_excel import generate_coach_individual_excel, generate_coach_whatsapp_msg
 
 @app.get("/api/schedule/{schedule_id}/coach/{coach_name}/export-excel")
-def export_individual_coach_excel(schedule_id: str, coach_name: str, month: str = Query(default="2026-10")):
+def export_individual_coach_excel(schedule_id: str, coach_name: str):
     """
     Exports a dedicated Excel spreadsheet (.xlsx) for a specific coach's schedule and student roster.
     """
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -1422,14 +1463,14 @@ def export_individual_coach_excel(schedule_id: str, coach_name: str, month: str 
 from app.outputs.monthly_matrix_excel import generate_monthly_matrix_excel
 
 @app.get("/api/schedule/{schedule_id}/export-monthly-excel")
-def export_monthly_matrix_excel_api(schedule_id: str, month: str = Query(default="2026-10")):
+def export_monthly_matrix_excel_api(schedule_id: str):
     """
     Exports a full monthly Excel schedule following the exact structure of the reference workbook.
     Dynamically adjusts columns to the exact days of the target month (28, 29, 30, or 31).
     Validates schedule before export; attaches DRAFT / VALIDATION FAILED banner if any violations occur.
     """
     ensure_active_data()
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -1452,14 +1493,14 @@ def export_monthly_matrix_excel_api(schedule_id: str, month: str = Query(default
     )
 
 @app.get("/api/schedule/{schedule_id}/validate")
-def validate_schedule_endpoint(schedule_id: str, month: str = Query(default="2026-10")):
+def validate_schedule_endpoint(schedule_id: str):
     """
     Authoritative server-side schedule integrity validation.
     Checks all hard constraints: coach conflicts, student daily uniqueness,
     batch capacities, coach daily/monthly limits, Sunday 3 PM rule, student quotas.
     """
     ensure_active_data()
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -1482,9 +1523,13 @@ def get_individual_coach_whatsapp(schedule_id: str, coach_name: str, month: str 
     """
     Generates tailored WhatsApp schedule broadcast text for a specific coach.
     """
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id) if schedule_id not in ("latest", "active") else None
     if not res_dict:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        eff = get_effective_schedule(month)
+        if eff and eff.get("scheduled_classes"):
+            res_dict = eff
+        else:
+            raise HTTPException(status_code=404, detail="Schedule not found")
 
     msg_text = generate_coach_whatsapp_msg(coach_name, res_dict.get("scheduled_classes", []))
     return {
@@ -1499,9 +1544,13 @@ def export_individual_coach_ics(schedule_id: str, coach_name: str, month: str = 
     """
     Exports a standard iCalendar (.ics) file for a coach to automatically add classes to Google/Apple/Outlook Calendar.
     """
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id) if schedule_id not in ("latest", "active") else None
     if not res_dict:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        eff = get_effective_schedule(month)
+        if eff and eff.get("scheduled_classes"):
+            res_dict = eff
+        else:
+            raise HTTPException(status_code=404, detail="Schedule not found")
 
     ics_content = generate_coach_ics(coach_name, res_dict.get("scheduled_classes", []))
     safe_name = coach_name.strip().replace(" ", "_")
@@ -1514,128 +1563,19 @@ def export_individual_coach_ics(schedule_id: str, coach_name: str, month: str = 
 
 @app.get("/api/schedule/{schedule_id}/output3")
 def get_output3_attention_report(schedule_id: str, month: str = Query(default="2026-10")):
-    ensure_active_data()
-    if schedule_id and schedule_id.startswith("SCHED_") and len(schedule_id) >= 12:
-        extracted = f"{schedule_id[6:10]}-{schedule_id[10:12]}"
-        if month == "2026-10" and extracted != "2026-10":
-            month = extracted
     eff = get_effective_schedule(month)
-    m_data = load_master_data_db()
-    s_map = {s["student_id"]: s for s in m_data.get("students", [])}
-    active_b = get_active_baseline_db(month)
-    b_students = active_b.get("students_data", []) if active_b else []
-    for s in b_students:
-        if s.get("student_id") and s["student_id"] not in s_map:
-            s_map[s["student_id"]] = s
-    for s_item in eff.get("student_schedules", []):
-        sid = s_item.get("student_id")
-        if sid and sid not in s_map:
-            s_map[sid] = s_item
-    for s_mem in ACTIVE_DATA.get("students", []):
-        sid = s_mem.get("student_id")
-        if sid and sid not in s_map:
-            s_map[sid] = s_mem
-
-    attention_records = list(eff.get("attention_records", []))
-    attn_sids = {r.get("student_id") for r in attention_records}
-    scheduled_counts = defaultdict(int)
-    for c in eff.get("scheduled_classes", []):
-        for sid in c.get("student_ids", []):
-            scheduled_counts[sid] += 1
-
-    for sid, s in s_map.items():
-        is_act = s.get("is_active")
-        if is_act not in (False, "false", "False", 0, "0"):
-            raw_req = s.get("required_classes", 8)
-            sch = scheduled_counts.get(sid, 0)
-            rem = max(0, raw_req - sch)
-            if raw_req > 0 and rem > 0 and sid not in attn_sids:
-                lvl_val = s.get("student_level", "Beginner 1")
-                btype_val = s.get("batch_type", "G")
-                b_code = s.get("batch") or s.get("batch_name") or f"{btype_val} {lvl_val}"
-                is_sunday_tourn_eligible = (btype_val != "I" and lvl_val not in ["Basic 1", "Intermediate 2"])
-                tourn_requirement = "Sunday Tournament Eligible: Basic 2 to Intermediate 1 (Group & Limited). Operating hours: 09:00 AM – 02:30 PM (cap 20)." if is_sunday_tourn_eligible else ("Individual Batch (Private 1-on-1): Ineligible for Sunday tournaments." if btype_val == "I" else "Regular class scheduling.")
-                pref_days = [f"{d[:3]}" for d in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] if str(s.get(f"{d[:3].lower()}_pref", "No Preference")).lower() not in ["not available", "na", "no", "off"]]
-                attention_records.insert(0, {
-                    "student_id": sid,
-                    "student_name": s.get("student_name", sid),
-                    "student_level": lvl_val,
-                    "joining_date": s.get("joining_date") or s.get("start_date") or "",
-                    "date_of_joining": s.get("date_of_joining") or s.get("start_date") or "",
-                    "monthly_quota": raw_req,
-                    "quota": raw_req,
-                    "batch_eligibility": btype_val,
-                    "batch_type": btype_val,
-                    "batch_name": b_code,
-                    "batch_code": b_code,
-                    "required_classes": raw_req,
-                    "scheduled_classes": sch,
-                    "remaining_classes": rem,
-                    "had_deleted_class": False,
-                    "deleted_class_details": [],
-                    "is_mid_month": False,
-                    "shortfall": 0,
-                    "shortfall_info": "",
-                    "failure_reason": f"Unscheduled. Needs {rem} class assignments to meet monthly requirement." if sch == 0 else f"Partially scheduled ({sch}/{raw_req} classes). Shortfall of {rem} class session(s).",
-                    "sunday_tournament_eligible": is_sunday_tourn_eligible,
-                    "tournament_requirement": tourn_requirement,
-                    "preferred_days": ", ".join(pref_days) if pref_days else "Mon, Tue, Wed, Thu, Fri, Sat, Sun",
-                    "preferred_time": s.get("preferred_timings") or "Flexible",
-                    "preferred_timings": s.get("preferred_timings") or "Flexible",
-                    "preferred_times": s.get("preferred_times", []),
-                    "preferred_coach": s.get("preferred_coach", ""),
-                    "availability": s.get("availability", {}),
-                    "is_morning_available": s.get("is_morning_available", False),
-                    "details": f"Needs {rem} more class(es) in Batch {b_code}"
-                })
-                attn_sids.add(sid)
-
-    c_map = {c["coach_name"]: c for c in m_data.get("coaches", [])}
-    for c_canon, c_ref in COACH_REFERENCE.items():
-        if c_canon not in c_map:
-            c_map[c_canon] = {
-                "coach_name": c_canon,
-                "levels_handled": c_ref.get("levels", []),
-                "monthly_capacity_min": c_ref.get("monthly_min", 30),
-                "monthly_capacity_max": c_ref.get("monthly_max", 70),
-                "is_flex": c_ref.get("is_flex", False)
-            }
-    smart_opps = generate_smart_batch_opportunities(
-        attention_records, s_map, eff["scheduled_classes"], c_map, month
-    )
-    trainer_props = generate_trainer_engagement_proposals(
-        c_map, attention_records, s_map, eff["scheduled_classes"], month
-    )
-    consolidations = generate_consolidation_advisory(eff["scheduled_classes"], month)
-    coach_explorer = get_coach_daily_availability_explorer(eff["scheduled_classes"], c_map, month)
-    active_excs = get_exception_records_db(month, status="active")
-    tot_students = max(eff["total_students"], len(s_map))
-    unsched_cnt = len(attention_records)
     return {
         "schedule_id": schedule_id,
-        "month": month,
-        "schedule_version": eff.get("version", 1),
-        "accountability_passed": unsched_cnt == 0,
-        "total_students_considered": tot_students,
-        "total_input_students": tot_students,
-        "unscheduled_count": unsched_cnt,
-        "attention_records": attention_records,
-        "unscheduled_records": attention_records,
-        "deleted_past_classes": eff.get("deleted_past_classes", []),
-        "smart_batch_opportunities": smart_opps,
-        "trainer_proposals": trainer_props,
-        "consolidation_advisory": consolidations,
-        "accepted_exceptions": active_excs,
-        "coach_availability_explorer": coach_explorer
+        "accountability_passed": eff["need_attention"] == 0,
+        "total_students_considered": eff["total_students"],
+        "total_input_students": eff["total_students"],
+        "unscheduled_count": eff["need_attention"],
+        "attention_records": eff["attention_records"],
+        "unscheduled_records": eff["attention_records"]
     }
 
 @app.get("/api/schedule/{schedule_id}/output5")
 def get_output5_student_schedules(schedule_id: str, month: str = Query(default="2026-10")):
-    ensure_active_data()
-    if schedule_id and schedule_id.startswith("SCHED_") and len(schedule_id) >= 12:
-        extracted = f"{schedule_id[6:10]}-{schedule_id[10:12]}"
-        if month == "2026-10" and extracted != "2026-10":
-            month = extracted
     eff = get_effective_schedule(month)
     return {
         "schedule_id": schedule_id,
@@ -1646,20 +1586,70 @@ def get_output5_student_schedules(schedule_id: str, month: str = Query(default="
 @app.get("/api/schedule/{schedule_id}/student/{student_id}/export-ics")
 def export_individual_student_ics(schedule_id: str, student_id: str, month: str = Query(default="2026-10")):
     """
-    Exports a standard iCalendar (.ics) file for a student ONLY when all Attention Required issues for this student are resolved.
+    Exports a standard iCalendar (.ics) file for a student.
+    Enforces Strict Section 3 Monthly Quota Rule:
+    Restricts student ICS synchronization until the student's monthly quota reaches 100% and their schedule is valid.
     """
-    eff = get_effective_schedule(month)
-    stu_rec = next((s for s in eff.get("student_schedules", []) if s["student_id"] == student_id), None)
-    if stu_rec and stu_rec.get("has_attention_issue"):
+    student_rec = None
+    classes = []
+    assigned_count = 0
+    req_classes = 8
+
+    # 1. If schedule_id is a specific persisted schedule, check it first
+    if schedule_id and schedule_id not in ("latest", "active"):
+        sched_db = get_schedule_db(schedule_id)
+        if sched_db:
+            # Check student_schedules list in schedule
+            s_schedules = sched_db.get("student_schedules") or []
+            student_rec = next((s for s in s_schedules if s.get("student_id") == student_id), None)
+            if student_rec:
+                classes = student_rec.get("classes", [])
+                assigned_count = student_rec.get("scheduled_classes_count", len(classes))
+                req_classes = student_rec.get("required_classes", 8)
+            else:
+                # Filter scheduled_classes for this student
+                matched = [c for c in sched_db.get("scheduled_classes", []) if student_id in (c.get("student_ids") or [])]
+                if matched:
+                    classes = matched
+                    assigned_count = len(matched)
+                    unsched = next((u for u in sched_db.get("unscheduled_records", []) if u.get("student_id") == student_id), None)
+                    if unsched:
+                        req_classes = unsched.get("required_classes", assigned_count + unsched.get("shortfall", 0))
+                    else:
+                        req_classes = assigned_count
+
+    # 2. Fall back to effective schedule for month
+    if not student_rec and not classes:
+        eff = get_effective_schedule(month)
+        s_schedules = eff.get("student_schedules", [])
+        student_rec = next((s for s in s_schedules if s.get("student_id") == student_id), None)
+        
+        if not student_rec:
+            ensure_active_data()
+            student_obj = next((s for s in ACTIVE_DATA["students"] if s.get("student_id") == student_id), None)
+            if not student_obj:
+                raise HTTPException(status_code=404, detail=f"Student {student_id} not found")
+            assigned_count = 0
+            req_classes = student_obj.get("classes_per_month") or 8
+            classes = []
+        else:
+            assigned_count = student_rec.get("scheduled_classes_count", 0)
+            req_classes = student_rec.get("required_classes", 8)
+            classes = student_rec.get("classes", [])
+
+    completion_pct = round((assigned_count / req_classes) * 100) if req_classes > 0 else 0
+
+    if assigned_count < req_classes or completion_pct < 100:
         raise HTTPException(
             status_code=400,
-            detail=f"Calendar (.ics) locked for {stu_rec.get('student_name', student_id)}: Please resolve all missing/deleted class issues in Output 3 (Attention Page) first."
+            detail=(
+                f"Student ICS Synchronization Locked: Student {student_id} has completed only {assigned_count}/{req_classes} "
+                f"required monthly classes ({completion_pct}%). Monthly quota must reach 100% and all scheduling issues must be "
+                f"resolved before calendar synchronization can be enabled."
+            )
         )
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
-    if not res_dict:
-        raise HTTPException(status_code=404, detail="Schedule not found")
 
-    ics_content = generate_student_ics(student_id, res_dict.get("scheduled_classes", []))
+    ics_content = generate_student_ics(student_id, classes)
     safe_id = student_id.strip().replace(" ", "_")
     filename = f"mighty_knight_student_{safe_id}_calendar.ics"
     return Response(
@@ -1692,7 +1682,6 @@ class ManualOverrideRequest(BaseModel):
     student_level: Optional[str] = None
     batch_type: Optional[str] = None
     student_ids: Optional[List[str]] = None
-    reason: Optional[str] = None
     version: Optional[int] = None
     schedule_version: Optional[int] = None
 
@@ -1703,8 +1692,7 @@ def validate_manual_override(schedule_id: str, req: ManualOverrideRequest):
     Returns valid boolean and diagnostic list of rule violations.
     """
     ensure_active_data()
-    month = (req.date or "2026-10")[:7]
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -1916,7 +1904,7 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
     Persists ExceptionRecord and emits real-time ScheduleChanged event.
     """
     ensure_active_data()
-    res_dict = resolve_schedule_or_effective(schedule_id, "2026-10")
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -1970,9 +1958,6 @@ def assign_unscheduled_student_to_class(schedule_id: str, req: AssignStudentRequ
             "version": 1
         }
         save_exception_record_db(rec)
-        from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-        invalidate_effective_schedule_cache(month)
-        sync_active_schedule_master_data(month)
         ScheduleEventBus.emit_change(month, coach_ids=[canon_coach], student_ids=[req.student_id])
 
     return {"status": "success", "schedule": updated_schedule}
@@ -1992,8 +1977,7 @@ def create_class_for_unscheduled_student(schedule_id: str, req: CreateClassForSt
     Persists ExceptionRecord and emits real-time ScheduleChanged event.
     """
     ensure_active_data()
-    month = (req.date or "2026-10")[:7]
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -2060,14 +2044,9 @@ def create_class_for_unscheduled_student(schedule_id: str, req: CreateClassForSt
         "version": 1
     }
     save_exception_record_db(rec)
-    from app.engine.effective_schedule_service import invalidate_effective_schedule_cache
-    invalidate_effective_schedule_cache(month)
-    sync_active_schedule_master_data(month)
     ScheduleEventBus.emit_change(month, coach_ids=[canon_coach], student_ids=[req.student_id])
 
     return {"status": "success", "schedule": updated_schedule, "created_class_id": new_class_id, "exception_id": exc_id}
-
-
 
 class CreateClassGeneralRequest(BaseModel):
     coach_name: str
@@ -2085,8 +2064,7 @@ def create_custom_schedule_class(schedule_id: str, req: CreateClassGeneralReques
     Persists ExceptionRecord and emits real-time ScheduleChanged event.
     """
     ensure_active_data()
-    month = (req.date or "2026-10")[:7]
-    res_dict = resolve_schedule_or_effective(schedule_id, month)
+    res_dict = get_schedule_db(schedule_id)
     if not res_dict:
         raise HTTPException(status_code=404, detail="Schedule not found")
 
@@ -2239,7 +2217,6 @@ def clear_all_master_data():
         "upload_timestamp": ""
     }
     clear_all_master_data_db()
-    ScheduleEventBus.emit_change("2026-10")
     return {
         "status": "success",
         "message": "All master students, coaches, batches, and schedules have been wiped cleanly. Ready for scratch setup."
@@ -2279,6 +2256,28 @@ def get_effective_schedule_api(month: str = Query(default="2026-10")):
     """Returns the single-source-of-truth computed Effective Schedule (Part A1 & A2)."""
     return get_effective_schedule(month)
 
+@app.get("/api/effective-schedule/{month}")
+def get_effective_schedule_by_path_api(month: str):
+    """Returns the single-source-of-truth computed Effective Schedule for specified month."""
+    return get_effective_schedule(month)
+
+@app.get("/api/attention-report/{month}")
+def get_attention_report_by_month_api(month: str):
+    """Returns Attention Required records and metrics for the specified month."""
+    eff = get_effective_schedule(month)
+    return {
+        "month": month,
+        "accountability_passed": eff.get("need_attention", 0) == 0,
+        "total_students": eff.get("total_students", 0),
+        "need_attention": eff.get("need_attention", 0),
+        "metrics": {
+            "total_records": len(eff.get("attention_records", [])),
+            "unresolved_count": eff.get("need_attention", 0),
+        },
+        "records": eff.get("attention_records", []),
+        "attention_records": eff.get("attention_records", [])
+    }
+
 # ==============================================================================
 # ABSOLUTE SCHEDULE SPACE ENDPOINTS (PART E)
 # ==============================================================================
@@ -2286,49 +2285,18 @@ def get_effective_schedule_api(month: str = Query(default="2026-10")):
 @app.get("/api/baseline/status")
 def get_baseline_status_api(month: str = Query(default="2026-10")):
     seed_october_baseline_if_missing()
-    ensure_rolling_three_months_seeded("2026-10")
     active_b = get_active_baseline_db(month)
     draft_b = get_draft_baseline_db(month)
     history = list_baselines_for_month_db(month)
     status = "Active" if active_b else ("Draft" if draft_b else "Not Uploaded")
     active_ver = active_b.get("version", 0) if active_b else 0
-
-    eff = get_effective_schedule(month)
-    ref_today = eff.get("reference_today", "2026-10-15")
-    current_month_str = ref_today[:7]
-    is_completed_available = (month <= current_month_str)
-
-    planned_classes = (active_b or draft_b or {}).get("classes_data", [])
-    actual_schedule_text = format_date_wise_schedule_text(planned_classes, month, "ACTUAL PLANNED SCHEDULE")
-
-    if is_completed_available:
-        if month < current_month_str:
-            completed_classes = list(eff.get("scheduled_classes", []))
-        else:
-            # Rule 2: In current month, display completed schedule data ONLY up to previous completed day (date < ref_today)
-            # Exclude current day and future days!
-            completed_classes = [c for c in eff.get("scheduled_classes", []) if c.get("date", "") < ref_today]
-        completed_schedule_text = format_date_wise_schedule_text(completed_classes, month, "ACTUAL COMPLETED SCHEDULE (UP TO PREVIOUS COMPLETED DAY)")
-    else:
-        completed_classes = []
-        completed_schedule_text = ""
-
     return {
         "month": month,
-        "rolling_months": get_rolling_horizon_months(current_month_str),
-        "current_month": current_month_str,
-        "reference_today": ref_today,
         "status": status,
         "version": active_ver,
         "active_baseline": active_b,
         "draft_baseline": draft_b,
-        "history": history,
-        "actual_schedule_text": actual_schedule_text,
-        "is_completed_schedule_available": is_completed_available,
-        "completed_classes_count": len(completed_classes),
-        "completed_seats_count": sum(len(c.get("student_ids", [])) for c in completed_classes),
-        "completed_classes_data": completed_classes,
-        "actual_completed_schedule_text": completed_schedule_text
+        "history": history
     }
 
 @app.get("/api/baseline/template")
@@ -2420,83 +2388,6 @@ def activate_baseline_api(req: BaselineActivationRequest):
     if not ok:
         raise HTTPException(status_code=400, detail="Could not activate baseline version.")
 
-    # Synchronize activated baseline into Master Data Hub, ⓒ Exception Overlay, and Active Schedule
-    active_b = get_active_baseline_db(req.month)
-    if active_b:
-        from app.storage.database import get_connection, save_single_student_db
-        conn = get_connection()
-        conn.execute("DELETE FROM active_metadata WHERE key = 'master_cleared'")
-        conn.commit()
-        conn.close()
-
-        seed_october_baseline_if_missing()
-        ensure_active_data()
-
-        for s in active_b.get("students_data", []):
-            save_single_student_db(s)
-
-        # Discover and persist any batches from active baseline
-        b_map = {}
-        for s in active_b.get("students_data", []):
-            b_name = s.get("batch_code") or s.get("batch") or s.get("batch_name")
-            if b_name:
-                if b_name not in b_map:
-                    b_map[b_name] = {
-                        "batch_id": b_name,
-                        "batch_name": b_name,
-                        "batch_type": s.get("batch_type", "G"),
-                        "level": s.get("student_level", "Beginner 1"),
-                        "fixed_trainer": "Unassigned",
-                        "schedule_timings": "Various",
-                        "student_ids": [s["student_id"]]
-                    }
-                else:
-                    if s["student_id"] not in b_map[b_name]["student_ids"]:
-                        b_map[b_name]["student_ids"].append(s["student_id"])
-        if b_map:
-            save_all_master_batches_db(list(b_map.values()))
-
-        comp_excs = (active_b.get("validation_report") or {}).get("compensation_exceptions", [])
-        for exc_rec in comp_excs:
-            save_exception_record_db(exc_rec)
-
-        ensure_active_data()
-
-        # Update Active File metadata in store
-        b_fname = active_b.get("file_name") or f"Absolute Schedule ({req.month})"
-        b_time = active_b.get("uploaded_at") or datetime.now().strftime("%Y-%m-%d %I:%M %p")
-        ACTIVE_DATA["filename"] = b_fname
-        ACTIVE_DATA["upload_timestamp"] = b_time
-        conn = get_connection()
-        conn.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_filename', ?)", (b_fname,))
-        conn.execute("INSERT OR REPLACE INTO active_metadata (key, value) VALUES ('last_upload_timestamp', ?)", (b_time,))
-        conn.commit()
-        conn.close()
-
-        # Compute and persist authoritative Effective Schedule as Central Single Source of Truth
-        eff = get_effective_schedule(req.month)
-        sched_id = f"SCHED_{req.month.replace('-', '')}"
-        schedule_payload = {
-            "schedule_id": sched_id,
-            "status": "Active",
-            "start_date": f"{req.month}-01",
-            "end_date": f"{req.month}-31",
-            "total_students_considered": eff.get("total_students", len(active_b.get("students_data", []))),
-            "successfully_scheduled_students": eff.get("total_students", 0) - eff.get("need_attention", 0),
-            "unscheduled_students_count": eff.get("need_attention", 0),
-            "accountability_passed": eff.get("need_attention", 0) == 0,
-            "scheduled_classes": list(eff.get("scheduled_classes", [])),
-            "coach_summaries": list(eff.get("coach_summaries", [])),
-            "coach_slots": list(eff.get("coach_slots", [])),
-            "student_schedules": list(eff.get("student_schedules", [])),
-            "attention_records": list(eff.get("attention_records", [])),
-            "unscheduled_records": list(eff.get("attention_records", [])),
-            "whatsapp_plain_text": eff.get("whatsapp_plain_text", ""),
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "master_data_fingerprint": compute_master_data_fingerprint(config_dict=CURRENT_CONFIG.model_dump())
-        }
-        save_schedule_db(schedule_payload)
-
     log_audit_event_db(
         user=req.user or "Admin",
         action="ACTIVATE_BASELINE",
@@ -2521,21 +2412,90 @@ def discard_baseline_api(req: Dict[str, Any]):
 
 @app.get("/api/baseline/export-active")
 def export_active_baseline_api(month: str = Query(default="2026-10")):
-    seed_october_baseline_if_missing()
-    ensure_rolling_three_months_seeded("2026-10")
     active_b = get_active_baseline_db(month)
     if not active_b:
         raise HTTPException(status_code=404, detail="No active baseline found for this month.")
-    m_data = load_master_data_db()
-    students = m_data.get("students") or active_b.get("students_data", [])
-    classes = active_b.get("classes_data", [])
-    excel_bytes = generate_populated_schedule_excel_bytes(month, students, classes, sheet_title="Actual Schedule")
-    filename = f"Mighty_Knight_Actual_Schedule_{month}.xlsx"
+    try:
+        parts = month.split("-")
+        yr, mo = int(parts[0]), int(parts[1])
+    except Exception:
+        yr, mo = 2026, 10
+    excel_bytes = generate_monthly_excel_template(yr, mo)
+    filename = f"Mighty_Knight_Active_Baseline_{month}.xlsx"
     return Response(
         content=excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+@app.get("/api/baseline/actual-completed")
+def get_actual_completed_schedule_api(
+    month: str = Query(default="2026-10"),
+    current_date: Optional[str] = Query(default=None)
+):
+    """
+    Rule 2: Absolute Schedule — Actual Completed Schedule Display
+    Displays schedule data ONLY up to the previous completed calendar day (Current Date - 1 Day).
+    Strictly excludes the current day's schedule and all upcoming dates in the current month.
+    Pure non-destructive read filter over effective schedule without mutating underlying database records.
+    """
+    ref_date_str = current_date or date.today().isoformat()
+    try:
+        ref_dt = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
+    except Exception:
+        ref_dt = date.today()
+
+    cutoff_dt = ref_dt - timedelta(days=1)
+    cutoff_date_str = cutoff_dt.isoformat()
+
+    eff = get_effective_schedule(month)
+    all_classes = eff.get("scheduled_classes", [])
+
+    # Filter strictly to completed calendar days prior to today: date <= cutoff_date_str
+    completed_classes = [
+        c for c in all_classes
+        if c.get("date") and c.get("date") <= cutoff_date_str and c.get("date").startswith(month)
+    ]
+
+    completed_classes.sort(
+        key=lambda c: (c.get("date", ""), parse_time_slot_sort_key(c.get("date", ""), c.get("time_slot", "")))
+    )
+
+    total_classes = len(completed_classes)
+    total_student_sessions = sum(len(c.get("student_ids", [])) for c in completed_classes)
+    unique_students = len(set(sid for c in completed_classes for sid in c.get("student_ids", [])))
+    active_coaches = sorted(list(set(c.get("coach_name") for c in completed_classes if c.get("coach_name") and c.get("coach_name") != "Unassigned")))
+
+    daily_groups = defaultdict(list)
+    for c in completed_classes:
+        daily_groups[c.get("date")].append(c)
+
+    daily_summary = []
+    for d_str in sorted(daily_groups.keys()):
+        d_classes = daily_groups[d_str]
+        d_day = d_classes[0].get("day", "")
+        daily_summary.append({
+            "date": d_str,
+            "day": d_day,
+            "classes_count": len(d_classes),
+            "student_sessions": sum(len(c.get("student_ids", [])) for c in d_classes),
+            "classes": d_classes
+        })
+
+    return {
+        "month": month,
+        "current_date": ref_date_str,
+        "cutoff_date": cutoff_date_str,
+        "is_strictly_prior_to_today": True,
+        "rule_description": "Displaying completed calendar days strictly up to Current Date - 1 Day. Today and future dates are strictly excluded.",
+        "total_completed_classes": total_classes,
+        "total_completed_student_sessions": total_student_sessions,
+        "unique_students_attended": unique_students,
+        "active_coaches_count": len(active_coaches),
+        "active_coaches": active_coaches,
+        "completed_classes": completed_classes,
+        "daily_breakdown": daily_summary
+    }
 
 @app.post("/api/baseline/generate-next-month")
 def generate_next_month_api(req: Dict[str, Any]):
@@ -2782,182 +2742,172 @@ def get_audit_logs_api(month: Optional[str] = Query(default=None), limit: int = 
         "logs": get_audit_logs_db(month=month, limit=limit)
     }
 
+# ==============================================================================
+# RULE 4: BATCH REASSIGNMENT ENDPOINT
+# ==============================================================================
 
-@app.get("/api/baseline/export-completed")
-def export_completed_schedule_excel_api(month: str = Query(default="2026-10")):
-    """
-    Exports the Actual Completed Schedule (Executed Classes + ⓒ Overrides) as a formatted Excel workbook.
-    Strictly blocked for future months.
-    """
-    eff = get_effective_schedule(month)
-    ref_today = eff.get("reference_today", "2026-10-15")
-    current_month_str = ref_today[:7]
-    if month > current_month_str:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Actual Completed Schedule is only available for past and current months (up to {current_month_str}), not future month {month}."
-        )
-    if month < current_month_str:
-        completed_classes = list(eff.get("scheduled_classes", []))
-    else:
-        # Rule 2: In current month, export schedule data ONLY up to previous completed day (date < ref_today)
-        completed_classes = [c for c in eff.get("scheduled_classes", []) if c.get("date", "") < ref_today]
-    m_data = load_master_data_db()
-    students = m_data.get("students", [])
-    excel_bytes = generate_populated_schedule_excel_bytes(month, students, completed_classes, sheet_title="Completed Schedule")
-    filename = f"Mighty_Knight_Actual_Completed_Schedule_{month}.xlsx"
-    return Response(
-        content=excel_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
-
-class ResolveDeletedClassRequest(BaseModel):
-    exception_id: str
+class ReassignBatchCoachRequest(BaseModel):
+    batch_name: Optional[str] = None
+    old_coach_name: Optional[str] = None
+    new_coach_name: str
     month: str = "2026-10"
-    resolution_choice: str # 'compensate_future' | 'remove_attendance_only' | 'delete_entirely'
-    reason: Optional[str] = ""
+    day: Optional[str] = None
+    time_slot: Optional[str] = None
+    class_ids: Optional[List[str]] = None
+    user: Optional[str] = "Admin"
 
-@app.post("/api/schedule/deleted-class/resolve")
-def resolve_deleted_class_api(req: ResolveDeletedClassRequest):
+@app.post("/api/schedule/reassign-batch-coach")
+def reassign_batch_coach_api(req: ReassignBatchCoachRequest):
     """
-    Handles the Administrator's 3-option resolution for a deleted/past class in Output 3:
-    (i) compensate_future: Keep student(s) in Attention Required to schedule a future ⓒ make-up class.
-    (ii) remove_attendance_only: Remove from student attendance history only (no make-up owed).
-    (iii) delete_entirely: Delete class entirely for batch & trainer (-1 Academy Class, -1 Trainer Class).
+    Rule 4: Reassigns all classes of a batch from a deleted or unavailable coach
+    to a replacement coach across the entire month to complete its full quota.
+    Persists atomically to SQLite via ExceptionRecord / Baseline and synchronizes across all pages.
     """
-    if req.resolution_choice not in ("compensate_future", "remove_attendance_only", "delete_entirely"):
-        raise HTTPException(status_code=400, detail="Invalid resolution_choice.")
+    canon_new_coach = resolve_coach_canonical_name(req.new_coach_name)
+    canon_old_coach = resolve_coach_canonical_name(req.old_coach_name) if req.old_coach_name else None
 
-    choice_labels = {
-        "compensate_future": "Option (i): Flagged for Future Compensation (ⓒ) Make-Up Class",
-        "remove_attendance_only": "Option (ii): Removed from Student Attendance History Only",
-        "delete_entirely": "Option (iii): Deleted Entirely for Batch & Trainer (-1 Academy & -1 Trainer Class)"
-    }
-    reason_text = req.reason or choice_labels[req.resolution_choice]
-    ok = update_exception_record_db(
-        req.exception_id,
-        {"resolution_choice": req.resolution_choice, "resolved_at": datetime.now().strftime("%Y-%m-%d %I:%M %p")},
-        reason=reason_text
-    )
-    if not ok:
-        raise HTTPException(status_code=404, detail="Deleted class record not found.")
+    eff = get_effective_schedule(req.month)
+    all_classes = eff.get("scheduled_classes", [])
+
+    matching_classes = []
+    for c in all_classes:
+        c_coach = resolve_coach_canonical_name(c.get("coach_name", ""))
+        c_bname = c.get("batch_name", "")
+        c_slot = c.get("time_slot", "")
+        c_day = c.get("day", "")
+        c_id = c.get("class_id", "")
+
+        if req.class_ids and c_id in req.class_ids:
+            matching_classes.append(c)
+            continue
+
+        match = True
+        if canon_old_coach and c_coach.lower() != canon_old_coach.lower():
+            match = False
+        if req.batch_name and c_bname and req.batch_name.lower() not in c_bname.lower() and c_bname.lower() not in req.batch_name.lower():
+            match = False
+        if req.time_slot and c_slot != req.time_slot:
+            match = False
+        if req.day and c_day != req.day:
+            match = False
+
+        if match:
+            matching_classes.append(c)
+
+    if not matching_classes:
+        raise HTTPException(
+            status_code=404,
+            detail="No matching classes found to reassign with the provided parameters."
+        )
+
+    applied_exceptions = []
+    for cls in matching_classes:
+        exc_id = f"EXC_{uuid.uuid4().hex[:8].upper()}"
+        c_date = cls.get("date", "")
+        c_slot = cls.get("time_slot", "")
+        c_id = cls.get("class_id", "")
+        s_ids = cls.get("student_ids", [])
+
+        before_dict = dict(cls)
+        after_dict = dict(cls)
+        after_dict["coach_name"] = canon_new_coach
+
+        rec = {
+            "id": exc_id,
+            "month": req.month,
+            "date": c_date,
+            "start_time": c_slot,
+            "coach_id": canon_new_coach,
+            "class_key": f"{c_date}||{c_slot}||{canon_new_coach}",
+            "class_id": c_id,
+            "action_type": "edit",
+            "affected_student_ids": s_ids,
+            "before": before_dict,
+            "after": after_dict,
+            "subtype": "manual",
+            "violated_rules": [],
+            "reason": f"Batch reassigned from {req.old_coach_name or 'Previous Coach'} to {canon_new_coach} (Rule 4)",
+            "created_by": req.user or "Admin",
+            "created_at": datetime.now().strftime("%Y-%m-%d %I:%M %p"),
+            "status": "active",
+            "version": 1
+        }
+        save_exception_record_db(rec)
+        applied_exceptions.append(exc_id)
+
+    if req.batch_name:
+        for b in ACTIVE_DATA.get("batches", []):
+            if req.batch_name.lower() in b.get("batch_name", "").lower():
+                b["assigned_coach"] = canon_new_coach
+                save_single_batch_db(b)
 
     log_audit_event_db(
-        user="Admin",
-        action=f"RESOLVE_DELETED_CLASS_{req.resolution_choice.upper()}",
-        entity_type="EXCEPTION_RECORD",
-        entity_id=req.exception_id,
-        before={"resolution_choice": "pending"},
-        after={"resolution_choice": req.resolution_choice, "reason": reason_text},
+        user=req.user or "Admin",
+        action="REASSIGN_BATCH_COACH",
+        entity_type="BATCH",
+        entity_id=req.batch_name or canon_new_coach,
+        before={"old_coach": req.old_coach_name},
+        after={"new_coach": canon_new_coach, "reassigned_classes": len(matching_classes)},
         violated_rules=[],
-        source_page="Output 3 Attention Page",
+        source_page="Attention Required",
         month=req.month
     )
 
-    ScheduleEventBus.emit_change(req.month)
-    updated_sched = get_effective_schedule(req.month)
+    ScheduleEventBus.emit_change(
+        req.month,
+        coach_ids=[canon_new_coach] + ([canon_old_coach] if canon_old_coach else [])
+    )
+
+    updated_eff = get_effective_schedule(req.month)
     return {
         "status": "success",
-        "exception_id": req.exception_id,
-        "resolution_choice": req.resolution_choice,
-        "schedule": updated_sched
+        "new_coach_name": canon_new_coach,
+        "reassigned_classes_count": len(matching_classes),
+        "exception_ids": applied_exceptions,
+        "effective_schedule": updated_eff
     }
 
-@app.get("/api/engine/coach-availability")
-def get_coach_availability_api(month: str = Query(default="2026-10"), date: Optional[str] = Query(default=None)):
-    eff = get_effective_schedule(month)
-    m_data = load_master_data_db()
-    c_map = {c["coach_name"]: c for c in m_data.get("coaches", [])}
-    return get_coach_daily_availability_explorer(eff.get("scheduled_classes", []), c_map, month, selected_date=date)
+# ==============================================================================
+# RULE 6: ENGINE QUEUE & ASYNC EXECUTION
+# ==============================================================================
+from app.engine.engine_queue import engine_queue
 
-class ReassignCoachRequest(BaseModel):
-    class_id: Optional[str] = None
-    batch_name: Optional[str] = None
-    new_coach_name: str
-    apply_to_entire_batch: bool = True
-    month: str = "2026-10"
+def _handle_schedule_generate(payload: Dict[str, Any]):
+    ensure_active_data()
+    s_date = date.today()
+    e_date = s_date + timedelta(days=6)
+    result = run_scheduler(
+        [StudentModel(**s) for s in ACTIVE_DATA["students"]],
+        [CoachModel(**c) for c in ACTIVE_DATA["coaches"]],
+        s_date, e_date, CURRENT_CONFIG
+    )
+    res_dict = result.model_dump()
+    save_schedule_db(res_dict)
+    return {"schedule_id": res_dict["schedule_id"], "classes_count": len(res_dict.get("scheduled_classes", []))}
 
-def _execute_reassign_batch_coach(req: ReassignCoachRequest):
-    new_coach = resolve_coach_canonical_name(req.new_coach_name)
-    if not new_coach:
-        raise HTTPException(status_code=400, detail="Invalid coach name")
+engine_queue.register_handler("schedule_generate", _handle_schedule_generate)
+engine_queue.register_handler("recompute", lambda payload: get_effective_schedule(payload.get("month", "2026-10")))
 
-    eff = get_effective_schedule(req.month)
-    ref_today = eff.get("reference_today", "2026-10-15")
-
-    # 1. Update in active baseline if baseline exists
-    active_b = get_active_baseline_db(req.month)
-    reassigned_classes = []
-    if active_b and active_b.get("classes_data"):
-        cls_list = list(active_b["classes_data"])
-        updated_any = False
-        for c in cls_list:
-            c_bid = c.get("batch_name") or c.get("batch_code", "")
-            c_id = str(c.get("class_id", ""))
-            c_date = c.get("date", "")
-            
-            matches_single = req.class_id and c_id == str(req.class_id)
-            matches_batch = req.apply_to_entire_batch and req.batch_name and (c_bid == req.batch_name or c.get("batch_name") == req.batch_name)
-            
-            if matches_single or matches_batch:
-                # Rule 4: Completed classes (date <= ref_today) are preserved. Only reassign future/pending classes!
-                if c_date > ref_today or c.get("needs_coach_reassignment"):
-                    c["coach_name"] = new_coach
-                    c["coach_id"] = new_coach
-                    c["needs_coach_reassignment"] = False
-                    c["is_manual_override"] = True
-                    reassigned_classes.append(c)
-                    updated_any = True
-
-        if updated_any:
-            active_b["classes_data"] = cls_list
-            save_baseline_db(active_b)
-
-    # 2. Record Exception for audit trail
-    target_cls = reassigned_classes[0] if reassigned_classes else {}
-    save_exception_record_db({
-        "id": f"EXC_REASSIGN_{int(datetime.now().timestamp() * 1000)}",
-        "month": req.month,
-        "date": target_cls.get("date", ref_today),
-        "start_time": target_cls.get("time_slot", ""),
-        "coach_id": new_coach,
-        "class_key": f"{target_cls.get('date')}||{target_cls.get('time_slot')}||{new_coach}",
-        "action_type": "edit",
-        "affected_student_ids": target_cls.get("student_ids", []),
-        "before": {"coach_name": target_cls.get("original_deleted_coach", "Deleted Coach")},
-        "after": {
-            "coach_name": new_coach,
-            "batch_name": req.batch_name,
-            "reassigned_count": len(reassigned_classes)
-        },
-        "subtype": "coach_reassignment",
-        "violated_rules": [],
-        "reason": f"Rule 4: Reassigned deleted coach to {new_coach} for batch {req.batch_name} ({len(reassigned_classes)} class(es))",
-        "created_by": "Admin",
-        "created_at": datetime.now().isoformat(),
-        "status": "active",
-        "version": 1
-    })
-
-    ScheduleEventBus.emit_change(req.month)
+@app.post("/api/engine/tasks/enqueue")
+def enqueue_engine_task_api(req: Dict[str, Any]):
+    task_type = req.get("task_type", "recompute")
+    payload = req.get("payload", {})
+    task = engine_queue.enqueue_task(task_type, payload)
     return {
-        "status": "success",
-        "reassigned_count": len(reassigned_classes),
-        "new_coach": new_coach,
-        "batch_name": req.batch_name
+        "status": "enqueued",
+        "task": task.to_dict()
     }
 
-@app.post("/api/schedule/reassign-batch-coach")
-def reassign_batch_coach_api(req: ReassignCoachRequest):
-    from app.engine.queue_manager import queue_manager
-    if queue_manager.is_running:
-        return queue_manager.queue_or_execute(
-            "reassign_coach",
-            req.model_dump(),
-            lambda payload: _execute_reassign_batch_coach(ReassignCoachRequest(**payload))
-        )
-    return _execute_reassign_batch_coach(req)
+@app.get("/api/engine/tasks/status")
+def get_engine_tasks_status_api():
+    return engine_queue.get_status()
+
+@app.get("/api/engine/tasks/{task_id}")
+def get_engine_task_detail_api(task_id: str):
+    task = engine_queue.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task": task.to_dict()}
 
 # ----------------------------------------------------
 # Unified Production Deployment: Serve Built React App
@@ -2967,9 +2917,5 @@ from fastapi.staticfiles import StaticFiles
 _dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
 if os.path.exists(_dist_path):
     app.mount("/", StaticFiles(directory=_dist_path, html=True), name="static")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
 
 

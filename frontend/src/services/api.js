@@ -1,23 +1,9 @@
 import axios from 'axios';
-import { getCustomStudentsLocal } from '../utils/storageSync';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-});
-
-api.interceptors.request.use((config) => {
-  try {
-    const local = getCustomStudentsLocal();
-    if (local && local.length > 0) {
-      const jsonStr = JSON.stringify(local.slice(0, 15));
-      if (jsonStr.length < 5000) {
-        config.headers['X-Custom-Students'] = encodeURIComponent(jsonStr);
-      }
-    }
-  } catch (e) {}
-  return config;
 });
 
 export const getHealth = async () => {
@@ -46,37 +32,31 @@ export const uploadExcel = async (file) => {
   return res.data;
 };
 
-export const runSchedule = async (startDate, endDate, asyncRun = false) => {
+export const runSchedule = async (startDate, endDate) => {
   const res = await api.post('/schedule/run', {
     start_date: startDate,
     end_date: endDate,
-    async_run: asyncRun,
   });
   return res.data;
 };
 
-export const getEngineStatus = async () => {
-  const res = await api.get('/engine/status');
+export const getOutput1 = async (scheduleId) => {
+  const res = await api.get(`/schedule/${scheduleId}/output1`);
   return res.data;
 };
 
-export const getOutput1 = async (scheduleId, month = '2026-10') => {
-  const res = await api.get(`/schedule/${scheduleId}/output1?month=${encodeURIComponent(month)}`);
+export const getOutput2 = async (scheduleId) => {
+  const res = await api.get(`/schedule/${scheduleId}/output2`);
   return res.data;
 };
 
-export const getOutput2 = async (scheduleId, month = '2026-10') => {
-  const res = await api.get(`/schedule/${scheduleId}/output2?month=${encodeURIComponent(month)}`);
+export const getOutput3 = async (scheduleId) => {
+  const res = await api.get(`/schedule/${scheduleId}/output3`);
   return res.data;
 };
 
-export const getOutput3 = async (scheduleId, month = '2026-10') => {
-  const res = await api.get(`/schedule/${scheduleId}/output3?month=${encodeURIComponent(month)}`);
-  return res.data;
-};
-
-export const getOutput5 = async (scheduleId, month = '2026-10') => {
-  const res = await api.get(`/schedule/${scheduleId}/output5?month=${encodeURIComponent(month)}`);
+export const getOutput5 = async (scheduleId) => {
+  const res = await api.get(`/schedule/${scheduleId}/output5`);
   return res.data;
 };
 
@@ -96,47 +76,16 @@ export const applyManualEdit = async (scheduleId, editData) => {
 };
 
 export const assignStudentToClass = async (scheduleId, studentId, classId) => {
-  try {
-    const res = await api.post(`/schedule/${scheduleId}/assign-student`, {
-      student_id: studentId,
-      class_id: classId
-    });
-    return res.data;
-  } catch (err) {
-    if (err?.response?.status === 404 && studentId) {
-      const local = getCustomStudentsLocal().find(s => s.student_id === studentId);
-      if (local) {
-        try {
-          await saveMasterStudent(local);
-          const retryRes = await api.post(`/schedule/${scheduleId}/assign-student`, {
-            student_id: studentId,
-            class_id: classId
-          });
-          return retryRes.data;
-        } catch (rErr) {}
-      }
-    }
-    throw err;
-  }
+  const res = await api.post(`/schedule/${scheduleId}/assign-student`, {
+    student_id: studentId,
+    class_id: classId
+  });
+  return res.data;
 };
 
 export const createClassForStudent = async (scheduleId, classData) => {
-  try {
-    const res = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
-    return res.data;
-  } catch (err) {
-    if (err?.response?.status === 404 && classData?.student_id) {
-      const local = getCustomStudentsLocal().find(s => s.student_id === classData.student_id);
-      if (local) {
-        try {
-          await saveMasterStudent(local);
-          const retryRes = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
-          return retryRes.data;
-        } catch (rErr) {}
-      }
-    }
-    throw err;
-  }
+  const res = await api.post(`/schedule/${scheduleId}/create-class-for-student`, classData);
+  return res.data;
 };
 
 export const deleteClass = async (scheduleId, classId) => {
@@ -199,13 +148,8 @@ export const saveMasterStudent = async (studentData) => {
   return res.data;
 };
 
-export const syncMasterStudentsBulk = async (studentsList) => {
-  const res = await api.post('/master/students/sync', { students: studentsList });
-  return res.data;
-};
-
-export const deleteMasterStudent = async (studentId) => {
-  const res = await api.delete(`/master/students/${studentId}`);
+export const deleteMasterStudent = async (studentId, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/students/${studentId}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -214,8 +158,8 @@ export const saveMasterCoach = async (coachData) => {
   return res.data;
 };
 
-export const deleteMasterCoach = async (coachName) => {
-  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}`);
+export const deleteMasterCoach = async (coachName, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -224,8 +168,8 @@ export const getDataSummary = async () => {
   return res.data;
 };
 
-export const getActiveSchedule = async (month = '2026-10') => {
-  const res = await api.get(`/schedule/latest/active?month=${encodeURIComponent(month)}`);
+export const getActiveSchedule = async () => {
+  const res = await api.get('/schedule/latest/active');
   return res.data;
 };
 
@@ -239,8 +183,8 @@ export const saveMasterBatch = async (batchData) => {
   return res.data;
 };
 
-export const deleteMasterBatch = async (batchId) => {
-  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}`);
+export const deleteMasterBatch = async (batchId, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -368,6 +312,20 @@ export const changeStudentLevel = async (studentId, newLevel, reason = '', month
   return res.data;
 };
 
+export const getCoachPriorityMatrix = async () => {
+  const res = await api.get('/master/coaches/priority-matrix');
+  return res.data;
+};
+
+export const moveCoachPriority = async (level, coachName, direction) => {
+  const res = await api.post('/master/coaches/priority/move', {
+    level,
+    coach_name: coachName,
+    direction
+  });
+  return res.data;
+};
+
 export const updateCoachPriority = async (level, coachName, newPriority) => {
   const res = await api.post('/master/coaches/priority', {
     level,
@@ -382,6 +340,15 @@ export const deleteCoachPriority = async (level, coachName) => {
   return res.data;
 };
 
+export const addCoachToPriority = async (level, coachName, newPriority = null) => {
+  const res = await api.post('/master/coaches/priority/add', {
+    level,
+    coach_name: coachName,
+    new_priority: newPriority
+  });
+  return res.data;
+};
+
 export const getEngineSettings = async () => {
   const res = await api.get('/engine/settings');
   return res.data;
@@ -393,45 +360,13 @@ export const updateEngineSettings = async (settingsData) => {
 };
 
 export const getEngineSuggestions = async (studentId, neededClasses = 1, month = '2026-10') => {
-  try {
-    const res = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
-    return res.data;
-  } catch (err) {
-    if (err?.response?.status === 404 || err?.response?.status === 500) {
-      const local = getCustomStudentsLocal().find(s => s.student_id === studentId);
-      if (local) {
-        try {
-          await saveMasterStudent(local);
-          const retryRes = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
-          return retryRes.data;
-        } catch (retryErr) {
-          console.warn("Auto-sync retry failed:", retryErr);
-        }
-      }
-    }
-    throw err;
-  }
+  const res = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
+  return res.data;
 };
 
 export const acceptEngineSuggestion = async (payload) => {
-  try {
-    const res = await api.post('/engine/suggestions/accept', payload);
-    return res.data;
-  } catch (err) {
-    if (err?.response?.status === 404 && payload?.student_id && payload.student_id !== 'TRAINER_PROPOSAL') {
-      const local = getCustomStudentsLocal().find(s => s.student_id === payload.student_id);
-      if (local) {
-        try {
-          await saveMasterStudent(local);
-          const retryRes = await api.post('/engine/suggestions/accept', payload);
-          return retryRes.data;
-        } catch (retryErr) {
-          console.warn("Auto-sync accept retry failed:", retryErr);
-        }
-      }
-    }
-    throw err;
-  }
+  const res = await api.post('/engine/suggestions/accept', payload);
+  return res.data;
 };
 
 export const getSmartBatches = async (month = '2026-10') => {
@@ -444,30 +379,69 @@ export const getConsolidationAdvisor = async (month = '2026-10') => {
   return res.data;
 };
 
-
-export const getExportCompletedScheduleUrl = (month = '2026-10') => {
-  return `${API_BASE_URL}/baseline/export-completed?month=${encodeURIComponent(month)}`;
-};
-
-export const resolveDeletedPastClass = async (payload) => {
-  const res = await api.post('/schedule/deleted-class/resolve', payload);
+// --- RULE 2: ACTUAL COMPLETED SCHEDULE ---
+export const getActualCompletedSchedule = async (month = '2026-10', currentDate = null) => {
+  const query = currentDate ? `?month=${month}&current_date=${encodeURIComponent(currentDate)}` : `?month=${month}`;
+  const res = await api.get(`/baseline/actual-completed${query}`);
   return res.data;
 };
 
-export const getCoachAvailabilityExplorer = async (month = '2026-10', date = null) => {
-  const q = date ? `month=${encodeURIComponent(month)}&date=${encodeURIComponent(date)}` : `month=${encodeURIComponent(month)}`;
-  const res = await api.get(`/engine/coach-availability?${q}`);
+// --- RULE 4: BATCH REASSIGNMENT ---
+export const reassignBatchCoach = async (data) => {
+  const res = await api.post('/schedule/reassign-batch-coach', data);
   return res.data;
 };
 
-export const reassignBatchCoach = async ({ class_id, batch_name, new_coach_name, apply_to_entire_batch = true, month = '2026-10' }) => {
-  const res = await api.post('/schedule/reassign-batch-coach', {
-    class_id,
-    batch_name,
-    new_coach_name,
-    apply_to_entire_batch,
-    month
-  });
+// --- RULE 6: ENGINE QUEUE & ASYNC EXECUTION ---
+export const enqueueEngineTask = async (taskType, payload = {}) => {
+  const res = await api.post('/engine/tasks/enqueue', { task_type: taskType, payload });
+  return res.data;
+};
+
+export const getEngineTaskStatus = async () => {
+  const res = await api.get('/engine/tasks/status');
+  return res.data;
+};
+
+// --- COACH AVAILABILITY & REMAINING SLOTS ---
+export const getCoachAvailability = async (params = {}) => {
+  const query = new URLSearchParams();
+  if (params.month) query.append('month', params.month);
+  if (params.date) query.append('date', params.date);
+  if (params.coach_name) query.append('coach_name', params.coach_name);
+  if (params.level) query.append('level', params.level);
+  if (params.day) query.append('day', params.day);
+  if (params.status) query.append('status', params.status);
+  if (params.start_date) query.append('start_date', params.start_date);
+  if (params.end_date) query.append('end_date', params.end_date);
+  const qStr = query.toString();
+  const res = await api.get(`/coach-availability${qStr ? '?' + qStr : ''}`);
+  return res.data;
+};
+
+// --- DELETED RECORDS & ACADEMY INSTRUCTIONS ---
+export const getDeletedRecords = async () => {
+  const res = await api.get('/deleted-records');
+  return res.data;
+};
+
+export const saveDeletedRecord = async (data) => {
+  const res = await api.post('/deleted-records', data);
+  return res.data;
+};
+
+export const updateDeletedRecordScope = async (recordId, newScope) => {
+  const res = await api.post(`/deleted-records/${recordId}/scope`, { new_scope: newScope });
+  return res.data;
+};
+
+export const restoreDeletedRecord = async (recordId) => {
+  const res = await api.post(`/deleted-records/${recordId}/restore`);
+  return res.data;
+};
+
+export const permanentlyDeleteRecord = async (recordId) => {
+  const res = await api.delete(`/deleted-records/${recordId}/permanent`);
   return res.data;
 };
 

@@ -59,43 +59,31 @@ class ReferenceScheduleEngine:
                 additional_comments=s.get("additional_comments", "")
             ))
 
-        # Build CoachModel list (supports both dict objects and string names)
+        # Build CoachModel list
         self.coach_models = []
-        for c_item in self.coaches_list:
-            if isinstance(c_item, dict):
-                self.coach_models.append(CoachModel(
-                    coach_name=c_item.get("coach_name", "UNASSIGNED"),
-                    levels_handled=c_item.get("levels_handled", OFFICIAL_LEVELS),
-                    monthly_capacity_min=c_item.get("monthly_capacity_min", 0),
-                    monthly_capacity_max=c_item.get("monthly_capacity_max", 200),
-                    mon_max=c_item.get("mon_max", 20),
-                    tue_max=c_item.get("tue_max", 20),
-                    wed_max=c_item.get("wed_max", 20),
-                    thu_max=c_item.get("thu_max", 20),
-                    fri_max=c_item.get("fri_max", 20),
-                    sat_max=c_item.get("sat_max", 20),
-                    sun_max=c_item.get("sun_max", 15),
-                    sunday_pref=c_item.get("sunday_pref", "Available"),
-                    preferred_timings=c_item.get("preferred_timings", "All Operating Hours")
-                ))
-            else:
-                self.coach_models.append(CoachModel(
-                    coach_name=str(c_item),
-                    levels_handled=OFFICIAL_LEVELS,
-                    monthly_capacity_min=0,
-                    monthly_capacity_max=200,
-                    mon_max=20, tue_max=20, wed_max=20, thu_max=20, fri_max=20, sat_max=20, sun_max=15,
-                    sunday_pref="Available",
-                    preferred_timings="All Operating Hours"
-                ))
+        for c_name in self.coaches_list:
+            self.coach_models.append(CoachModel(
+                coach_name=c_name,
+                levels_handled=OFFICIAL_LEVELS,
+                monthly_capacity_min=0,
+                monthly_capacity_max=200,
+                mon_max=20, tue_max=20, wed_max=20, thu_max=20, fri_max=20, sat_max=20, sun_max=15,
+                sunday_pref="Available",
+                preferred_timings="All Operating Hours"
+            ))
 
     def load_reference(self, custom_path: Optional[str] = None):
         if custom_path:
             self.excel_path = custom_path
 
         # 1. First priority: Check pre-compiled JSON reference (instant & 100% reliable in serverless)
+        cur_file = os.path.abspath(__file__)
         candidate_json_paths = [
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "..", "backend", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.abspath("backend/data/reference_oct_schedule.json"),
+            os.path.abspath("data/reference_oct_schedule.json"),
             os.path.join(BASE_DIR, "backend", "data", "reference_oct_schedule.json"),
             os.path.join(BASE_DIR, "data", "reference_oct_schedule.json")
         ]
@@ -110,14 +98,9 @@ class ReferenceScheduleEngine:
                     self.oct_exact_classes_by_date = defaultdict(list, data.get("oct_exact_classes_by_date", {}))
                     self.weekday_templates = defaultdict(list, data.get("weekday_templates", {}))
                     dr = data.get("oct_date_range", ["2026-10-01", "2026-10-31"])
-                    if isinstance(dr, dict):
-                        s_dt_str = dr.get("start_date", "2026-10-01")
-                        e_dt_str = dr.get("end_date", "2026-10-31")
-                    else:
-                        s_dt_str, e_dt_str = dr[0], dr[1]
                     self.oct_date_range = (
-                        datetime.datetime.strptime(s_dt_str, "%Y-%m-%d").date(),
-                        datetime.datetime.strptime(e_dt_str, "%Y-%m-%d").date()
+                        datetime.datetime.strptime(dr[0], "%Y-%m-%d").date(),
+                        datetime.datetime.strptime(dr[1], "%Y-%m-%d").date()
                     )
                     self._build_models()
                     self.is_loaded = True
@@ -148,11 +131,6 @@ class ReferenceScheduleEngine:
         self.excel_path = target_excel
         wb = openpyxl.load_workbook(self.excel_path, data_only=True)
         ws = wb.active
-        for sname in wb.sheetnames:
-            low = sname.lower()
-            if "schedule" in low or "baseline" in low or "oct" in low or "correction" in low:
-                ws = wb[sname]
-                break
 
         # 1. Parse Date Columns from Row 3 (dates) and Row 1 (day names)
         # Even columns starting from column 8
@@ -459,18 +437,17 @@ def generate_reference_schedule(
             })
 
             for entry in entries:
-                e_sids = entry.get("student_ids") or ([entry["student_id"]] if "student_id" in entry else [])
-                e_snames = entry.get("student_names") or ([entry.get("student_name", "")] if "student_name" in entry else [])
+                sid = entry["student_id"]
+                if has_target_filter and sid not in target_student_ids:
+                    continue
+
+                sname = target_student_map[sid].student_name if (has_target_filter and sid in target_student_map) else entry["student_name"]
                 key = (entry["time_slot"], entry["coach_name"])
-                for idx, sid in enumerate(e_sids):
-                    if has_target_filter and sid not in target_student_ids:
-                        continue
-                    sname = target_student_map[sid].student_name if (has_target_filter and sid in target_student_map) else (e_snames[idx] if idx < len(e_snames) else sid)
-                    grouped[key]["student_ids"].append(sid)
-                    grouped[key]["student_names"].append(sname)
-                grouped[key]["batch_names"].add(entry.get("batch_name", "G Batch"))
-                grouped[key]["levels"].add(entry.get("student_level", "Beginner 1"))
-                grouped[key]["batch_types"].add(entry.get("batch_type", "G"))
+                grouped[key]["student_ids"].append(sid)
+                grouped[key]["student_names"].append(sname)
+                grouped[key]["batch_names"].add(entry["batch_name"])
+                grouped[key]["levels"].add(entry["student_level"])
+                grouped[key]["batch_types"].add(entry["batch_type"])
 
             for (t_str, tr_str), c_info in grouped.items():
                 if not c_info["student_ids"]:
@@ -492,18 +469,28 @@ def generate_reference_schedule(
                     primary_btype = "I"
 
                 cls_id = f"CLS_{date_str.replace('-', '')}_{t_str.replace(' ', '').replace(':', '')}_{tr_str}"
+                cls_warnings = []
+                c_name_final = tr_str
+                if not tr_str or tr_str in ["Unassigned", "Requires Assignment", "None", ""]:
+                    cls_warnings.append("Conflict Warning: Requires Assignment (Coach missing)")
+                    c_name_final = "Requires Assignment"
+
+                max_allowed = 8 if primary_btype == "G" else (3 if primary_btype == "L" else 1)
+                if len(c_info["student_ids"]) > max_allowed:
+                    cls_warnings.append(f"Conflict Warning: Subdivision exceeds capacity ({len(c_info['student_ids'])}/{max_allowed})")
+
                 scheduled_classes.append(ScheduledClass(
                     class_id=cls_id,
                     date=date_str,
                     day=day_name,
                     time_slot=t_str,
-                    coach_name=tr_str,
+                    coach_name=c_name_final,
                     batch_name=primary_batch,
                     student_level=primary_level,
                     batch_type=primary_btype,
                     student_ids=c_info["student_ids"],
                     student_names=c_info["student_names"],
-                    warnings=[],
+                    warnings=cls_warnings,
                     is_manual_override=False
                 ))
 

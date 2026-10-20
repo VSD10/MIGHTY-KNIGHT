@@ -109,8 +109,8 @@ def run_scheduler(
         engine.load_reference()
     ref_student_ids = {s["student_id"] for s in engine.students_raw} if engine.is_loaded else set()
 
-    # Only delegate to dynamic scheduler for synthetic unit-test fixtures or when no reference template exists
-    is_synthetic_test = students and any(s.student_id.startswith("STU0") for s in students) and not any(s.student_id in ref_student_ids for s in students)
+    # Delegate to dynamic scheduler when inputs are test fixtures/custom students not in the reference schedule
+    is_synthetic_test = bool(students and not any(s.student_id in ref_student_ids for s in students))
     if is_synthetic_test or not ref_student_ids:
         from app.engine.dynamic_scheduler import run_dynamic_scheduler
         return run_dynamic_scheduler(
