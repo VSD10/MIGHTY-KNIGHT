@@ -1,647 +1,498 @@
-import React, { useState } from 'react';
-import { Search, Download, Calendar, User, Award, CheckCircle, ShieldCheck, Sparkles, Layers, Image, FolderArchive, Clock, BookOpen, Palette, Check } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import JSZip from 'jszip';
+import React, { useState, useMemo } from 'react';
+import {
+  Search, Download, Calendar, ShieldCheck, Sparkles, Clock, BookOpen,
+  Copy, Check, Filter, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, UserCheck, Lock
+} from 'lucide-react';
 import { getStudentIcsUrl } from '../services/api';
 
-const getTimeSlotSortMinutes = (timeSlotStr) => {
-  if (!timeSlotStr || typeof timeSlotStr !== 'string') return 9999;
-  try {
-    const match = timeSlotStr.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
-    if (!match) return 9999;
-    let hours = parseInt(match[1], 10);
-    const minutes = match[2] ? parseInt(match[2], 10) : 0;
-    const ampm = match[3].toUpperCase();
-    if (ampm === 'PM' && hours < 12) hours += 12;
-    if (ampm === 'AM' && hours === 12) hours = 0;
-    return hours * 60 + minutes;
-  } catch (e) {
-    return 9999;
-  }
-};
+const LEVEL_LIST = [
+  'ALL',
+  'Basic 1',
+  'Basic 2',
+  'Beginner 1',
+  'Beginner 2',
+  'Early Intermediate 1',
+  'Early Intermediate 2',
+  'Intermediate 1',
+  'Intermediate 2'
+];
 
-export default function StudentScheduleView({ studentScheduleData, detailedClasses, scheduleId }) {
+export default function StudentScheduleView({ studentScheduleData, detailedClasses = [], scheduleId }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [downloadingId, setDownloadingId] = useState(null);
-  const [isBulkDownloading, setIsBulkDownloading] = useState(false);
-  const [zipProgress, setZipProgress] = useState('');
-  const [selectedTheme, setSelectedTheme] = useState('executive'); // 'executive', 'royal', 'timeline'
+  const [selectedLevelFilter, setSelectedLevelFilter] = useState('ALL');
+  const [expandedStudentId, setExpandedStudentId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+  const [icsLockStudent, setIcsLockStudent] = useState(null);
 
-  // If studentScheduleData from output5 is passed:
-  let studentSchedules = studentScheduleData?.student_schedules || [];
+  // Extract dynamic student schedules from backend API output
+  const rawList = useMemo(() => {
+    if (studentScheduleData?.student_schedules && studentScheduleData.student_schedules.length > 0) {
+      return studentScheduleData.student_schedules;
+    }
 
-  // Fallback: If output5 endpoint data is not present, compute from detailedClasses
-  if ((!studentSchedules || studentSchedules.length === 0) && detailedClasses && detailedClasses.length > 0) {
+    // Fallback: derive dynamically from detailedClasses if studentScheduleData is not yet fetched
     const studentMap = {};
-    detailedClasses.forEach(cls => {
-      const sIds = cls.student_ids || [];
-      const sNames = cls.student_names || [];
-      sIds.forEach((sid, idx) => {
-        const sname = sNames[idx] || sid;
+    (detailedClasses || []).forEach(cls => {
+      (cls.student_ids || []).forEach((sid, idx) => {
         if (!studentMap[sid]) {
+          const sname = (cls.student_names && cls.student_names[idx]) || sid;
           studentMap[sid] = {
             student_id: sid,
             student_name: sname,
-            student_level: cls.student_level || 'Basic 1',
+            student_level: cls.student_level || 'Beginner 1',
             batch_type: cls.batch_type || 'G',
-            sessions: []
+            required_classes: 8,
+            scheduled_classes_count: 0,
+            classes: []
           };
         }
-        // Format date string to DD/MM/YYYY if YYYY-MM-DD
-        let formattedDate = cls.date;
-        if (cls.date && cls.date.includes('-')) {
-          const parts = cls.date.split('-');
-          if (parts.length === 3) {
-            formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
-          }
-        }
-        // Format time string to start time e.g. 4:00 PM
-        let formattedTime = cls.time_slot || '';
-        const tMatch = formattedTime.match(/(\d{1,2}:\d{2}\s*[AP]M)/i);
-        if (tMatch) {
-          formattedTime = tMatch[1];
-        }
-        if (formattedTime.startsWith('0') && formattedTime.length > 1 && !isNaN(formattedTime[1])) {
-          formattedTime = formattedTime.substring(1);
-        }
-
-        studentMap[sid].sessions.push({
-          class_id: cls.class_id,
-          date: formattedDate,
-          raw_date: cls.date,
-          day: cls.day,
-          time: formattedTime,
-          full_time_slot: cls.time_slot,
-          coach: cls.coach_name,
-          session: 'Chess',
-          student_level: cls.student_level,
-          batch_type: cls.batch_type
-        });
+        studentMap[sid].scheduled_classes_count += 1;
+        studentMap[sid].classes.push(cls);
       });
     });
 
-    studentSchedules = Object.values(studentMap).map(s => {
-      const sortedSessions = [...s.sessions].sort((a, b) => {
-        const dComp = (a.raw_date || '').localeCompare(b.raw_date || '');
-        if (dComp !== 0) return dComp;
-        return getTimeSlotSortMinutes(a.full_time_slot || a.time) - getTimeSlotSortMinutes(b.full_time_slot || b.time);
-      });
-      return {
-        ...s,
-        sessions: sortedSessions,
-        total_sessions: sortedSessions.length
-      };
+    return Object.values(studentMap);
+  }, [studentScheduleData, detailedClasses]);
+
+  // Sort alphabetically by student name
+  const sortedStudents = useMemo(() => {
+    return [...rawList].sort((a, b) => (a.student_name || '').localeCompare(b.student_name || ''));
+  }, [rawList]);
+
+  // Filter by search and level
+  const filteredStudents = useMemo(() => {
+    return sortedStudents.filter(s => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q ||
+        (s.student_name || '').toLowerCase().includes(q) ||
+        (s.student_id || '').toLowerCase().includes(q) ||
+        (s.student_level || '').toLowerCase().includes(q);
+
+      const matchesLevel = selectedLevelFilter === 'ALL' || s.student_level === selectedLevelFilter;
+      return matchesSearch && matchesLevel;
     });
-    studentSchedules.sort((a, b) => a.student_name.localeCompare(b.student_name));
-  }
+  }, [sortedStudents, searchQuery, selectedLevelFilter]);
 
-  if (!studentSchedules || studentSchedules.length === 0) {
-    return (
-      <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-        <p>No student schedules generated yet. Please select a date range and click "Run Engine".</p>
-      </div>
-    );
-  }
-
-  // Filter students by search query
-  const filteredStudents = studentSchedules.filter(s =>
-    (s.student_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.student_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (s.student_level || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const getCanvasBg = () => {
-    if (selectedTheme === 'royal') return '#0f172a';
-    if (selectedTheme === 'timeline') return '#090d16';
-    return '#0b0f19';
+  const handleCopyId = (id) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDownloadSingleImage = async (studentId, studentName) => {
-    const element = document.getElementById(`student-card-export-${studentId}`);
-    if (!element) return;
-    setDownloadingId(studentId);
-    try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: getCanvasBg(),
-        logging: false,
-      });
-      const dataUrl = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      const safeName = studentName.replace(/\s+/g, '_');
-      link.download = `Mighty_Knight_Schedule_${safeName}_${selectedTheme}.png`;
-      link.href = dataUrl;
-      link.click();
-    } catch (err) {
-      console.error('Failed to capture schedule image:', err);
-      alert('Error generating image for ' + studentName + ': ' + err.message);
-    } finally {
-      setDownloadingId(null);
-    }
+  const toggleExpand = (sid) => {
+    setExpandedStudentId(prev => (prev === sid ? null : sid));
   };
 
-  const handleDownloadAllImagesZip = async () => {
-    if (filteredStudents.length === 0) return;
-    setIsBulkDownloading(true);
-    setZipProgress('Starting...');
-    try {
-      const zip = new JSZip();
-      const folder = zip.folder("Student_Schedules");
-
-      let completedCount = 0;
-      for (const student of filteredStudents) {
-        completedCount++;
-        setZipProgress(`Rendering ${completedCount}/${filteredStudents.length}: ${student.student_name}`);
-
-        const element = document.getElementById(`student-card-export-${student.student_id}`);
-        if (element) {
-          const canvas = await html2canvas(element, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: getCanvasBg(),
-            logging: false,
-          });
-          const base64Data = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
-          const safeName = student.student_name.replace(/\s+/g, '_');
-          folder.file(`Mighty_Knight_Schedule_${safeName}_${student.student_id}.png`, base64Data, { base64: true });
-        }
-      }
-
-      setZipProgress('Zipping files...');
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `Mighty_Knight_Student_Schedules_${selectedTheme}_${new Date().toISOString().slice(0, 10)}.zip`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (err) {
-      console.error('Failed to generate ZIP archive:', err);
-      alert('Error generating ZIP file: ' + err.message);
-    } finally {
-      setIsBulkDownloading(false);
-      setZipProgress('');
-    }
-  };
-
-  const totalStudents = studentSchedules.length;
-  const totalAssignedSessions = studentSchedules.reduce((acc, s) => acc + s.total_sessions, 0);
+  // Stats calculation
+  const totalStudents = sortedStudents.length;
+  const fullyScheduledStudents = sortedStudents.filter(s => (s.scheduled_classes_count || 0) >= (s.required_classes || 8)).length;
+  const totalAssignedSessions = sortedStudents.reduce((sum, s) => sum + (s.scheduled_classes_count || 0), 0);
+  const avgCompletionPct = totalStudents > 0
+    ? Math.round(sortedStudents.reduce((sum, s) => sum + Math.min(100, Math.round(((s.scheduled_classes_count || 0) / (s.required_classes || 8)) * 100)), 0) / totalStudents)
+    : 0;
 
   return (
     <div className="glass-panel" style={{ padding: '24px' }}>
-      {/* Header bar */}
+      {/* 1. Header & Controls */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            🎓 Output 5 — Student Schedules
+          <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            🎓 Output 5 — Dynamic Student Schedules & Calendars
           </h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Individual student schedule images automatically generated from engine final assignments. Select UI themes below & export PNGs/ZIP.
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            100% dynamic timetable per enrolled student • Quota tracking • Individual .ics calendar synchronization.
           </p>
         </div>
 
-        {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ background: 'var(--bg-secondary)', padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Total Students: </span>
-            <strong style={{ color: 'var(--accent-gold)' }}>{totalStudents}</strong>
-          </div>
-          <div style={{ background: 'var(--bg-secondary)', padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', fontSize: '0.8rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Assigned Sessions: </span>
-            <strong style={{ color: 'var(--accent-blue)' }}>{totalAssignedSessions}</strong>
+        {/* Global Metric Cards */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ background: 'var(--bg-secondary)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.7rem', color: '#d1d5db', display: 'block' }}>ENROLLED STUDENTS</span>
+            <strong style={{ fontSize: '1.2rem', color: '#fff' }}>{totalStudents}</strong>
           </div>
 
-          <button
-            onClick={handleDownloadAllImagesZip}
-            disabled={isBulkDownloading}
-            className="btn btn-primary"
-            style={{ padding: '10px 18px', background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', color: '#fff', fontWeight: 700, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <FolderArchive size={18} />
-            {isBulkDownloading ? (zipProgress || 'Packaging ZIP Archive...') : 'Download All Student Images (.zip)'}
-          </button>
+          <div style={{ background: 'rgba(16, 185, 129, 0.15)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+            <span style={{ fontSize: '0.7rem', color: '#a7f3d0', display: 'block' }}>FULL QUOTA MET</span>
+            <strong style={{ fontSize: '1.2rem', color: '#34d399' }}>{fullyScheduledStudents} / {totalStudents}</strong>
+          </div>
+
+          <div style={{ background: 'rgba(59, 130, 246, 0.15)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59, 130, 246, 0.4)' }}>
+            <span style={{ fontSize: '0.7rem', color: '#bfdbfe', display: 'block' }}>AVG QUOTA FULFILLMENT</span>
+            <strong style={{ fontSize: '1.2rem', color: 'var(--accent-blue)' }}>{avgCompletionPct}%</strong>
+          </div>
         </div>
       </div>
 
-      {/* UI Theme Switcher Panel & Search */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px', background: 'rgba(0,0,0,0.25)', padding: '14px 18px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-        {/* Left: UI Theme Chooser */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Palette size={16} /> CHOOSE TIMETABLE UI STYLE:
-          </span>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => setSelectedTheme('executive')}
+      {/* 2. Filter & Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
+          <div style={{ position: 'relative', minWidth: '280px', maxWidth: '420px', flex: 1 }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--accent-gold)' }} />
+            <input
+              type="text"
+              placeholder="Search student by name or ID..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
               style={{
-                padding: '6px 14px',
+                width: '100%',
+                padding: '8px 12px 8px 36px',
                 borderRadius: 'var(--radius-md)',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                border: selectedTheme === 'executive' ? '1px solid #fbbf24' : '1px solid var(--border-color)',
-                background: selectedTheme === 'executive' ? 'linear-gradient(135deg, rgba(251,191,36,0.2) 0%, rgba(217,119,6,0.2) 100%)' : 'var(--bg-secondary)',
-                color: selectedTheme === 'executive' ? '#fbbf24' : 'var(--text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                color: '#fff',
+                fontSize: '0.85rem'
               }}
-            >
-              {selectedTheme === 'executive' && <Check size={14} />}
-              👑 Executive Dark Gold
-            </button>
-
-            <button
-              onClick={() => setSelectedTheme('royal')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                border: selectedTheme === 'royal' ? '1px solid #38bdf8' : '1px solid var(--border-color)',
-                background: selectedTheme === 'royal' ? 'linear-gradient(135deg, rgba(56,189,248,0.2) 0%, rgba(2,132,199,0.2) 100%)' : 'var(--bg-secondary)',
-                color: selectedTheme === 'royal' ? '#38bdf8' : 'var(--text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              {selectedTheme === 'royal' && <Check size={14} />}
-              🏆 Royal Navy Badge
-            </button>
-
-            <button
-              onClick={() => setSelectedTheme('timeline')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                border: selectedTheme === 'timeline' ? '1px solid #10b981' : '1px solid var(--border-color)',
-                background: selectedTheme === 'timeline' ? 'linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(4,120,87,0.2) 100%)' : 'var(--bg-secondary)',
-                color: selectedTheme === 'timeline' ? '#10b981' : 'var(--text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              {selectedTheme === 'timeline' && <Check size={14} />}
-              ⏱ Modern Timeline Cards
-            </button>
+            />
           </div>
-        </div>
 
-        {/* Right: Search Filter */}
-        <div style={{ position: 'relative', width: '280px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
-          <input
-            type="text"
-            placeholder="Search student..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+          {/* Level Filter Dropdown */}
+          <select
+            value={selectedLevelFilter}
+            onChange={e => setSelectedLevelFilter(e.target.value)}
             style={{
-              width: '100%',
-              padding: '8px 12px 8px 36px',
+              padding: '8px 14px',
               borderRadius: 'var(--radius-md)',
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
               color: '#fff',
               fontSize: '0.85rem'
             }}
-          />
+          >
+            {LEVEL_LIST.map(lvl => (
+              <option key={lvl} value={lvl}>{lvl === 'ALL' ? 'All Levels' : lvl}</option>
+            ))}
+          </select>
         </div>
+
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          Showing {filteredStudents.length} of {totalStudents} students
+        </span>
       </div>
 
-      {/* STUDENT SCHEDULE CARDS LIST */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-        {filteredStudents.map((student) => {
-          const isDownloading = downloadingId === student.student_id;
+      {/* 3. Students List Grid */}
+      {filteredStudents.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-lg)' }}>
+          <p>No student schedules match your search query or filter.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {filteredStudents.map(student => {
+            const sid = student.student_id;
+            const sname = student.student_name;
+            const lvl = student.student_level || 'Beginner 1';
+            const btype = student.batch_type || 'G';
+            const schCount = student.scheduled_classes_count || (student.classes ? student.classes.length : 0);
+            const reqCount = student.required_classes || 8;
+            const completionPct = Math.min(100, Math.round((schCount / reqCount) * 100));
+            const isFullyScheduled = schCount >= reqCount;
+            const isExpanded = expandedStudentId === sid;
 
-          return (
-            <div
-              key={student.student_id}
-              style={{
-                background: 'var(--bg-secondary)',
-                borderRadius: 'var(--radius-lg)',
-                border: '1px solid var(--border-color)',
-                overflow: 'hidden',
-                boxShadow: '0 10px 30px rgba(0,0,0,0.4)'
-              }}
-            >
-              {/* Outer Control Header */}
+            const classesList = student.classes || (detailedClasses || []).filter(c => (c.student_ids || []).includes(sid));
+
+            // .ics calendar link
+            const icsUrl = getStudentIcsUrl(scheduleId || 'ACTIVE_LATEST', sid);
+
+            return (
               <div
+                key={sid}
                 style={{
-                  padding: '16px 24px',
-                  background: 'rgba(0,0,0,0.3)',
-                  borderBottom: '1px solid var(--border-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '12px'
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 'var(--radius-md)',
+                  border: isExpanded ? '1px solid var(--accent-gold)' : '1px solid var(--border-color)',
+                  overflow: 'hidden',
+                  transition: 'border-color 0.2s ease'
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)',
-                      color: '#000',
-                      fontWeight: 800,
-                      fontSize: '1.1rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: '0 0 12px rgba(251, 191, 36, 0.4)'
-                    }}
-                  >
-                    {student.student_name.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      Student: {student.student_name}
-                      <span className="badge badge-gold" style={{ fontSize: '0.75rem', padding: '2px 8px' }}>
-                        ID: {student.student_id}
-                      </span>
-                    </h3>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Level: <strong style={{ color: '#fff' }}>{student.student_level}</strong> · Sessions: <strong style={{ color: 'var(--accent-gold)' }}>{student.total_sessions}</strong>
+                {/* Banner Summary Row */}
+                <div
+                  style={{
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '14px'
+                  }}
+                >
+                  {/* Left: Identity & Badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: '240px' }}>
+                    <div
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        background: isFullyScheduled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                        border: `1px solid ${isFullyScheduled ? '#10b981' : '#f59e0b'}`,
+                        color: isFullyScheduled ? '#34d399' : '#fbbf24',
+                        fontWeight: 800,
+                        fontSize: '1rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {sname.charAt(0).toUpperCase()}
                     </div>
-                  </div>
-                </div>
 
-                {/* Individual Export Actions */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <a
-                    href={getStudentIcsUrl(scheduleId, student.student_id)}
-                    download={`mighty_knight_student_${student.student_id}_calendar.ics`}
-                    className="btn btn-secondary"
-                    style={{
-                      padding: '8px 14px',
-                      color: '#fff',
-                      fontSize: '0.825rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      textDecoration: 'none',
-                      borderColor: 'var(--border-color)'
-                    }}
-                    title="Download .ics Calendar Sync file to automatically add all classes to Google, Apple, or Outlook Calendar"
-                  >
-                    <Calendar size={15} style={{ color: 'var(--accent-blue)' }} /> .ics Calendar Sync
-                  </a>
-
-                  <button
-                    onClick={() => handleDownloadSingleImage(student.student_id, student.student_name)}
-                    disabled={isDownloading}
-                    className="btn btn-secondary"
-                    style={{
-                      padding: '8px 16px',
-                      borderColor: 'var(--accent-gold)',
-                      color: 'var(--accent-gold)',
-                      fontWeight: 700,
-                      fontSize: '0.825rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <Image size={15} />
-                    {isDownloading ? 'Capturing Image...' : `Download Image (.png)`}
-                  </button>
-                </div>
-              </div>
-
-              {/* DYNAMIC STYLED CANVAS DOM FOR PNG EXPORT */}
-              <div id={`student-card-export-${student.student_id}`}>
-                {/* THEME 1: EXECUTIVE DARK GOLD */}
-                {selectedTheme === 'executive' && (
-                  <div
-                    style={{
-                      padding: '32px',
-                      background: '#0b101d',
-                      color: '#f8fafc',
-                      fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-                      position: 'relative'
-                    }}
-                  >
-                    {/* Top Gold Gradient Accent Line */}
-                    <div style={{ height: '3px', background: 'linear-gradient(90deg, #d97706 0%, #fbbf24 50%, #d97706 100%)', borderRadius: '2px', marginBottom: '24px' }} />
-
-                    {/* Header Banner */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                          {sname}
+                        </h4>
+                        <span className="badge badge-gold" style={{ fontSize: '0.675rem' }}>
+                          Batch {btype}
+                        </span>
+                        <span
+                          className="badge"
                           style={{
-                            width: '54px',
-                            height: '54px',
-                            borderRadius: '16px',
-                            background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxShadow: '0 4px 14px rgba(251, 191, 36, 0.45)',
-                            padding: '4px'
+                            fontSize: '0.675rem',
+                            background: isFullyScheduled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                            color: isFullyScheduled ? '#34d399' : '#f87171',
+                            border: `1px solid ${isFullyScheduled ? '#10b981' : 'rgba(239, 68, 68, 0.4)'}`
                           }}
                         >
-                          <img src="/CHESS.png" alt="Mighty Knight Logo" style={{ width: '42px', height: '42px', objectFit: 'contain' }} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fbbf24', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                            Mighty Knight Chess Academy
-                          </div>
-                          <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
-                            Official Student Master Schedule
-                          </div>
-                        </div>
+                          {schCount} / {reqCount} Classes
+                        </span>
                       </div>
 
-                      {/* Student Info Pill */}
-                      <div style={{ background: '#161f33', border: '1px solid #232f48', borderRadius: '14px', padding: '12px 20px', textAlign: 'right' }}>
-                        <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#ffffff' }}>
-                          {student.student_name}
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '3px' }}>
-                          ID: <span style={{ color: '#fbbf24', fontWeight: 800 }}>{student.student_id}</span> · Level: <span style={{ color: '#fbbf24', fontWeight: 800 }}>{student.student_level}</span>
-                        </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
+                        <span
+                          onClick={() => handleCopyId(sid)}
+                          style={{ cursor: 'pointer', fontFamily: 'monospace', color: 'var(--accent-gold)' }}
+                          title="Click to copy Student ID"
+                        >
+                          ID: {sid} {copiedId === sid ? '✓' : ''}
+                        </span>
+                        <span>•</span>
+                        <span>Level: <strong style={{ color: '#fff' }}>{lvl}</strong></span>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Schedule Table */}
-                    {student.sessions.length === 0 ? (
-                      <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', background: '#121a2b', borderRadius: '12px' }}>
-                        No sessions scheduled for this period.
-                      </div>
+                  {/* Middle: Quota Progress Bar */}
+                  <div style={{ minWidth: '160px', flex: 1, maxWidth: '240px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.725rem', marginBottom: '4px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Monthly Quota</span>
+                      <strong style={{ color: isFullyScheduled ? '#34d399' : '#fbbf24' }}>{completionPct}%</strong>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${completionPct}%`,
+                          height: '100%',
+                          background: isFullyScheduled ? '#10b981' : '#f59e0b',
+                          transition: 'width 0.3s ease'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right: Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Individual .ics Sync Download (Enforce 100% Quota Section 3) */}
+                    {isFullyScheduled ? (
+                      <a
+                        href={icsUrl}
+                        download={`mighty_knight_${sid}_calendar.ics`}
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          textDecoration: 'none',
+                          color: '#34d399',
+                          borderColor: '#10b981',
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                        title="Download .ics Calendar for this student (100% Quota Completed)"
+                      >
+                        <Calendar size={13} style={{ color: '#10b981' }} /> .ics Sync
+                      </a>
                     ) : (
-                      <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0', background: '#0e1626', borderRadius: '14px', overflow: 'hidden', border: '1px solid #1c273e' }}>
-                        <thead>
-                          <tr style={{ background: '#121a2b', color: '#fbbf24', textAlign: 'left' }}>
-                            <th style={{ padding: '14px 14px', fontWeight: 800, fontSize: '0.85rem', letterSpacing: '0.06em', width: '45px', textAlign: 'center' }}>#</th>
-                            <th style={{ padding: '14px 18px', fontWeight: 800, fontSize: '0.85rem', letterSpacing: '0.06em' }}>DATE</th>
-                            <th style={{ padding: '14px 18px', fontWeight: 800, fontSize: '0.85rem', letterSpacing: '0.06em' }}>DAY</th>
-                            <th style={{ padding: '14px 18px', fontWeight: 800, fontSize: '0.85rem', letterSpacing: '0.06em' }}>TIME</th>
-                            <th style={{ padding: '14px 18px', fontWeight: 800, fontSize: '0.85rem', letterSpacing: '0.06em' }}>COACH</th>
-                            <th style={{ padding: '14px 18px', fontWeight: 800, fontSize: '0.85rem', letterSpacing: '0.06em' }}>SESSION</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {student.sessions.map((sess, idx) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid #1a2438', background: idx % 2 === 0 ? '#0e1626' : '#0b101d' }}>
-                              <td style={{ padding: '14px 14px', fontWeight: 800, color: '#fbbf24', fontSize: '0.9rem', textAlign: 'center' }}>
-                                {idx + 1}
-                              </td>
-                              <td style={{ padding: '14px 18px', fontWeight: 800, color: '#ffffff', fontSize: '0.925rem' }}>
-                                {sess.date}
-                              </td>
-                              <td style={{ padding: '14px 18px', color: '#e2e8f0', fontWeight: 600, fontSize: '0.9rem' }}>
-                                {sess.day}
-                              </td>
-                              <td style={{ padding: '14px 18px' }}>
-                                <span style={{ background: '#132845', color: '#38bdf8', border: '1px solid #1e4a7a', padding: '6px 14px', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                                  ⏰ {sess.full_time_slot || sess.time}
-                                </span>
-                              </td>
-                              <td style={{ padding: '14px 18px' }}>
-                                <span style={{ background: '#2a2012', color: '#fbbf24', border: '1px solid #543f1b', padding: '6px 14px', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                                  👤 {sess.coach}
-                                </span>
-                              </td>
-                              <td style={{ padding: '14px 18px' }}>
-                                <span style={{ background: '#112b23', color: '#34d399', border: '1px solid #1b5443', padding: '6px 14px', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                                  ♟ Chess ({sess.student_level})
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <button
+                        onClick={() => setIcsLockStudent({
+                          student_id: sid,
+                          student_name: sname,
+                          schCount,
+                          reqCount,
+                          completionPct
+                        })}
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          color: '#94a3b8',
+                          background: 'rgba(255, 255, 255, 0.04)',
+                          borderColor: 'rgba(245, 158, 11, 0.35)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          cursor: 'pointer'
+                        }}
+                        title={`ICS Sync Locked: ${completionPct}% completed (100% quota required)`}
+                      >
+                        <Lock size={13} style={{ color: '#f59e0b' }} /> .ics Sync (Locked)
+                      </button>
                     )}
 
-                    <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.775rem', color: '#64748b', borderTop: '1px solid #1a2438', paddingTop: '14px' }}>
-                      <span>Mighty Knight Scheduling Engine • Official Schedule</span>
-                      <span>Verified for Student {student.student_name}</span>
-                    </div>
+                    {/* Expand / View Timetable */}
+                    <button
+                      onClick={() => toggleExpand(sid)}
+                      className="btn btn-primary"
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                    >
+                      {isExpanded ? 'Hide Sessions' : `View Sessions (${classesList.length})`}
+                      {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
                   </div>
-                )}
+                </div>
 
-                {/* THEME 2: ROYAL NAVY BADGE */}
-                {selectedTheme === 'royal' && (
-                  <div
-                    style={{
-                      padding: '32px',
-                      background: '#0f172a',
-                      color: '#ffffff',
-                      fontFamily: "'Segoe UI', Roboto, sans-serif"
-                    }}
-                  >
-                    <div style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e1b4b 100%)', borderRadius: '14px', border: '2px solid #3b82f6', padding: '20px 24px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#60a5fa', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                          Official Academy Dispatch
-                        </div>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#ffffff', marginTop: '2px' }}>
-                          MIGHTY KNIGHT CHESS
-                        </div>
-                      </div>
-
-                      <div style={{ background: '#3b82f6', color: '#ffffff', padding: '10px 20px', borderRadius: '10px', fontWeight: 900, fontSize: '1.1rem', boxShadow: '0 4px 12px rgba(59,130,246,0.4)' }}>
-                        {student.student_name}
-                      </div>
+                {/* Expanded Detailed Timetable */}
+                {isExpanded && (
+                  <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-gold)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <BookOpen size={14} /> Scheduled Sessions for {sname} ({classesList.length} session{classesList.length !== 1 ? 's' : ''})
+                      </h5>
+                      <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
+                        Status: {isFullyScheduled ? '✅ Full Monthly Quota Met' : `⚠️ Shortfall of ${Math.max(0, reqCount - schCount)} classes`}
+                      </span>
                     </div>
 
-                    <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b', borderRadius: '10px', overflow: 'hidden' }}>
-                      <thead>
-                        <tr style={{ background: '#2563eb', color: '#ffffff' }}>
-                          <th style={{ padding: '12px 14px', textAlign: 'center', fontSize: '0.85rem', fontWeight: 800, width: '40px' }}>#</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 800 }}>Date</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 800 }}>Day</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 800 }}>Time</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 800 }}>Coach</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 800 }}>Session</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {student.sessions.map((sess, idx) => (
-                          <tr key={idx} style={{ borderBottom: '1px solid #334155', background: idx % 2 === 0 ? '#1e293b' : '#0f172a' }}>
-                            <td style={{ padding: '12px 14px', fontWeight: 800, color: '#fbbf24', textAlign: 'center' }}>{idx + 1}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: 800, color: '#60a5fa' }}>{sess.date}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: 600, color: '#f8fafc' }}>{sess.day}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: 700, color: '#fbbf24' }}>{sess.time}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: 700, color: '#ffffff' }}>{sess.coach}</td>
-                            <td style={{ padding: '12px 16px', fontWeight: 600, color: '#34d399' }}>{sess.session}</td>
-                          </tr>
+                    {classesList.length === 0 ? (
+                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                        No scheduled classes yet for this student. Use Attention Required or Admin Matrix to assign sessions.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
+                        {classesList.map((cls, cIdx) => (
+                          <div
+                            key={cIdx}
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              padding: '12px',
+                              borderRadius: '6px',
+                              border: cls.is_compensation ? '1px solid rgba(251, 191, 36, 0.4)' : '1px solid var(--border-color)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '0.825rem', color: '#fff' }}>
+                                📅 {cls.day} ({cls.date})
+                              </strong>
+                              {cls.is_compensation && (
+                                <span style={{ padding: '1px 5px', borderRadius: '3px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontSize: '0.65rem' }}>
+                                  ⓒ
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ fontSize: '0.775rem', color: 'var(--accent-blue)', fontWeight: 600 }}>
+                              ⏰ {cls.time_slot}
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              <span>Trainer: <strong style={{ color: 'var(--accent-gold)' }}>Coach {cls.coach_name}</strong></span>
+                              <span>{cls.batch_name || `Batch ${btype}`}</span>
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* THEME 3: MODERN TIMELINE CARDS */}
-                {selectedTheme === 'timeline' && (
-                  <div
-                    style={{
-                      padding: '32px',
-                      background: '#090d16',
-                      color: '#ffffff',
-                      fontFamily: "'Segoe UI', Roboto, sans-serif"
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid #1e293b', paddingBottom: '16px' }}>
-                      <div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#10b981', letterSpacing: '0.08em' }}>ACADEMY TIMELINE</span>
-                        <h3 style={{ fontSize: '1.3rem', fontWeight: 900, color: '#ffffff' }}>Schedule for {student.student_name}</h3>
                       </div>
-                      <div style={{ background: '#10b981', color: '#000', padding: '6px 14px', borderRadius: '20px', fontWeight: 800, fontSize: '0.8rem' }}>
-                        {student.student_level}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {student.sessions.map((sess, idx) => (
-                        <div
-                          key={idx}
-                          style={{
-                            background: '#131c2e',
-                            borderRadius: '10px',
-                            border: '1px solid #1e293b',
-                            padding: '14px 20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            gap: '12px'
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <div style={{ background: '#1e293b', padding: '8px 14px', borderRadius: '8px', textAlign: 'center', border: '1px solid #334155' }}>
-                              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#fbbf24', marginBottom: '2px' }}>Class #{idx + 1}</div>
-                              <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#10b981' }}>{sess.date}</div>
-                              <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700 }}>{sess.day}</div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#ffffff' }}>⏰ {sess.time}</div>
-                              <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>Chess Class · Batch {sess.batch_type}</div>
-                            </div>
-                          </div>
-
-                          <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', padding: '8px 16px', borderRadius: '8px', color: '#fbbf24', fontWeight: 800, fontSize: '0.85rem' }}>
-                            Coach: {sess.coach}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Student ICS Synchronization Ineligible / Locked Modal */}
+      {icsLockStudent && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px'
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              maxWidth: '500px',
+              width: '100%',
+              padding: '24px',
+              background: 'linear-gradient(135deg, rgba(20, 27, 45, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%)',
+              border: '1.5px solid #f59e0b',
+              borderRadius: '16px',
+              boxShadow: '0 16px 40px rgba(0, 0, 0, 0.6)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', color: '#f59e0b' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Lock size={22} style={{ color: '#f59e0b' }} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>
+                  Student Calendar Sync Locked
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Academy Quota Rule Enforcement
+                </span>
+              </div>
             </div>
-          );
-        })}
-      </div>
+
+            <p style={{ fontSize: '0.875rem', color: '#cbd5e1', lineHeight: '1.5', marginBottom: '14px' }}>
+              Student <strong>{icsLockStudent.student_name}</strong> (<code>{icsLockStudent.student_id}</code>) currently has{' '}
+              <strong style={{ color: '#f59e0b' }}>{icsLockStudent.schCount} of {icsLockStudent.reqCount}</strong> required monthly classes scheduled ({icsLockStudent.completionPct}% completed).
+            </p>
+
+            <div
+              style={{
+                background: 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                marginBottom: '18px',
+                fontSize: '0.8rem',
+                color: '#fde68a',
+                lineHeight: '1.4'
+              }}
+            >
+              ⚠️ <strong>Mandatory Requirement:</strong> Student .ics calendar synchronization is restricted until the student's monthly quota reaches <strong>100%</strong> and any pending Attention Required assignments or unassigned sessions are fully confirmed.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                onClick={() => setIcsLockStudent(null)}
+                className="btn btn-primary"
+                style={{ padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700 }}
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

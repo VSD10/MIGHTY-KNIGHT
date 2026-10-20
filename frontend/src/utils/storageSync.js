@@ -45,72 +45,32 @@ export const deleteCustomStudentLocal = (studentId) => {
   }
 };
 
-// --- DELETED STUDENTS TRACKING ---
+// --- DELETED STUDENTS TRACKING (SQLite is authoritative source of truth) ---
 export const getDeletedStudentsLocal = () => {
-  try {
-    const raw = localStorage.getItem(DELETED_STUDENTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (err) {
-    return [];
-  }
+  // Always defer to SQLite backend database to avoid stale client masking
+  return [];
 };
 
 export const trackDeletedStudentLocal = (studentId) => {
-  if (!studentId) return;
-  try {
-    const list = getDeletedStudentsLocal();
-    if (!list.includes(studentId)) {
-      list.push(studentId);
-      localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(list));
-    }
-  } catch (err) {
-    console.warn("Could not track deleted student:", err);
-  }
+  // SQLite handles deletion persistence via backend API
 };
 
 export const untrackDeletedStudentLocal = (studentId) => {
-  if (!studentId) return;
-  try {
-    const list = getDeletedStudentsLocal();
-    const updated = list.filter(id => id !== studentId);
-    localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(updated));
-  } catch (err) {
-    console.warn("Could not untrack deleted student:", err);
-  }
+  // SQLite handles restore/persistence via backend API
 };
 
-// --- DELETED CLASSES TRACKING ---
+// --- DELETED CLASSES TRACKING (SQLite is authoritative source of truth) ---
 export const getDeletedClassesLocal = () => {
-  try {
-    const raw = localStorage.getItem(DELETED_CLASSES_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (err) {
-    return [];
-  }
+  // Always defer to SQLite backend database to avoid stale client masking
+  return [];
 };
 
 export const trackDeletedClassLocal = (classId) => {
-  if (!classId) return;
-  try {
-    const list = getDeletedClassesLocal();
-    if (!list.includes(classId)) {
-      list.push(classId);
-      localStorage.setItem(DELETED_CLASSES_KEY, JSON.stringify(list));
-    }
-  } catch (err) {
-    console.warn("Could not track deleted class:", err);
-  }
+  // SQLite handles deletion persistence via backend API
 };
 
 export const untrackDeletedClassLocal = (classId) => {
-  if (!classId) return;
-  try {
-    const list = getDeletedClassesLocal();
-    const updated = list.filter(id => id !== classId);
-    localStorage.setItem(DELETED_CLASSES_KEY, JSON.stringify(updated));
-  } catch (err) {
-    console.warn("Could not untrack deleted class:", err);
-  }
+  // SQLite handles restore/persistence via backend API
 };
 
 // --- WIPE ALL PERSISTENCE ---

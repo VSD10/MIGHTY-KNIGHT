@@ -5,14 +5,14 @@ from app.engine.coach_selector import CoachSelector
 
 def test_coach_priority_and_capability():
     coaches = [
-        CoachModel(coach_name="Guruvanthana", levels_handled=["Basic 1", "Beginner 1"], mon_max=4),
-        CoachModel(coach_name="Bathrinath", levels_handled=["Basic 1", "Basic 2"], mon_max=4),
-        CoachModel(coach_name="Abinaya", levels_handled=["Basic 1"], mon_max=3)
+        CoachModel(coach_name="GURU", levels_handled=["Basic 1", "Beginner 1"], mon_max=4),
+        CoachModel(coach_name="BATHRI", levels_handled=["Basic 1", "Basic 2"], mon_max=4),
+        CoachModel(coach_name="ABINAYA", levels_handled=["Basic 1"], mon_max=3)
     ]
     selector = CoachSelector(coaches, DEFAULT_CONFIG)
 
-    # For Basic 1, priority in config is: Bathrinath -> Abinaya -> Manikandan -> Prakash -> Guruvanthana
-    # So Bathrinath should be selected over Guruvanthana!
+    # For Basic 1, priority in config is: BATHRI -> ABINAYA -> MANIKANDAN -> PRAKASH -> GURU
+    # So BATHRI should be selected over GURU!
     coach, reason = selector.select_coach(
         student_level="Basic 1",
         target_date_str="2026-08-24",
@@ -24,17 +24,17 @@ def test_coach_priority_and_capability():
         active_time_occupancy={}
     )
     assert coach is not None
-    assert coach.coach_name == "Bathrinath"
+    assert coach.coach_name == "BATHRI"
 
 def test_one_coach_one_class_conflict():
     coaches = [
-        CoachModel(coach_name="Bathrinath", levels_handled=["Basic 1"], mon_max=4),
-        CoachModel(coach_name="Abinaya", levels_handled=["Basic 1"], mon_max=3)
+        CoachModel(coach_name="BATHRI", levels_handled=["Basic 1"], mon_max=4),
+        CoachModel(coach_name="ABINAYA", levels_handled=["Basic 1"], mon_max=3)
     ]
     selector = CoachSelector(coaches, DEFAULT_CONFIG)
 
-    # Bathrinath is already occupied at 6 PM - 7 PM
-    occupancy = {"2026-08-24": {"06:00 PM – 07:00 PM": ["Bathrinath"]}}
+    # BATHRI is already occupied at 6 PM - 7 PM
+    occupancy = {"2026-08-24": {"06:00 PM – 07:00 PM": ["BATHRI"]}}
 
     coach, reason = selector.select_coach(
         student_level="Basic 1",
@@ -46,17 +46,17 @@ def test_one_coach_one_class_conflict():
         monthly_coach_assignments={},
         active_time_occupancy=occupancy
     )
-    # Next priority coach Abinaya should be selected!
+    # Next priority coach ABINAYA should be selected!
     assert coach is not None
-    assert coach.coach_name == "Abinaya"
+    assert coach.coach_name == "ABINAYA"
 
 def test_daily_coach_limit():
     coaches = [
-        CoachModel(coach_name="Bathrinath", levels_handled=["Basic 1"], mon_max=1) # Limit 1
+        CoachModel(coach_name="BATHRI", levels_handled=["Basic 1"], mon_max=1) # Limit 1
     ]
     selector = CoachSelector(coaches, DEFAULT_CONFIG)
 
-    daily_assignments = {"2026-08-24": {"Bathrinath": 1}}
+    daily_assignments = {"2026-08-24": {"BATHRI": 1}}
 
     coach, reason = selector.select_coach(
         student_level="Basic 1",
@@ -74,12 +74,12 @@ def test_daily_coach_limit():
 def test_coach_preferred_timings_soft_preference_and_max_caps():
     coaches = [
         CoachModel(
-            coach_name="Bathrinath",
+            coach_name="BATHRI",
             levels_handled=["Basic 1"],
             preferred_timings="Monday: 5 pm – 9 pm (max 1); Tuesday: Not available (max 0)"
         ),
         CoachModel(
-            coach_name="Abinaya",
+            coach_name="ABINAYA",
             levels_handled=["Basic 1"],
             preferred_timings="Monday: 6 am – 9 am (max 3); Tuesday: 5 pm – 9 pm (max 2)"
         )
@@ -87,8 +87,8 @@ def test_coach_preferred_timings_soft_preference_and_max_caps():
     selector = CoachSelector(coaches, DEFAULT_CONFIG)
 
     # 1. Monday morning slot (06:00 AM – 07:00 AM)
-    # Bathrinath priority 1 but prefers 5pm-9pm. Abinaya prefers 6am-9am.
-    # Abinaya should be selected due to preferred timing match!
+    # BATHRI priority 1 but prefers 5pm-9pm. ABINAYA prefers 6am-9am.
+    # ABINAYA should be selected due to preferred timing match!
     coach1, _ = selector.select_coach(
         student_level="Basic 1",
         target_date_str="2026-08-24",
@@ -100,10 +100,10 @@ def test_coach_preferred_timings_soft_preference_and_max_caps():
         active_time_occupancy={}
     )
     assert coach1 is not None
-    assert coach1.coach_name == "Abinaya"
+    assert coach1.coach_name == "ABINAYA"
 
-    # 2. Tuesday slot - Bathrinath is marked "Not available" on Tuesday
-    # Bathrinath must be rejected; Abinaya selected.
+    # 2. Tuesday slot - BATHRI is marked "Not available" on Tuesday
+    # BATHRI must be rejected; ABINAYA selected.
     coach2, _ = selector.select_coach(
         student_level="Basic 1",
         target_date_str="2026-08-25",
@@ -115,11 +115,11 @@ def test_coach_preferred_timings_soft_preference_and_max_caps():
         active_time_occupancy={}
     )
     assert coach2 is not None
-    assert coach2.coach_name == "Abinaya"
+    assert coach2.coach_name == "ABINAYA"
 
-    # 3. Monday slot 5pm-6pm when Bathrinath has preferred daily max = 1 and already taught 1
-    # Bathrinath limit reached (1/1); Abinaya selected as fallback
-    daily_assigned = {"2026-08-24": {"Bathrinath": 1}}
+    # 3. Monday slot 5pm-6pm when BATHRI has preferred daily max = 1 and already taught 1
+    # BATHRI limit reached (1/1); ABINAYA selected as fallback
+    daily_assigned = {"2026-08-24": {"BATHRI": 1}}
     coach3, _ = selector.select_coach(
         student_level="Basic 1",
         target_date_str="2026-08-24",
@@ -131,4 +131,4 @@ def test_coach_preferred_timings_soft_preference_and_max_caps():
         active_time_occupancy={}
     )
     assert coach3 is not None
-    assert coach3.coach_name == "Abinaya"
+    assert coach3.coach_name == "ABINAYA"

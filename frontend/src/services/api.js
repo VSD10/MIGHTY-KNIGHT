@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -148,8 +148,8 @@ export const saveMasterStudent = async (studentData) => {
   return res.data;
 };
 
-export const deleteMasterStudent = async (studentId) => {
-  const res = await api.delete(`/master/students/${studentId}`);
+export const deleteMasterStudent = async (studentId, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/students/${studentId}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -158,8 +158,8 @@ export const saveMasterCoach = async (coachData) => {
   return res.data;
 };
 
-export const deleteMasterCoach = async (coachName) => {
-  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}`);
+export const deleteMasterCoach = async (coachName, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -183,8 +183,8 @@ export const saveMasterBatch = async (batchData) => {
   return res.data;
 };
 
-export const deleteMasterBatch = async (batchId) => {
-  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}`);
+export const deleteMasterBatch = async (batchId, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -195,6 +195,253 @@ export const importBatchDataset = async () => {
 
 export const clearAllMasterData = async () => {
   const res = await api.post('/master/clear-all');
+  return res.data;
+};
+
+// ==============================================================================
+// BASELINE MANAGEMENT APIS (PART E)
+// ==============================================================================
+
+export const getBaselineStatus = async (month = '2026-10') => {
+  const res = await api.get(`/baseline/status?month=${month}`);
+  return res.data;
+};
+
+export const getBaselineTemplateUrl = (month = '2026-10') => {
+  return `${API_BASE_URL}/baseline/template?month=${month}`;
+};
+
+export const uploadBaselineExcel = async (file, month = '2026-10') => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('month', month);
+  const res = await api.post('/baseline/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+};
+
+export const activateBaseline = async (month, version, user = 'Admin') => {
+  const res = await api.post('/baseline/activate', { month, version, user });
+  return res.data;
+};
+
+export const discardBaseline = async (month) => {
+  const res = await api.post('/baseline/discard', { month });
+  return res.data;
+};
+
+export const getExportActiveBaselineUrl = (month = '2026-10') => {
+  return `${API_BASE_URL}/baseline/export-active?month=${month}`;
+};
+
+export const generateNextMonthDraft = async (sourceMonth, targetYear, targetMonth, user = 'Admin') => {
+  const res = await api.post('/baseline/generate-next-month', {
+    source_month: sourceMonth,
+    target_year: targetYear,
+    target_month: targetMonth,
+    user
+  });
+  return res.data;
+};
+
+export const promoteEffectiveToBaseline = async (month, user = 'Admin') => {
+  const res = await api.post('/baseline/promote-effective', { month, user });
+  return res.data;
+};
+
+// ==============================================================================
+// EXCEPTION OVERLAY APIS (PART D)
+// ==============================================================================
+
+export const validateException = async (exceptionData) => {
+  const res = await api.post('/schedule/exception/validate', exceptionData);
+  return res.data;
+};
+
+export const applyException = async (exceptionData) => {
+  const res = await api.post('/schedule/exception/apply', exceptionData);
+  return res.data;
+};
+
+export const revertException = async (exceptionId, month = '2026-10') => {
+  const res = await api.post(`/schedule/exception/${exceptionId}/revert?month=${month}`);
+  return res.data;
+};
+
+export const getExceptionsList = async (month = '2026-10', status = 'active') => {
+  const res = await api.get(`/schedule/exceptions?month=${month}&status=${status}`);
+  return res.data;
+};
+
+// ==============================================================================
+// AUDIT LOGS & EFFECTIVE SCHEDULE APIS (PART A)
+// ==============================================================================
+
+export const getAuditLogs = async (month = null, limit = 100) => {
+  const url = month ? `/audit-logs?month=${month}&limit=${limit}` : `/audit-logs?limit=${limit}`;
+  const res = await api.get(url);
+  return res.data;
+};
+
+export const getEffectiveSchedule = async (month = '2026-10') => {
+  const res = await api.get(`/effective-schedule?month=${month}`);
+  return res.data;
+};
+
+// ==============================================================================
+// F1 MASTER DATA & F2 ENGINE APIS
+// ==============================================================================
+
+export const convertBatchType = async (studentId, newBatchType, month = '2026-10') => {
+  const res = await api.post('/master/student/convert-batch', {
+    student_id: studentId,
+    new_batch_type: newBatchType,
+    month
+  });
+  return res.data;
+};
+
+export const changeStudentLevel = async (studentId, newLevel, reason = '', month = '2026-10') => {
+  const res = await api.post('/master/student/change-level', {
+    student_id: studentId,
+    new_level: newLevel,
+    reason,
+    month
+  });
+  return res.data;
+};
+
+export const getCoachPriorityMatrix = async () => {
+  const res = await api.get('/master/coaches/priority-matrix');
+  return res.data;
+};
+
+export const moveCoachPriority = async (level, coachName, direction) => {
+  const res = await api.post('/master/coaches/priority/move', {
+    level,
+    coach_name: coachName,
+    direction
+  });
+  return res.data;
+};
+
+export const updateCoachPriority = async (level, coachName, newPriority) => {
+  const res = await api.post('/master/coaches/priority', {
+    level,
+    coach_name: coachName,
+    new_priority: newPriority
+  });
+  return res.data;
+};
+
+export const deleteCoachPriority = async (level, coachName) => {
+  const res = await api.delete(`/master/coaches/priority?level=${encodeURIComponent(level)}&coach_name=${encodeURIComponent(coachName)}`);
+  return res.data;
+};
+
+export const addCoachToPriority = async (level, coachName, newPriority = null) => {
+  const res = await api.post('/master/coaches/priority/add', {
+    level,
+    coach_name: coachName,
+    new_priority: newPriority
+  });
+  return res.data;
+};
+
+export const getEngineSettings = async () => {
+  const res = await api.get('/engine/settings');
+  return res.data;
+};
+
+export const updateEngineSettings = async (settingsData) => {
+  const res = await api.post('/engine/settings', settingsData);
+  return res.data;
+};
+
+export const getEngineSuggestions = async (studentId, neededClasses = 1, month = '2026-10') => {
+  const res = await api.get(`/engine/suggestions?student_id=${encodeURIComponent(studentId)}&needed_classes=${neededClasses}&month=${month}`);
+  return res.data;
+};
+
+export const acceptEngineSuggestion = async (payload) => {
+  const res = await api.post('/engine/suggestions/accept', payload);
+  return res.data;
+};
+
+export const getSmartBatches = async (month = '2026-10') => {
+  const res = await api.get(`/engine/smart-batches?month=${month}`);
+  return res.data;
+};
+
+export const getConsolidationAdvisor = async (month = '2026-10') => {
+  const res = await api.get(`/engine/consolidation-advisor?month=${month}`);
+  return res.data;
+};
+
+// --- RULE 2: ACTUAL COMPLETED SCHEDULE ---
+export const getActualCompletedSchedule = async (month = '2026-10', currentDate = null) => {
+  const query = currentDate ? `?month=${month}&current_date=${encodeURIComponent(currentDate)}` : `?month=${month}`;
+  const res = await api.get(`/baseline/actual-completed${query}`);
+  return res.data;
+};
+
+// --- RULE 4: BATCH REASSIGNMENT ---
+export const reassignBatchCoach = async (data) => {
+  const res = await api.post('/schedule/reassign-batch-coach', data);
+  return res.data;
+};
+
+// --- RULE 6: ENGINE QUEUE & ASYNC EXECUTION ---
+export const enqueueEngineTask = async (taskType, payload = {}) => {
+  const res = await api.post('/engine/tasks/enqueue', { task_type: taskType, payload });
+  return res.data;
+};
+
+export const getEngineTaskStatus = async () => {
+  const res = await api.get('/engine/tasks/status');
+  return res.data;
+};
+
+// --- COACH AVAILABILITY & REMAINING SLOTS ---
+export const getCoachAvailability = async (params = {}) => {
+  const query = new URLSearchParams();
+  if (params.month) query.append('month', params.month);
+  if (params.date) query.append('date', params.date);
+  if (params.coach_name) query.append('coach_name', params.coach_name);
+  if (params.level) query.append('level', params.level);
+  if (params.day) query.append('day', params.day);
+  if (params.status) query.append('status', params.status);
+  if (params.start_date) query.append('start_date', params.start_date);
+  if (params.end_date) query.append('end_date', params.end_date);
+  const qStr = query.toString();
+  const res = await api.get(`/coach-availability${qStr ? '?' + qStr : ''}`);
+  return res.data;
+};
+
+// --- DELETED RECORDS & ACADEMY INSTRUCTIONS ---
+export const getDeletedRecords = async () => {
+  const res = await api.get('/deleted-records');
+  return res.data;
+};
+
+export const saveDeletedRecord = async (data) => {
+  const res = await api.post('/deleted-records', data);
+  return res.data;
+};
+
+export const updateDeletedRecordScope = async (recordId, newScope) => {
+  const res = await api.post(`/deleted-records/${recordId}/scope`, { new_scope: newScope });
+  return res.data;
+};
+
+export const restoreDeletedRecord = async (recordId) => {
+  const res = await api.post(`/deleted-records/${recordId}/restore`);
+  return res.data;
+};
+
+export const permanentlyDeleteRecord = async (recordId) => {
+  const res = await api.delete(`/deleted-records/${recordId}/permanent`);
   return res.data;
 };
 

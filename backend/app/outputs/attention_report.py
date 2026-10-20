@@ -2,11 +2,12 @@ from typing import List, Dict, Any
 from app.models.schedule import ScheduleResult, UnscheduledRecord
 from app.utils.time_utils import parse_time_slot_sort_key
 
-def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
+def format_attention_report(result: ScheduleResult, master_students: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """
     Formats Output 3: Unscheduled / Administrator Attention Report (BRD Section 29, 31).
     Generates smart assignment recommendations & emergency overtime options for each unscheduled student.
     Includes coach's daily schedule load and emergency capacity extension flags, sorted chronologically.
+    Filters out dates where student is already scheduled and days where student is not available.
     """
     report_rows = []
     
@@ -15,9 +16,23 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
 
     # Pre-calculate daily class counts per coach
     coach_daily_counts = {}
+    # Track dates student is already scheduled on (to avoid daily conflict)
+    student_scheduled_dates = {}
     for cls in result.scheduled_classes:
         key = (cls.coach_name.strip().lower(), cls.date)
         coach_daily_counts[key] = coach_daily_counts.get(key, 0) + 1
+        for sid in cls.student_ids:
+            student_scheduled_dates.setdefault(sid, set()).add(cls.date)
+
+    student_model_map = {}
+    if master_students:
+        from app.models.student import StudentModel
+        for s in master_students:
+            try:
+                s_obj = s if isinstance(s, StudentModel) else StudentModel(**s)
+                student_model_map[s_obj.student_id] = s_obj
+            except Exception:
+                pass
 
     for rec in result.unscheduled_records:
         recommendations = []
@@ -25,9 +40,22 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
         rec_level_clean = (rec.student_level or "").strip().lower()
         rec_btype_clean = (rec.batch_type or "G").strip().upper()
         rec_pref_days = (rec.preferred_days or "").lower()
+        s_obj = student_model_map.get(rec.student_id)
 
         # Find candidate classes in result.scheduled_classes
         for cls in result.scheduled_classes:
+            # Check student is not already in this class
+            if rec.student_id in cls.student_ids:
+                continue
+
+            # Check student is not already scheduled on this date (Daily uniqueness constraint)
+            if cls.date in student_scheduled_dates.get(rec.student_id, set()):
+                continue
+
+            # Check student availability on this day
+            if s_obj and not s_obj.is_available_on_day(cls.day):
+                continue
+
             cls_level_clean = (cls.student_level or "").strip().lower()
             # Check level match (exact or level normalization)
             if cls_level_clean != rec_level_clean:
@@ -41,10 +69,6 @@ def format_attention_report(result: ScheduleResult) -> List[Dict[str, Any]]:
             # Check batch type match
             b_type = (cls.batch_type or "G").strip().upper()
             if b_type != rec_btype_clean:
-                continue
-
-            # Check student is not already in this class
-            if rec.student_id in cls.student_ids:
                 continue
 
             max_cap = batch_max_capacities.get(b_type, 10)

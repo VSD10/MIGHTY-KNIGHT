@@ -58,7 +58,8 @@ class CoachSelector:
         valid_candidates: List[Tuple[CoachModel, bool, bool]] = [] # (coach, matches_preferred_window, is_substitute)
 
         for coach in ordered_coaches:
-            c_name = coach.coach_name.strip()
+            raw_name = coach.coach_name.strip()
+            c_name = raw_name.upper()
             
             # Check 1: Capability
             if not coach.can_handle_level(level_clean, self.config):
@@ -67,7 +68,7 @@ class CoachSelector:
             # Check 2: Sunday Preference
             if day_name == "Sunday" and coach.sunday_pref:
                 if str(coach.sunday_pref).strip().lower() in ["not available", "no", "off"]:
-                    failure_reasons.append(f"{c_name}: Not available on Sundays")
+                    failure_reasons.append(f"{raw_name}: Not available on Sundays")
                     continue
 
             # Check 3: Coach Preferred Timings & Day Availability
@@ -77,28 +78,29 @@ class CoachSelector:
             )
 
             if not is_day_avail:
-                failure_reasons.append(f"{c_name}: Marked 'Not Available' on {day_name} in Preferred Timings")
+                failure_reasons.append(f"{raw_name}: Marked 'Not Available' on {day_name} in Preferred Timings")
                 continue
 
             # Check 4: Effective Daily Class Limit (Min of standard daily max and preferred daily max)
             std_daily_max = coach.get_daily_max(day_name)
             effective_daily_max = min(std_daily_max, pref_daily_max) if (pref_daily_max is not None and pref_daily_max >= 0) else std_daily_max
 
-            current_daily_assigned = daily_coach_assignments.get(target_date_str, {}).get(c_name, 0)
+            day_dict = daily_coach_assignments.get(target_date_str, {})
+            current_daily_assigned = day_dict.get(c_name, day_dict.get(raw_name, 0))
             if current_daily_assigned >= effective_daily_max:
-                failure_reasons.append(f"{c_name}: Daily class limit reached ({current_daily_assigned}/{effective_daily_max})")
+                failure_reasons.append(f"{raw_name}: Daily class limit reached ({current_daily_assigned}/{effective_daily_max})")
                 continue
 
             # Check 5: Slot Occupancy Guard (1 Coach = 1 Class at a time)
-            occupied_coaches = active_time_occupancy.get(target_date_str, {}).get(time_slot, [])
-            if c_name in occupied_coaches:
-                failure_reasons.append(f"{c_name}: Already assigned to another class at {time_slot}")
+            occupied_coaches = [oc.upper() for oc in active_time_occupancy.get(target_date_str, {}).get(time_slot, [])]
+            if c_name in occupied_coaches or raw_name.upper() in occupied_coaches:
+                failure_reasons.append(f"{raw_name}: Already assigned to another class at {time_slot}")
                 continue
 
             # Check 6: Monthly Maximum Capacity
-            current_monthly_assigned = monthly_coach_assignments.get(c_name, 0)
+            current_monthly_assigned = monthly_coach_assignments.get(c_name, monthly_coach_assignments.get(raw_name, 0))
             if current_monthly_assigned >= coach.monthly_capacity_max:
-                failure_reasons.append(f"{c_name}: Monthly max capacity reached ({current_monthly_assigned}/{coach.monthly_capacity_max})")
+                failure_reasons.append(f"{raw_name}: Monthly max capacity reached ({current_monthly_assigned}/{coach.monthly_capacity_max})")
                 continue
 
             # Check 7: Special Sunday Conditions & 3 PM Ceiling
@@ -107,11 +109,7 @@ class CoachSelector:
                     failure_reasons.append(f"{c_name}: Excluded from Sunday tournament assignments")
                     continue
 
-            if day_name == "Sunday":
-                _, end_min = parse_slot_range(time_slot)
-                if end_min and end_min > 15 * 60:
-                    failure_reasons.append(f"{c_name}: Sunday class ends after 3:00 PM ceiling")
-                    continue
+
 
             # Candidate meets all hard rules!
             valid_candidates.append((coach, matches_window, is_substitute_coach(coach)))

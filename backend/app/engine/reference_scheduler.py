@@ -14,7 +14,7 @@ from app.config import SystemConfig, DEFAULT_CONFIG
 from app.constants.levels import OFFICIAL_LEVELS, normalize_batch_to_level
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DEFAULT_REFERENCE_PATH = os.path.join(BASE_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
+DEFAULT_REFERENCE_PATH = os.path.join(BASE_DIR, "sample_data", "Oct26_Schedule_Final.xlsx")
 
 class ReferenceScheduleEngine:
     _instance = None
@@ -77,8 +77,13 @@ class ReferenceScheduleEngine:
             self.excel_path = custom_path
 
         # 1. First priority: Check pre-compiled JSON reference (instant & 100% reliable in serverless)
+        cur_file = os.path.abspath(__file__)
         candidate_json_paths = [
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "..", "backend", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.abspath("backend/data/reference_oct_schedule.json"),
+            os.path.abspath("data/reference_oct_schedule.json"),
             os.path.join(BASE_DIR, "backend", "data", "reference_oct_schedule.json"),
             os.path.join(BASE_DIR, "data", "reference_oct_schedule.json")
         ]
@@ -108,9 +113,9 @@ class ReferenceScheduleEngine:
         # 2. Second priority: Find Excel file across candidate locations
         candidate_excel_paths = [
             self.excel_path,
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "Oct'26 Schedule_FRESH-1.xlsx"),
-            os.path.join(BASE_DIR, "backend", "data", "Oct'26 Schedule_FRESH-1.xlsx"),
-            os.path.join(BASE_DIR, "sample_data", "Oct'26 Schedule_FRESH-1.xlsx")
+            os.path.join(BASE_DIR, "sample_data", "Oct26_Schedule_Final.xlsx"),
+            os.path.join(BASE_DIR, "backend", "data", "Oct26_Schedule_Final.xlsx"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "data", "Oct26_Schedule_Final.xlsx")
         ]
 
         target_excel = None
@@ -324,7 +329,9 @@ def generate_reference_schedule(
     # Target students map if provided
     has_target_filter = students is not None and len(students) > 0
     target_student_ids = {s.student_id for s in students} if has_target_filter else None
+    target_student_names = {s.student_name.strip().lower() for s in students} if has_target_filter else None
     target_student_map = {s.student_id: s for s in students} if has_target_filter else None
+    target_name_map = {s.student_name.strip().lower(): s for s in students} if has_target_filter else None
 
     # Generate calendar date list
     num_days = (end_date - start_date).days + 1
@@ -336,19 +343,33 @@ def generate_reference_schedule(
     is_october_2026 = (start_date.year == 2026 and start_date.month == 10 and end_date.year == 2026 and end_date.month == 10)
 
     if is_october_2026:
-        # MODE A: Exact reproduction from Excel cells
+        # MODE A: Exact reproduction from Excel cells / Authoritative October Schedule
         for d_obj in target_dates:
             d_str = d_obj.strftime("%Y-%m-%d")
             for cls_dict in engine.oct_exact_classes_by_date.get(d_str, []):
-                s_ids = cls_dict["student_ids"]
-                s_names = cls_dict["student_names"]
+                s_ids = list(cls_dict["student_ids"])
+                s_names = list(cls_dict["student_names"])
 
                 if has_target_filter:
-                    filtered_indices = [i for i, sid in enumerate(s_ids) if sid in target_student_ids]
+                    filtered_indices = [
+                        i for i, sid in enumerate(s_ids)
+                        if sid in target_student_ids or (i < len(s_names) and s_names[i].strip().lower() in target_student_names)
+                    ]
                     if not filtered_indices:
                         continue
-                    s_ids = [s_ids[i] for i in filtered_indices]
-                    s_names = [target_student_map[sid].student_name if sid in target_student_map else s_names[i] for sid in s_ids]
+                    remapped_sids = []
+                    for i in filtered_indices:
+                        sid = s_ids[i]
+                        sname = s_names[i] if i < len(s_names) else ""
+                        sname_clean = sname.strip().lower()
+                        if sid in target_student_ids:
+                            remapped_sids.append(sid)
+                        elif sname_clean in target_name_map:
+                            remapped_sids.append(target_name_map[sname_clean].student_id)
+                        else:
+                            remapped_sids.append(sid)
+                    s_ids = remapped_sids
+                    s_names = [s_names[i] for i in filtered_indices]
 
                 scheduled_classes.append(ScheduledClass(
                     class_id=cls_dict["class_id"],
@@ -448,18 +469,28 @@ def generate_reference_schedule(
                     primary_btype = "I"
 
                 cls_id = f"CLS_{date_str.replace('-', '')}_{t_str.replace(' ', '').replace(':', '')}_{tr_str}"
+                cls_warnings = []
+                c_name_final = tr_str
+                if not tr_str or tr_str in ["Unassigned", "Requires Assignment", "None", ""]:
+                    cls_warnings.append("Conflict Warning: Requires Assignment (Coach missing)")
+                    c_name_final = "Requires Assignment"
+
+                max_allowed = 8 if primary_btype == "G" else (3 if primary_btype == "L" else 1)
+                if len(c_info["student_ids"]) > max_allowed:
+                    cls_warnings.append(f"Conflict Warning: Subdivision exceeds capacity ({len(c_info['student_ids'])}/{max_allowed})")
+
                 scheduled_classes.append(ScheduledClass(
                     class_id=cls_id,
                     date=date_str,
                     day=day_name,
                     time_slot=t_str,
-                    coach_name=tr_str,
+                    coach_name=c_name_final,
                     batch_name=primary_batch,
                     student_level=primary_level,
                     batch_type=primary_btype,
                     student_ids=c_info["student_ids"],
                     student_names=c_info["student_names"],
-                    warnings=[],
+                    warnings=cls_warnings,
                     is_manual_override=False
                 ))
 
@@ -499,20 +530,29 @@ def generate_reference_schedule(
 
     # Calculate student accountability
     student_class_counts = defaultdict(int)
+    student_name_class_counts = defaultdict(int)
     for c in scheduled_classes:
         for sid in c.student_ids:
             student_class_counts[sid] += 1
+        for sname in c.student_names:
+            student_name_class_counts[sname.strip().lower()] += 1
 
     unscheduled_records: List[UnscheduledRecord] = []
 
     if has_target_filter:
         eval_students = students
         total_students_count = len(students)
-        scheduled_count = len([s for s in students if student_class_counts.get(s.student_id, 0) > 0])
+        scheduled_count = len([
+            s for s in students
+            if student_class_counts.get(s.student_id, 0) > 0
+            or student_name_class_counts.get(s.student_name.strip().lower(), 0) > 0
+        ])
         
         for s in students:
             sid = s.student_id
             sch_cnt = student_class_counts.get(sid, 0)
+            if sch_cnt == 0:
+                sch_cnt = student_name_class_counts.get(s.student_name.strip().lower(), 0)
             req_cnt = s.required_classes
             if sch_cnt < req_cnt:
                 rem = req_cnt - sch_cnt
@@ -531,12 +571,18 @@ def generate_reference_schedule(
                 ))
     else:
         total_students_count = len(engine.students_raw)
-        scheduled_count = len([s for s in engine.students_raw if student_class_counts.get(s["student_id"], 0) > 0])
+        scheduled_count = len([
+            s for s in engine.students_raw
+            if student_class_counts.get(s["student_id"], 0) > 0
+            or student_name_class_counts.get(s["student_name"].strip().lower(), 0) > 0
+        ])
         
         for s in engine.students_raw:
             sid = s["student_id"]
             sch_cnt = student_class_counts.get(sid, 0)
-            req_cnt = s.get("required_classes", 12)
+            if sch_cnt == 0:
+                sch_cnt = student_name_class_counts.get(s["student_name"].strip().lower(), 0)
+            req_cnt = s.get("required_classes", 8)
             if sch_cnt < req_cnt:
                 rem = req_cnt - sch_cnt
                 unscheduled_records.append(UnscheduledRecord(
@@ -555,7 +601,7 @@ def generate_reference_schedule(
 
     return ScheduleResult(
         schedule_id=schedule_id,
-        status="Draft",
+        status="Finalized" if is_october_2026 else "Draft",
         start_date=s_str,
         end_date=e_str,
         total_students_considered=total_students_count,

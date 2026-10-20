@@ -7,7 +7,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
     # 1. Coaches Data (Matching BRD Section 6 & Priorities)
     coaches_data = [
         {
-            "Coach Name": "Guruvanthana",
+            "Coach Name": "GURU",
             "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Early Intermediate 1",
             "Monthly Class Capacity": "60 - 90",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 2,
@@ -17,7 +17,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Dhaanush",
+            "Coach Name": "DHAANUSH",
             "Levels Handled": "Beginner 1, Beginner 2, Early Intermediate 1, Early Intermediate 2, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "70 - 78",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 0,
@@ -27,7 +27,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Arshath",
+            "Coach Name": "ARSHATH",
             "Levels Handled": "Early Intermediate 2, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "35 - 40",
             "Monday Max": 3, "Tuesday Max": 3, "Wednesday Max": 3, "Thursday Max": 3, "Friday Max": 3, "Saturday Max": 4, "Sunday Max": 2,
@@ -37,7 +37,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Saravanan",
+            "Coach Name": "SARAVANAN",
             "Levels Handled": "Beginner 2, Early Intermediate 1, Intermediate 1, Intermediate 2",
             "Monthly Class Capacity": "30 - 60",
             "Monday Max": 3, "Tuesday Max": 3, "Wednesday Max": 3, "Thursday Max": 3, "Friday Max": 3, "Saturday Max": 4, "Sunday Max": 0,
@@ -47,7 +47,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Bathrinath",
+            "Coach Name": "BATHRI",
             "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2",
             "Monthly Class Capacity": "60 - 90",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 2,
@@ -57,7 +57,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Abinaya",
+            "Coach Name": "ABINAYA",
             "Levels Handled": "Basic 1, Basic 2, Beginner 1",
             "Monthly Class Capacity": "30 - 60",
             "Monday Max": 3, "Tuesday Max": 3, "Wednesday Max": 3, "Thursday Max": 3, "Friday Max": 3, "Saturday Max": 4, "Sunday Max": 2,
@@ -67,7 +67,7 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Prakash",
+            "Coach Name": "PRAKASH",
             "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Early Intermediate 1, Early Intermediate 2, Intermediate 1, Intermediate 2, Advanced",
             "Monthly Class Capacity": "30 - 100",
             "Monday Max": 4, "Tuesday Max": 4, "Wednesday Max": 4, "Thursday Max": 4, "Friday Max": 4, "Saturday Max": 5, "Sunday Max": 2,
@@ -77,13 +77,23 @@ def generate_sample_excel(output_path: str = "sample_data/mighty_knight_template
             "Temporary Exceptions": ""
         },
         {
-            "Coach Name": "Manikandan",
+            "Coach Name": "MANIKANDAN",
             "Levels Handled": "Basic 1, Basic 2, Beginner 1",
             "Monthly Class Capacity": "16 - 20",
             "Monday Max": 2, "Tuesday Max": 2, "Wednesday Max": 2, "Thursday Max": 2, "Friday Max": 2, "Saturday Max": 3, "Sunday Max": 1,
             "Sunday Preference": "Available",
             "Preferred Timings": "Evening",
             "Special Comments": "Part-time Coach",
+            "Temporary Exceptions": ""
+        },
+        {
+            "Coach Name": "HEMA",
+            "Levels Handled": "Basic 1, Basic 2, Beginner 1, Beginner 2, Tournament",
+            "Monthly Class Capacity": "20 - 40",
+            "Monday Max": 2, "Tuesday Max": 2, "Wednesday Max": 2, "Thursday Max": 2, "Friday Max": 2, "Saturday Max": 3, "Sunday Max": 2,
+            "Sunday Preference": "Available",
+            "Preferred Timings": "Evening",
+            "Special Comments": "Tournament only",
             "Temporary Exceptions": ""
         }
     ]

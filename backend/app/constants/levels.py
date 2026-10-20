@@ -25,6 +25,20 @@ def normalize_batch_to_level(batch_str: str, student_id: Optional[str] = None) -
         return ("Beginner 1", True, "Batch name is empty or missing")
 
     b = str(batch_str).strip()
+    # Check if already in strict subdivision format e.g. GBN1-01, LB2-01, IEM2-01
+    m_sub = re.match(r'^[GLIgli]([A-Za-z0-9]+)-\d+$', b)
+    if m_sub:
+        code_upper = m_sub.group(1).upper()
+        code_to_lvl = {
+            "B1": "Basic 1", "B2": "Basic 2",
+            "BN1": "Beginner 1", "BN2": "Beginner 2",
+            "EM1": "Early Intermediate 1", "EM2": "Early Intermediate 2",
+            "IM1": "Intermediate 1", "IM2": "Intermediate 2",
+            "ADV": "Advanced"
+        }
+        if code_upper in code_to_lvl:
+            return (code_to_lvl[code_upper], False, None)
+
     # Strip leading prefix G, I, L (with optional dash or space)
     core = re.sub(r'^[GILgil][\s\-_]*', '', b).strip()
     core_clean = re.sub(r'\s+', ' ', core).lower()
@@ -50,19 +64,19 @@ def normalize_batch_to_level(batch_str: str, student_id: Optional[str] = None) -
         return ("Beginner 2", False, None)
 
     # 5. Early Intermediate 1
-    if re.search(r'^early\s*intermediate\s*1\b', core_clean) or core_clean == 'early intermediate1':
+    if re.search(r'^early\s*int[e]?rmediate\s*1', core_clean):
         return ("Early Intermediate 1", False, None)
 
     # 6. Early Intermediate 2
-    if re.search(r'^early\s*intermediate\s*2\b', core_clean) or core_clean == 'early intermediate2':
+    if re.search(r'^early\s*int[e]?rmediate\s*2', core_clean):
         return ("Early Intermediate 2", False, None)
 
     # 7. Intermediate 1
-    if re.search(r'^intermediate\s*1\b', core_clean) or core_clean == 'intermediate1':
+    if re.search(r'^int[e]?rmediate\s*1', core_clean):
         return ("Intermediate 1", False, None)
 
     # 8. Intermediate 2
-    if re.search(r'^intermediate\s*2\b', core_clean) or core_clean == 'intermediate2':
+    if re.search(r'^int[e]?rmediate\s*2', core_clean):
         return ("Intermediate 2", False, None)
 
     # 9. Advanced

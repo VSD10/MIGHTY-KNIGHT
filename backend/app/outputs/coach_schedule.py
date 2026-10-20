@@ -39,7 +39,7 @@ def generate_coach_schedule_text(result: ScheduleResult) -> str:
         lines.append("---------------------------------")
 
         for s in slots:
-            coaches_str = ", ".join(s.coaches)
+            coaches_str = ", ".join(c.upper() for c in s.coaches)
             lines.append(f"• *{s.time_slot}*: {coaches_str}")
 
     lines.append("")

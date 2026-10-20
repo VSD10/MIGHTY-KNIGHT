@@ -12,7 +12,7 @@ class BatchConfig(BaseModel):
 class SundayConfig(BaseModel):
     start_time: str = "09:00"
     max_end_time: str = "15:00"
-    excluded_tournament_coaches: List[str] = ["Dhaanush", "Saravanan"]
+    excluded_tournament_coaches: List[str] = ["DHAANUSH", "SARAVANAN"]
     excluded_tournament_levels: List[str] = ["Intermediate 1", "Intermediate 2", "Advanced"]
 
 class ConstraintRule(BaseModel):
@@ -30,14 +30,14 @@ def get_default_rules_registry() -> List[ConstraintRule]:
         ConstraintRule(
             rule_id="RULE_BATCH_CAPACITY",
             name="Group & Batch Size Capacity Bounds",
-            description="Enforces min and max student limits per batch type (Group: 4-10, Limited: 1-4, Individual: 1).",
+            description="Enforces min and max student limits per batch type (Group: 4-8, Limited: 1-3, Individual: 1).",
             category="Batch Capacity",
             constraint_type="HARD_CONSTRAINT",
             enabled=True,
             priority=1,
             params={
-                "g_min": 4, "g_max": 10,
-                "l_min": 1, "l_max": 4,
+                "g_min": 4, "g_max": 8,
+                "l_min": 1, "l_max": 3,
                 "i_min": 1, "i_max": 1
             }
         ),
@@ -63,7 +63,7 @@ def get_default_rules_registry() -> List[ConstraintRule]:
             priority=1,
             params={
                 "max_end_time": "15:00",
-                "excluded_tournament_coaches": ["Dhaanush", "Saravanan"],
+                "excluded_tournament_coaches": ["DHAANUSH", "SARAVANAN"],
                 "excluded_tournament_levels": ["Intermediate 1", "Intermediate 2", "Advanced"]
             }
         ),
@@ -77,15 +77,15 @@ def get_default_rules_registry() -> List[ConstraintRule]:
             priority=1,
             params={
                 "coach_priority": {
-                    "Basic 1": ["Bathrinath", "Abinaya", "Manikandan", "Prakash", "Guruvanthana"],
-                    "Basic 2": ["Bathrinath", "Abinaya", "Manikandan", "Prakash", "Guruvanthana"],
-                    "Beginner 1": ["Bathrinath", "Guruvanthana", "Dhaanush", "Manikandan", "Abinaya", "Prakash"],
-                    "Beginner 2": ["Guruvanthana", "Dhaanush", "Bathrinath", "Prakash", "Saravanan"],
-                    "Early Intermediate 1": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
-                    "Early Intermediate 2": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
-                    "Intermediate 1": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
-                    "Intermediate 2": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
-                    "Advanced": ["Arshath", "Dhaanush", "Prakash", "Saravanan"]
+                    "Basic 1": ["BATHRI", "ABINAYA", "MANIKANDAN", "PRAKASH", "GURU"],
+                    "Basic 2": ["BATHRI", "ABINAYA", "MANIKANDAN", "PRAKASH", "GURU"],
+                    "Beginner 1": ["BATHRI", "GURU", "DHAANUSH", "MANIKANDAN", "ABINAYA", "PRAKASH"],
+                    "Beginner 2": ["GURU", "DHAANUSH", "BATHRI", "PRAKASH", "SARAVANAN"],
+                    "Early Intermediate 1": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
+                    "Early Intermediate 2": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
+                    "Intermediate 1": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
+                    "Intermediate 2": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
+                    "Advanced": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"]
                 }
             }
         ),
@@ -133,8 +133,8 @@ def get_default_rules_registry() -> List[ConstraintRule]:
             enabled=True,
             priority=1,
             params={
-                "group_max": 10, "group_min_behavior": "Soft Warning (never leave students unscheduled)",
-                "limited_max": 4, "individual_cap": 1
+                "group_max": 8, "group_min_behavior": "Soft Warning (never leave students unscheduled)",
+                "limited_max": 3, "individual_cap": 1
             }
         ),
         ConstraintRule(
@@ -203,20 +203,20 @@ class SystemConfig(BaseModel):
     }
 
     coach_priority: Dict[str, List[str]] = {
-        "Basic 1": ["Bathrinath", "Abinaya", "Manikandan", "Prakash", "Guruvanthana"],
-        "Basic 2": ["Bathrinath", "Abinaya", "Manikandan", "Prakash", "Guruvanthana"],
-        "Beginner 1": ["Bathrinath", "Guruvanthana", "Dhaanush", "Manikandan", "Abinaya", "Prakash"],
-        "Beginner 2": ["Guruvanthana", "Dhaanush", "Bathrinath", "Prakash", "Saravanan"],
-        "Early Intermediate 1": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
-        "Early Intermediate 2": ["Dhaanush", "Saravanan", "Arshath", "Prakash", "Guruvanthana"],
-        "Intermediate 1": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
-        "Intermediate 2": ["Arshath", "Dhaanush", "Prakash", "Saravanan"],
-        "Advanced": ["Arshath", "Dhaanush", "Prakash", "Saravanan"]
+        "Basic 1": ["BATHRI", "ABINAYA", "MANIKANDAN", "PRAKASH", "GURU"],
+        "Basic 2": ["BATHRI", "ABINAYA", "MANIKANDAN", "PRAKASH", "GURU"],
+        "Beginner 1": ["BATHRI", "GURU", "DHAANUSH", "MANIKANDAN", "ABINAYA", "PRAKASH"],
+        "Beginner 2": ["GURU", "DHAANUSH", "BATHRI", "PRAKASH", "SARAVANAN"],
+        "Early Intermediate 1": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
+        "Early Intermediate 2": ["DHAANUSH", "SARAVANAN", "ARSHATH", "PRAKASH", "GURU"],
+        "Intermediate 1": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
+        "Intermediate 2": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"],
+        "Advanced": ["ARSHATH", "DHAANUSH", "PRAKASH", "SARAVANAN"]
     }
 
     batch_types: Dict[str, BatchConfig] = {
-        "G": BatchConfig(symbol="G", name="Group Batch", min_capacity=4, max_capacity=10),
-        "L": BatchConfig(symbol="L", name="Limited Students Batch", min_capacity=1, max_capacity=4),
+        "G": BatchConfig(symbol="G", name="Group Batch", min_capacity=4, max_capacity=8),
+        "L": BatchConfig(symbol="L", name="Limited Students Batch", min_capacity=1, max_capacity=3),
         "I": BatchConfig(symbol="I", name="Individual Batch", min_capacity=1, max_capacity=1)
     }
 
@@ -349,3 +349,4 @@ def save_config(config: SystemConfig, config_path: str):
 # Global default configuration instance
 DEFAULT_CONFIG = SystemConfig()
 DEFAULT_CONFIG.sync_to_rules_registry()
+CURRENT_CONFIG = DEFAULT_CONFIG

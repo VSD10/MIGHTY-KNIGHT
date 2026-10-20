@@ -11,7 +11,7 @@ def test_accountability_rule_no_silent_drops():
         StudentModel(student_id="S3", student_name="Student 3", student_level="Beginner 1", batch_type="L", required_classes=8)
     ]
     coaches = [
-        CoachModel(coach_name="Bathrinath", levels_handled=["Basic 1"], mon_max=4)
+        CoachModel(coach_name="BATHRI", levels_handled=["Basic 1"], mon_max=4)
     ]
 
     # Run scheduler for a single date

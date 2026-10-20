@@ -45,3 +45,10 @@ frontend/dist/
 
 # System generated artifacts
 .system_generated/
+outputs/
+backend/test_chrome*
+backend/dharmasastha_native.png
+/app/
+*.db-journal
+*.db-wal
+*.db-shm

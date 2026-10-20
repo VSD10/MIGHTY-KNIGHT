@@ -178,7 +178,7 @@ def run_batch_based_scheduler(
             b_name = b.get("batch_name", b.get("batch_id", "Batch"))
             lvl, _, _ = normalize_batch_to_level(b_name)
             b_type = b.get("batch_type", "G")
-            cap_max = b.get("capacity_max") or b.get("max_capacity") or (1 if b_type == "I" else (4 if b_type == "L" else 10))
+            cap_max = b.get("capacity_max") or b.get("max_capacity") or (1 if b_type == "I" else (3 if b_type == "L" else 8))
 
             # Enrolled students
             s_ids = list(b.get("student_ids", []))

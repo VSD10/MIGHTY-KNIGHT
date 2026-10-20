@@ -15,11 +15,122 @@ import {
   FileCheck,
   Target,
   Workflow,
-  Cpu
+  Cpu,
+  Sliders,
+  Save,
+  RefreshCw,
+  Zap,
+  CheckCircle
 } from 'lucide-react';
+import { getEngineSettings, updateEngineSettings } from '../services/api';
 
-export default function SettingsView({ config }) {
+export default function SettingsView({ config, onSaveConfigSuccess }) {
   const [activeSection, setActiveSection] = useState('process');
+  
+  // Live Engine Tuning State
+  const [liveSettings, setLiveSettings] = useState(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [latencyBadge, setLatencyBadge] = useState(null);
+  const [settingsToast, setSettingsToast] = useState(null);
+
+  // Capacities
+  const [gMax, setGMax] = useState(8);
+  const [lMax, setLMax] = useState(3);
+  const [iMax, setIMax] = useState(1);
+  const [tournMax, setTournMax] = useState(20);
+
+  // Weights
+  const [fillGain, setFillGain] = useState(30);
+  const [levelPurity, setLevelPurity] = useState(10);
+  const [patternMatch, setPatternMatch] = useState(8);
+  const [coachPriority, setCoachPriority] = useState(6);
+  const [coachContinuity, setCoachContinuity] = useState(1);
+  const [weeklyPacing, setWeeklyPacing] = useState(1);
+  const [timePreference, setTimePreference] = useState(4);
+  const [workloadBalance, setWorkloadBalance] = useState(3);
+
+  // Sunday
+  const [sundayMaxTime, setSundayMaxTime] = useState('15:00');
+
+  useEffect(() => {
+    fetchLiveEngineSettings();
+  }, []);
+
+  const fetchLiveEngineSettings = async () => {
+    try {
+      const res = await getEngineSettings();
+      if (res && res.engine_settings) {
+        setLiveSettings(res.engine_settings);
+        const caps = res.engine_settings.capacities || {};
+        if (caps.G?.max) setGMax(caps.G.max);
+        if (caps.L?.max) setLMax(caps.L.max);
+        if (caps.I?.max) setIMax(caps.I.max);
+        if (caps.Tournament?.max) setTournMax(caps.Tournament.max);
+
+        const w = res.engine_settings.weights || {};
+        if (w.fill_gain !== undefined) setFillGain(w.fill_gain);
+        if (w.level_purity !== undefined) setLevelPurity(w.level_purity);
+        if (w.pattern_match !== undefined) setPatternMatch(w.pattern_match);
+        if (w.coach_priority !== undefined) setCoachPriority(w.coach_priority);
+        if (w.coach_continuity !== undefined) setCoachContinuity(w.coach_continuity);
+        if (w.weekly_pacing !== undefined) setWeeklyPacing(w.weekly_pacing);
+        if (w.time_preference !== undefined) setTimePreference(w.time_preference);
+        if (w.workload_balance !== undefined) setWorkloadBalance(w.workload_balance);
+      }
+      if (res && res.system_config?.sunday_rules?.max_end_time) {
+        setSundayMaxTime(res.system_config.sunday_rules.max_end_time);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch live engine settings:', err);
+    }
+  };
+
+  const handleSaveEngineSettings = async () => {
+    setSavingSettings(true);
+    setSettingsToast(null);
+    const startT = performance.now();
+    try {
+      const payload = {
+        capacities: {
+          G: { min: 1, max: Number(gMax) },
+          L: { min: 1, max: Number(lMax) },
+          I: { min: 1, max: Number(iMax) },
+          Tournament: { min: 2, max: Number(tournMax) }
+        },
+        weights: {
+          fill_gain: Number(fillGain),
+          level_purity: Number(levelPurity),
+          pattern_match: Number(patternMatch),
+          coach_priority: Number(coachPriority),
+          coach_continuity: Number(coachContinuity),
+          weekly_pacing: Number(weeklyPacing),
+          time_preference: Number(timePreference),
+          workload_balance: Number(workloadBalance),
+          day_spread: 1
+        }
+      };
+
+      const res = await updateEngineSettings(payload);
+      const latency = ((performance.now() - startT) / 1000).toFixed(2);
+      setLatencyBadge(`${latency}s`);
+      setSettingsToast({
+        type: 'success',
+        text: `Engine Settings successfully updated and persisted to SQLite database in ${latency}s!`
+      });
+      setTimeout(() => setSettingsToast(null), 5000);
+
+      if (onSaveConfigSuccess) {
+        onSaveConfigSuccess(res.engine_settings);
+      }
+    } catch (err) {
+      setSettingsToast({
+        type: 'error',
+        text: `Failed to save engine settings: ${err?.response?.data?.detail || err?.message || 'Server error'}`
+      });
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   // 1. The 5 Core Dynamic Scheduling Stages
   const schedulingStages = [
@@ -165,7 +276,7 @@ export default function SettingsView({ config }) {
     {
       name: 'Batch Capacity Maximum Ceilings',
       category: 'Room & Class Size',
-      description: 'Group classes hold at most 10 students; Limited classes hold at most 4 students; Individual classes hold exactly 1 student.',
+      description: 'Group classes hold at most 8 students; Limited classes hold at most 3 students; Individual classes hold exactly 1 student.',
       enforcement: 'Hard Capacity Limit'
     },
     {
@@ -177,7 +288,7 @@ export default function SettingsView({ config }) {
     {
       name: 'Sunday Tournament & Operating Ceiling',
       category: 'Sunday Policy',
-      description: 'All Sunday sessions must end by 3:00 PM (15:00). Excludes designated tournament coaches (Dhaanush, Saravanan) and Intermediate levels.',
+      description: 'All Sunday sessions must end by 3:00 PM (15:00). Excludes designated tournament coaches (DHAANUSH, SARAVANAN) and Intermediate levels.',
       enforcement: 'Time Window & Trainer Filter'
     },
     {
@@ -224,20 +335,20 @@ export default function SettingsView({ config }) {
 
   // Default coach priorities from config or fallback
   const coachPriorities = config?.coach_priority || {
-    'Basic 1': ['Bathrinath', 'Abinaya', 'Manikandan', 'Prakash', 'Guruvanthana'],
-    'Basic 2': ['Bathrinath', 'Abinaya', 'Manikandan', 'Prakash', 'Guruvanthana'],
-    'Beginner 1': ['Bathrinath', 'Guruvanthana', 'Dhaanush', 'Manikandan', 'Abinaya', 'Prakash'],
-    'Beginner 2': ['Guruvanthana', 'Dhaanush', 'Bathrinath', 'Prakash', 'Saravanan'],
-    'Early Intermediate 1': ['Dhaanush', 'Saravanan', 'Arshath', 'Prakash', 'Guruvanthana'],
-    'Early Intermediate 2': ['Dhaanush', 'Saravanan', 'Arshath', 'Prakash', 'Guruvanthana'],
-    'Intermediate 1': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan'],
-    'Intermediate 2': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan'],
-    'Advanced': ['Arshath', 'Dhaanush', 'Prakash', 'Saravanan']
+    'Basic 1': ['BATHRI', 'ABINAYA', 'MANIKANDAN', 'PRAKASH', 'GURU'],
+    'Basic 2': ['BATHRI', 'ABINAYA', 'MANIKANDAN', 'PRAKASH', 'GURU'],
+    'Beginner 1': ['BATHRI', 'GURU', 'DHAANUSH', 'MANIKANDAN', 'ABINAYA', 'PRAKASH'],
+    'Beginner 2': ['GURU', 'DHAANUSH', 'BATHRI', 'PRAKASH', 'SARAVANAN'],
+    'Early Intermediate 1': ['DHAANUSH', 'SARAVANAN', 'ARSHATH', 'PRAKASH', 'GURU'],
+    'Early Intermediate 2': ['DHAANUSH', 'SARAVANAN', 'ARSHATH', 'PRAKASH', 'GURU'],
+    'Intermediate 1': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN'],
+    'Intermediate 2': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN'],
+    'Advanced': ['ARSHATH', 'DHAANUSH', 'PRAKASH', 'SARAVANAN']
   };
 
   const sundayRules = config?.sunday_rules || {
     max_end_time: '15:00',
-    excluded_tournament_coaches: ['Dhaanush', 'Saravanan'],
+    excluded_tournament_coaches: ['DHAANUSH', 'SARAVANAN'],
     excluded_tournament_levels: ['Intermediate 1', 'Intermediate 2', 'Advanced']
   };
 
@@ -393,6 +504,26 @@ export default function SettingsView({ config }) {
           }}
         >
           <Clock size={16} /> 4. Operating Hours & Capacities
+        </button>
+
+        <button
+          onClick={() => setActiveSection('tuning')}
+          style={{
+            background: activeSection === 'tuning' ? 'var(--accent-gold)' : 'var(--bg-card)',
+            color: activeSection === 'tuning' ? '#000' : 'var(--text-primary)',
+            border: '1px solid ' + (activeSection === 'tuning' ? 'var(--accent-gold)' : 'var(--border-color)'),
+            borderRadius: 'var(--radius-sm)',
+            padding: '8px 16px',
+            fontSize: '0.825rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Sliders size={16} /> 5. Live Engine Parameters & Toggles
         </button>
       </div>
 
@@ -760,7 +891,7 @@ export default function SettingsView({ config }) {
               <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>TOURNAMENT COACH EXCLUSIONS</span>
                 <strong style={{ fontSize: '0.95rem', color: '#fff' }}>
-                  {sundayRules.excluded_tournament_coaches?.join(', ') || 'Dhaanush, Saravanan'}
+                  {sundayRules.excluded_tournament_coaches?.join(', ') || 'DHAANUSH, SARAVANAN'}
                 </strong>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
                   Excluded from Sunday regular classes to arbitrate tournament matches.
@@ -834,6 +965,248 @@ export default function SettingsView({ config }) {
                     </span>
                   ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 5: LIVE ENGINE PARAMETERS & TOGGLES */}
+      {activeSection === 'tuning' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {settingsToast && (
+            <div style={{
+              padding: '12px 18px',
+              borderRadius: 'var(--radius-md)',
+              background: settingsToast.type === 'success' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+              border: `1px solid ${settingsToast.type === 'success' ? '#10b981' : '#ef4444'}`,
+              color: settingsToast.type === 'success' ? '#34d399' : '#f87171',
+              fontSize: '0.875rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <span>{settingsToast.text}</span>
+              {latencyBadge && (
+                <span className="badge badge-success" style={{ fontSize: '0.75rem' }}>
+                  ⚡ {latencyBadge}
+                </span>
+              )}
+            </div>
+          )}
+
+          <div style={{
+            background: 'var(--bg-card)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-color)',
+            padding: '24px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sliders size={20} style={{ color: 'var(--accent-gold)' }} />
+                  Live Engine Tuning & Configuration (SQLite Persisted)
+                </h3>
+                <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginTop: '4px', margin: 0 }}>
+                  Adjust scheduling engine capacities, objective weights, and operational constraints. All changes persist permanently to the SQLite database and broadcast across all connected views in real time.
+                </p>
+              </div>
+
+              <button
+                onClick={handleSaveEngineSettings}
+                disabled={savingSettings}
+                className="btn btn-primary"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 20px',
+                  fontWeight: 800,
+                  fontSize: '0.875rem'
+                }}
+              >
+                {savingSettings ? <RefreshCw size={16} className="spin" /> : <Save size={16} />}
+                {savingSettings ? 'Saving to Database...' : 'Save & Persist Engine Settings'}
+              </button>
+            </div>
+
+            {/* Capacities */}
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '12px' }}>
+              1. Batch Maximum Capacities
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  GROUP BATCH (G) MAX CAPACITY
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={gMax}
+                  onChange={e => setGMax(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 700 }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  LIMITED BATCH (L) MAX CAPACITY
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={lMax}
+                  onChange={e => setLMax(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 700 }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  INDIVIDUAL BATCH (I) CAPACITY
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="2"
+                  value={iMax}
+                  onChange={e => setIMax(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 700 }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  TOURNAMENT BATCH MAX CAPACITY
+                </label>
+                <input
+                  type="number"
+                  min="2"
+                  max="50"
+                  value={tournMax}
+                  onChange={e => setTournMax(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 700 }}
+                />
+              </div>
+            </div>
+
+            {/* Objective Scoring Weights */}
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '12px' }}>
+              2. Objective Scoring Weights (Deterministic Engine Tuning)
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1' }}>FILL GAIN WEIGHT</label>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-gold)' }}>{fillGain}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={fillGain}
+                  onChange={e => setFillGain(e.target.value)}
+                  style={{ width: '100%', accentColor: 'var(--accent-gold)' }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1' }}>LEVEL PURITY WEIGHT</label>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-gold)' }}>{levelPurity}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="50"
+                  value={levelPurity}
+                  onChange={e => setLevelPurity(e.target.value)}
+                  style={{ width: '100%', accentColor: 'var(--accent-gold)' }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1' }}>COACH PRIORITY WEIGHT</label>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-gold)' }}>{coachPriority}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  value={coachPriority}
+                  onChange={e => setCoachPriority(e.target.value)}
+                  style={{ width: '100%', accentColor: 'var(--accent-gold)' }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1' }}>TIME PREFERENCE WEIGHT</label>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-gold)' }}>{timePreference}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="20"
+                  value={timePreference}
+                  onChange={e => setTimePreference(e.target.value)}
+                  style={{ width: '100%', accentColor: 'var(--accent-gold)' }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1' }}>WORKLOAD BALANCE WEIGHT</label>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-gold)' }}>{workloadBalance}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="20"
+                  value={workloadBalance}
+                  onChange={e => setWorkloadBalance(e.target.value)}
+                  style={{ width: '100%', accentColor: 'var(--accent-gold)' }}
+                />
+              </div>
+
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1' }}>PATTERN MATCH WEIGHT</label>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-gold)' }}>{patternMatch}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="30"
+                  value={patternMatch}
+                  onChange={e => setPatternMatch(e.target.value)}
+                  style={{ width: '100%', accentColor: 'var(--accent-gold)' }}
+                />
+              </div>
+            </div>
+
+            {/* Policy Toggles */}
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--accent-gold)', marginBottom: '12px' }}>
+              3. Operational Policies & Cutoffs
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', display: 'block', marginBottom: '6px' }}>
+                  SUNDAY TOURNAMENT CEILING CUTOFF
+                </label>
+                <input
+                  type="time"
+                  value={sundayMaxTime}
+                  onChange={e => setSundayMaxTime(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#fff', fontWeight: 700 }}
+                />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  Hard barrier: No regular class may extend past this hour on Sundays.
+                </span>
               </div>
             </div>
           </div>

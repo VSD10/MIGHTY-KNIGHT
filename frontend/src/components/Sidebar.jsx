@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Layers, ShieldAlert, BarChart3, GraduationCap, Users, Play, FileSpreadsheet, CheckCircle, Clock, Sparkles, HardDrive, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MessageSquare, Layers, ShieldAlert, BarChart3, GraduationCap, Users, Play, FileSpreadsheet, CheckCircle, Clock, Sparkles, HardDrive, Database, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function Sidebar({
   activeTab,
@@ -341,6 +341,31 @@ export default function Sidebar({
           >
             <Users size={16} style={{ color: activeTab === 'masterData' ? '#a855f7' : 'inherit' }} />
             {!isCollapsed && <span>Master Data Hub</span>}
+          </button>
+
+          {/* Absolute Schedule Space Tab (Part E - Placed next to Master Data Hub) */}
+          <button
+            onClick={() => setActiveTab('absoluteSchedule')}
+            title={isCollapsed ? "Absolute Schedule Space" : ""}
+            style={{
+              width: '100%',
+              padding: isCollapsed ? '10px 0' : '9px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: activeTab === 'absoluteSchedule' ? '1px solid #10b981' : '1px solid transparent',
+              background: activeTab === 'absoluteSchedule' ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.25) 100%)' : 'transparent',
+              color: activeTab === 'absoluteSchedule' ? '#fff' : 'var(--text-secondary)',
+              fontWeight: activeTab === 'absoluteSchedule' ? 800 : 600,
+              fontSize: '0.825rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              gap: '10px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <Database size={16} style={{ color: activeTab === 'absoluteSchedule' ? '#10b981' : 'inherit' }} />
+            {!isCollapsed && <span>Absolute Schedule</span>}
           </button>
         </div>
       </div>

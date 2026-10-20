@@ -25,6 +25,13 @@ class CoachModel(BaseModel):
     special_comments: Optional[str] = Field("", description="Special comments")
     temporary_exceptions: Optional[str] = Field("", description="Temporary exceptions")
 
+    # F1 Trainer fields
+    aliases: List[str] = Field(default_factory=list, description="Coach aliases for matching")
+    qualified_levels_priority: Dict[str, int] = Field(default_factory=dict, description="Per-level 1-indexed priority")
+    availability: Dict[str, Any] = Field(default_factory=dict, description="Multi-window availability per weekday")
+    is_flex: bool = Field(False, description="Flex flag (Bathrinath, Prakash, Dhaanush)")
+    tournament_role: str = Field("Regular + Tournament", description="Tournament role: Regular + Tournament | Tournament only | Last-resort tier | Excluded")
+
     def get_daily_max(self, day_name: str) -> int:
         day_map = {
             "Monday": self.mon_max,

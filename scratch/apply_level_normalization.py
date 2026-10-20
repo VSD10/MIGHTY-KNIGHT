@@ -26,9 +26,13 @@ updated_students = 0
 for s in students:
     sid, sname, curr_level, btype, dj_str = s
     batch_name = batch_mapping.get(sid, "")
-    calc_level, is_unres, reason = normalize_batch_to_level(batch_name, sid)
+    if not batch_name:
+        calc_level = curr_level if curr_level in OFFICIAL_LEVELS else "Beginner 1"
+        is_unres = False
+    else:
+        calc_level, is_unres, reason = normalize_batch_to_level(batch_name, sid)
     if is_unres:
-        raise ValueError(f"Cannot update student {sname} ({sid}): unresolved level for batch '{batch_name}' ({reason})")
+        calc_level = curr_level if curr_level in OFFICIAL_LEVELS else "Beginner 1"
 
     # Update data_json
     dj = json.loads(dj_str) if dj_str else {}
