@@ -155,6 +155,7 @@ def startup_event():
     log_db_status("STARTUP")
 
 @app.get("/api/health")
+@app.get("/health")
 def health_check():
     return {"status": "ok", "app": "Mighty Knight Scheduling Engine"}
 
@@ -2915,7 +2916,36 @@ def get_engine_task_detail_api(task_id: str):
 from fastapi.staticfiles import StaticFiles
 
 _dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
-if os.path.exists(_dist_path):
-    app.mount("/", StaticFiles(directory=_dist_path, html=True), name="static")
+_assets_path = os.path.join(_dist_path, "assets")
+
+if os.path.exists(_assets_path):
+    app.mount("/assets", StaticFiles(directory=_assets_path), name="frontend-assets")
+
+@app.get("/")
+async def serve_spa_root():
+    if os.path.exists(_dist_path):
+        index_file = os.path.join(_dist_path, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+    return {"message": "Mighty Knight Scheduling Engine API is running"}
+
+@app.get("/{full_path:path}")
+async def serve_spa_fallback(full_path: str):
+    # Never intercept API calls
+    if full_path.startswith("api/") or full_path == "api":
+        raise HTTPException(status_code=404, detail="API route not found")
+
+    if os.path.exists(_dist_path):
+        # Static file check (e.g. favicon, logo, manifest)
+        target_file = os.path.join(_dist_path, full_path)
+        if os.path.isfile(target_file):
+            return FileResponse(target_file)
+        
+        # Client-side SPA routing fallback
+        index_file = os.path.join(_dist_path, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+
+    raise HTTPException(status_code=404, detail="Resource not found")
 
 

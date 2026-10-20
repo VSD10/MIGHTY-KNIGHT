@@ -48,7 +48,7 @@ frontend/dist/
 outputs/
 backend/test_chrome*
 backend/dharmasastha_native.png
-app/
+/app/
 *.db-journal
 *.db-wal
 *.db-shm

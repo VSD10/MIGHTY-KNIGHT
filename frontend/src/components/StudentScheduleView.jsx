@@ -190,9 +190,7 @@ export default function StudentScheduleView({ studentScheduleData, detailedClass
             const classesList = student.classes || (detailedClasses || []).filter(c => (c.student_ids || []).includes(sid));
 
             // .ics calendar link
-            const icsUrl = scheduleId
-              ? `/api/schedule/${scheduleId}/student/${encodeURIComponent(sid)}/export-ics`
-              : `/api/schedule/ACTIVE_LATEST/student/${encodeURIComponent(sid)}/export-ics`;
+            const icsUrl = getStudentIcsUrl(scheduleId || 'ACTIVE_LATEST', sid);
 
             return (
               <div

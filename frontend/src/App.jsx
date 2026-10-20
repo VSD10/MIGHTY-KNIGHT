@@ -12,7 +12,7 @@ import SettingsView from './components/SettingsView';
 import ManualEditModal from './components/ManualEditModal';
 import DailySchedulePlanner from './components/DailySchedulePlanner';
 import AbsoluteScheduleView from './components/AbsoluteScheduleView';
-import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent } from './services/api';
+import { runSchedule, getOutput1, getOutput2, getOutput3, getOutput5, updateScheduleStatus, getActiveSchedule, getDataSummary, getConfig, getMasterStudents, getMasterBatches, saveMasterStudent, API_BASE_URL } from './services/api';
 import { getCustomStudentsLocal, getDeletedStudentsLocal, getDeletedClassesLocal, trackDeletedClassLocal } from './utils/storageSync';
 
 const getCurrentMonthBounds = () => {
@@ -66,7 +66,7 @@ export default function App() {
   useEffect(() => {
     let eventSource;
     try {
-      eventSource = new EventSource('/api/events/stream');
+      eventSource = new EventSource(`${API_BASE_URL}/events/stream`);
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
