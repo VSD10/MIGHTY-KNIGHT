@@ -6,7 +6,12 @@ backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ba
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
-from app.main import app
+
+try:
+    from app.main import app
+except ImportError:
+    from backend.app.main import app  # type: ignore
 
 # Vercel serverless entrypoint
 handler = app
+

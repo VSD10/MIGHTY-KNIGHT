@@ -1,5 +1,20 @@
 import React, { useState } from 'react';
-import { Copy, Check, Calendar, AlertCircle, CheckCircle, Users, Layers, Trophy } from 'lucide-react';
+import { Copy, Check, Calendar, AlertCircle, CheckCircle, Users, Layers, Trophy, X } from 'lucide-react';
+
+const formatDisplayDate = (dateStr) => {
+  if (!dateStr) return '';
+  try {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      return `${day} ${months[monthIdx]} ${year}`;
+    }
+  } catch (e) {}
+  return dateStr;
+};
 
 const getTimeSlotSortMinutes = (timeSlotStr) => {
   if (!timeSlotStr) return 0;
@@ -19,6 +34,8 @@ const getTimeSlotSortMinutes = (timeSlotStr) => {
 
 export default function CoachScheduleView({ coachScheduleData, onRunScheduler, loading }) {
   const [copied, setCopied] = useState(false);
+  const [copiedDate, setCopiedDate] = useState(null);
+  const [dayCopyToast, setDayCopyToast] = useState(null);
   const [hideCompensationMarkers, setHideCompensationMarkers] = useState(false);
 
   if (!coachScheduleData || !coachScheduleData.coach_slots) {
@@ -38,12 +55,47 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
     let text = coachScheduleData.whatsapp_plain_text || '';
     if (hideCompensationMarkers) {
       // Strip circled ⓒ markers for clean parent/trainer communication if desired
-      text = text.replace(/ⓒ/g, '').replace(/  +/g, ' ');
+      text = text.replace(/ⓒ/g, '').replace(/\[ⓒ\]/g, '').replace(/  +/g, ' ');
     }
     if (text) {
       navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
+    }
+  };
+
+  const handleCopyDayWhatsApp = (dateStr, group) => {
+    const sorted = [...group.slots].sort(
+      (a, b) => getTimeSlotSortMinutes(a.time_slot) - getTimeSlotSortMinutes(b.time_slot)
+    );
+    const formattedDate = formatDisplayDate(dateStr);
+    const lines = [
+      `📅 *${group.day}, ${formattedDate}*`,
+      `───────────────────────`
+    ];
+    sorted.forEach(s => {
+      const tournTag = s.is_tournament ? " (Tournament)" : "";
+      const compTag = (!hideCompensationMarkers && s.has_compensation) ? " ⓒ" : "";
+      const coachesStr = (s.coaches || []).join(", ");
+      lines.push(`⏰ *${s.time_slot}* — ${coachesStr}${tournTag}${compTag}`);
+
+      if (s.batches && s.batches.length > 0) {
+        s.batches.forEach(b => {
+          let bSummary = b.summary || '';
+          if (hideCompensationMarkers) {
+            bSummary = bSummary.replace(/\[ⓒ\]/g, '').replace(/ⓒ/g, '').trim();
+          }
+          lines.push(`   • ${bSummary}`);
+        });
+      }
+    });
+    const text = lines.join("\n");
+    if (text) {
+      navigator.clipboard.writeText(text);
+      setCopiedDate(dateStr);
+      setDayCopyToast(`${group.day} Schedule Copied!`);
+      setTimeout(() => setCopiedDate(null), 3000);
+      setTimeout(() => setDayCopyToast(null), 3500);
     }
   };
 
@@ -58,6 +110,33 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
 
   return (
     <div className="glass-panel" style={{ padding: '24px' }}>
+      {/* Toast Notification */}
+      {dayCopyToast && (
+        <div
+          style={{
+            marginBottom: '16px',
+            padding: '12px 18px',
+            borderRadius: 'var(--radius-md)',
+            background: 'rgba(16, 185, 129, 0.2)',
+            border: '1.5px solid #10b981',
+            color: '#34d399',
+            fontSize: '0.875rem',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)'
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle size={18} /> {dayCopyToast}
+          </span>
+          <button onClick={() => setDayCopyToast(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* 1. Header bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
         <div>
@@ -170,11 +249,40 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
             );
             return (
               <div key={dateStr} className="glass-card" style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-                  <Calendar size={18} style={{ color: 'var(--accent-gold)' }} />
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#fff' }}>
-                    {group.day}, {dateStr}
-                  </h3>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Calendar size={18} style={{ color: 'var(--accent-gold)' }} />
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                      {group.day}, {formatDisplayDate(dateStr)}
+                    </h3>
+                    <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
+                      • {sortedSlots.length} active slot{sortedSlots.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <button
+                    id={`copy-day-${dateStr}`}
+                    onClick={() => handleCopyDayWhatsApp(dateStr, group)}
+                    title={`Copy ${group.day}'s complete schedule for WhatsApp`}
+                    className="btn btn-secondary"
+                    style={{
+                      padding: '5px 14px',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      background: copiedDate === dateStr ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                      borderColor: copiedDate === dateStr ? '#10b981' : 'var(--accent-gold)',
+                      color: copiedDate === dateStr ? '#34d399' : 'var(--accent-gold)',
+                      borderRadius: 'var(--radius-md)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      boxShadow: copiedDate === dateStr ? '0 0 10px rgba(16, 185, 129, 0.3)' : 'none'
+                    }}
+                  >
+                    {copiedDate === dateStr ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
+                    {copiedDate === dateStr ? `${group.day} Copied!` : 'Copy'}
+                  </button>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>

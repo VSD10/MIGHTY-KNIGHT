@@ -349,3 +349,4 @@ def save_config(config: SystemConfig, config_path: str):
 # Global default configuration instance
 DEFAULT_CONFIG = SystemConfig()
 DEFAULT_CONFIG.sync_to_rules_registry()
+CURRENT_CONFIG = DEFAULT_CONFIG

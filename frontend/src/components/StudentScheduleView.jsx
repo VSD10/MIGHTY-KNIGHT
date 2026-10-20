@@ -1,60 +1,77 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Download, Calendar, ShieldCheck, Sparkles, FolderArchive, Clock, BookOpen, Copy, Check, Filter, Eye, CheckCircle2 } from 'lucide-react';
-import JSZip from 'jszip';
+import React, { useState, useMemo } from 'react';
+import {
+  Search, Download, Calendar, ShieldCheck, Sparkles, Clock, BookOpen,
+  Copy, Check, Filter, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, UserCheck, Lock
+} from 'lucide-react';
 import { getStudentIcsUrl } from '../services/api';
-import { STUDENT_DATABASE, normalizeBatchLevel } from '../constants/studentDatabase';
 
-export default function StudentScheduleView({ studentScheduleData, detailedClasses, scheduleId }) {
+const LEVEL_LIST = [
+  'ALL',
+  'Basic 1',
+  'Basic 2',
+  'Beginner 1',
+  'Beginner 2',
+  'Early Intermediate 1',
+  'Early Intermediate 2',
+  'Intermediate 1',
+  'Intermediate 2'
+];
+
+export default function StudentScheduleView({ studentScheduleData, detailedClasses = [], scheduleId }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLevelFilter, setSelectedLevelFilter] = useState('ALL');
-  const [downloadingId, setDownloadingId] = useState(null);
-  const [isBulkDownloading, setIsBulkDownloading] = useState(false);
-  const [zipProgress, setZipProgress] = useState('');
+  const [expandedStudentId, setExpandedStudentId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
-  const [showAuditModal, setShowAuditModal] = useState(false);
-  const [nativeReport, setNativeReport] = useState(null);
-  const [showCompensationMarkers, setShowCompensationMarkers] = useState(false);
+  const [icsLockStudent, setIcsLockStudent] = useState(null);
 
-  // Load audit & validation report for native schedules
-  useEffect(() => {
-    fetch('/native_schedules/NATIVE_VALIDATION_REPORT.json')
-      .then(res => res.json())
-      .then(data => setNativeReport(data))
-      .catch(err => console.warn('Native report not loaded yet, using default student data.', err));
-  }, []);
-
-  // Map student list
-  const studentSchedules = useMemo(() => {
-    if (nativeReport && nativeReport.students && nativeReport.students.length > 0) {
-      return nativeReport.students.map(s => ({
-        student_id: s.id,
-        student_name: s.name,
-        mkca_rating: s.rating,
-        student_level: s.level,
-        classes_count: s.classes_count,
-        dimensions: s.dimensions,
-        filename: s.file,
-        imageUrl: `/native_schedules/${s.file}`
-      })).sort((a, b) => a.student_name.localeCompare(b.student_name));
+  // Extract dynamic student schedules from backend API output
+  const rawList = useMemo(() => {
+    if (studentScheduleData?.student_schedules && studentScheduleData.student_schedules.length > 0) {
+      return studentScheduleData.student_schedules;
     }
 
-    return STUDENT_DATABASE.map(student => {
-      const sname = student.name;
-      const sid = student.id;
-      const safeName = sname.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/ /g, '_');
-      const filename = `Mighty_Knight_${safeName}_{sid}.png`;
-      return {
-        student_id: sid,
-        student_name: sname,
-        mkca_rating: student.rating,
-        student_level: normalizeBatchLevel(student.rawLevel),
-        classes_count: 0,
-        dimensions: '1536xAuto',
-        filename: filename,
-        imageUrl: `/native_schedules/${filename}`
-      };
-    }).sort((a, b) => a.student_name.localeCompare(b.student_name));
-  }, [nativeReport]);
+    // Fallback: derive dynamically from detailedClasses if studentScheduleData is not yet fetched
+    const studentMap = {};
+    (detailedClasses || []).forEach(cls => {
+      (cls.student_ids || []).forEach((sid, idx) => {
+        if (!studentMap[sid]) {
+          const sname = (cls.student_names && cls.student_names[idx]) || sid;
+          studentMap[sid] = {
+            student_id: sid,
+            student_name: sname,
+            student_level: cls.student_level || 'Beginner 1',
+            batch_type: cls.batch_type || 'G',
+            required_classes: 8,
+            scheduled_classes_count: 0,
+            classes: []
+          };
+        }
+        studentMap[sid].scheduled_classes_count += 1;
+        studentMap[sid].classes.push(cls);
+      });
+    });
+
+    return Object.values(studentMap);
+  }, [studentScheduleData, detailedClasses]);
+
+  // Sort alphabetically by student name
+  const sortedStudents = useMemo(() => {
+    return [...rawList].sort((a, b) => (a.student_name || '').localeCompare(b.student_name || ''));
+  }, [rawList]);
+
+  // Filter by search and level
+  const filteredStudents = useMemo(() => {
+    return sortedStudents.filter(s => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q ||
+        (s.student_name || '').toLowerCase().includes(q) ||
+        (s.student_id || '').toLowerCase().includes(q) ||
+        (s.student_level || '').toLowerCase().includes(q);
+
+      const matchesLevel = selectedLevelFilter === 'ALL' || s.student_level === selectedLevelFilter;
+      return matchesSearch && matchesLevel;
+    });
+  }, [sortedStudents, searchQuery, selectedLevelFilter]);
 
   const handleCopyId = (id) => {
     navigator.clipboard.writeText(id);
@@ -62,468 +79,418 @@ export default function StudentScheduleView({ studentScheduleData, detailedClass
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const filteredStudents = useMemo(() => {
-    return studentSchedules.filter(s => {
-      const matchesSearch =
-        (s.student_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.student_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (s.student_level || '').toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const matchesLevel = selectedLevelFilter === 'ALL' || s.student_level === selectedLevelFilter;
-
-      return matchesSearch && matchesLevel;
-    });
-  }, [studentSchedules, searchQuery, selectedLevelFilter]);
-
-  const handleDownloadSingleImage = async (student) => {
-    setDownloadingId(student.student_id);
-    try {
-      const response = await fetch(student.imageUrl);
-      const blob = await response.blob();
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = student.filename;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (err) {
-      console.error('Failed to download image:', err);
-      alert('Error downloading image: ' + err.message);
-    } finally {
-      setDownloadingId(null);
-    }
+  const toggleExpand = (sid) => {
+    setExpandedStudentId(prev => (prev === sid ? null : sid));
   };
 
-  const handleDownloadAllImagesZip = async () => {
-    if (filteredStudents.length === 0) return;
-    setIsBulkDownloading(true);
-    setZipProgress('Starting...');
-    try {
-      const zip = new JSZip();
-      const folder = zip.folder("Mighty_Knight_Native_Schedules");
-
-      let count = 0;
-      for (const student of filteredStudents) {
-        count++;
-        setZipProgress(`Adding ${count}/${filteredStudents.length}: ${student.student_name}`);
-
-        const res = await fetch(student.imageUrl);
-        if (res.ok) {
-          const blob = await res.blob();
-          folder.file(student.filename, blob);
-        }
-      }
-
-      setZipProgress('Compressing Ultra-Crisp Native Schedules...');
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(zipBlob);
-      link.download = `Mighty_Knight_Native_Schedules_AllStudents.zip`;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    } catch (err) {
-      console.error('ZIP generation error:', err);
-      alert('Error creating ZIP archive: ' + err.message);
-    } finally {
-      setIsBulkDownloading(false);
-      setZipProgress('');
-    }
-  };
-
-  const levelsList = [
-    'ALL',
-    'Basic 1',
-    'Basic 2',
-    'Beginner 1',
-    'Beginner 2',
-    'Early Intermediate 1',
-    'Early Intermediate 2',
-    'Intermediate 1',
-    'Intermediate 2'
-  ];
+  // Stats calculation
+  const totalStudents = sortedStudents.length;
+  const fullyScheduledStudents = sortedStudents.filter(s => (s.scheduled_classes_count || 0) >= (s.required_classes || 8)).length;
+  const totalAssignedSessions = sortedStudents.reduce((sum, s) => sum + (s.scheduled_classes_count || 0), 0);
+  const avgCompletionPct = totalStudents > 0
+    ? Math.round(sortedStudents.reduce((sum, s) => sum + Math.min(100, Math.round(((s.scheduled_classes_count || 0) / (s.required_classes || 8)) * 100)), 0) / totalStudents)
+    : 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '60px' }}>
-      {/* Top Header & Export Toolbar */}
-      <div
-        className="glass-panel"
-        style={{
-          padding: '20px 24px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '16px',
-          border: '1px solid rgba(245, 158, 11, 0.3)',
-          background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 15, 20, 0.9) 100%)',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.6)'
-        }}
-      >
+    <div className="glass-panel" style={{ padding: '24px' }}>
+      {/* 1. Header & Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
         <div>
-          <h2 style={{ fontSize: '1.45rem', fontWeight: 900, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ color: '#f59e0b' }}>🏆</span> Official Mighty Knight Student Schedules
+          <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            🎓 Output 5 — Dynamic Student Schedules & Calendars
           </h2>
-          <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '3px' }}>
-            Clean balanced header • MKCA Rating & Roster • Zero ghost rows • Dynamic canvas auto-fit for all 118 students.
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            100% dynamic timetable per enrolled student • Quota tracking • Individual .ics calendar synchronization.
           </p>
         </div>
 
-        {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setShowAuditModal(true)}
-            className="btn btn-secondary"
-            style={{
-              padding: '9px 16px',
-              border: '1px solid rgba(52, 211, 153, 0.4)',
-              color: '#34d399',
-              background: 'rgba(6, 78, 59, 0.3)',
-              fontWeight: 700,
-              fontSize: '0.85rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            <ShieldCheck size={16} /> Audit & Validation
-          </button>
+        {/* Global Metric Cards */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ background: 'var(--bg-secondary)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.7rem', color: '#d1d5db', display: 'block' }}>ENROLLED STUDENTS</span>
+            <strong style={{ fontSize: '1.2rem', color: '#fff' }}>{totalStudents}</strong>
+          </div>
 
-          <button
-            onClick={handleDownloadAllImagesZip}
-            disabled={isBulkDownloading}
-            className="btn btn-primary"
-            style={{
-              padding: '10px 20px',
-              background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
-              border: '1px solid rgba(239,68,68,0.5)',
-              boxShadow: '0 0 15px rgba(220,38,38,0.4)',
-              color: '#fff',
-              fontWeight: 800,
-              fontSize: '0.875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: isBulkDownloading ? 'wait' : 'pointer'
-            }}
-          >
-            <FolderArchive size={18} />
-            {isBulkDownloading ? (zipProgress || 'Packaging ZIP Archive...') : 'Download All Student PNGs (.zip)'}
-          </button>
+          <div style={{ background: 'rgba(16, 185, 129, 0.15)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+            <span style={{ fontSize: '0.7rem', color: '#a7f3d0', display: 'block' }}>FULL QUOTA MET</span>
+            <strong style={{ fontSize: '1.2rem', color: '#34d399' }}>{fullyScheduledStudents} / {totalStudents}</strong>
+          </div>
+
+          <div style={{ background: 'rgba(59, 130, 246, 0.15)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(59, 130, 246, 0.4)' }}>
+            <span style={{ fontSize: '0.7rem', color: '#bfdbfe', display: 'block' }}>AVG QUOTA FULFILLMENT</span>
+            <strong style={{ fontSize: '1.2rem', color: 'var(--accent-blue)' }}>{avgCompletionPct}%</strong>
+          </div>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div
-        className="glass-panel"
-        style={{
-          padding: '14px 20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '14px',
-          background: 'rgba(11, 16, 28, 0.85)',
-          border: '1px solid rgba(255,255,255,0.08)'
-        }}
-      >
-        {/* Level Filters */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}>
-            <Filter size={14} /> BATCH LEVEL:
-          </span>
-          {levelsList.map(lvl => (
-            <button
-              key={lvl}
-              onClick={() => setSelectedLevelFilter(lvl)}
+      {/* 2. Filter & Search Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
+          <div style={{ position: 'relative', minWidth: '280px', maxWidth: '420px', flex: 1 }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--accent-gold)' }} />
+            <input
+              type="text"
+              placeholder="Search student by name or ID..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
               style={{
-                padding: '5px 12px',
-                borderRadius: '8px',
-                fontSize: '0.775rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                border: selectedLevelFilter === lvl ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)',
-                background: selectedLevelFilter === lvl ? 'linear-gradient(135deg, rgba(245,158,11,0.3) 0%, rgba(180,83,9,0.3) 100%)' : 'rgba(15,23,42,0.6)',
-                color: selectedLevelFilter === lvl ? '#fbbf24' : '#94a3b8',
-                transition: 'all 0.15s ease'
+                width: '100%',
+                padding: '8px 12px 8px 36px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                color: '#fff',
+                fontSize: '0.85rem'
               }}
-            >
-              {lvl}
-            </button>
-          ))}
-        </div>
+            />
+          </div>
 
-        {/* Show ⓒ markers toggle (Part D2) */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#94a3b8', cursor: 'pointer', background: 'rgba(15,23,42,0.8)', padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-          <input
-            type="checkbox"
-            checked={showCompensationMarkers}
-            onChange={e => setShowCompensationMarkers(e.target.checked)}
-            style={{ accentColor: '#fbbf24', cursor: 'pointer' }}
-          />
-          <span>Show ⓒ markers</span>
-        </label>
-
-        {/* Search */}
-        <div style={{ position: 'relative', width: '280px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '10px', color: '#64748b' }} />
-          <input
-            type="text"
-            placeholder="Search student name or ID..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+          {/* Level Filter Dropdown */}
+          <select
+            value={selectedLevelFilter}
+            onChange={e => setSelectedLevelFilter(e.target.value)}
             style={{
-              width: '100%',
-              padding: '8px 12px 8px 36px',
-              borderRadius: '8px',
-              background: 'rgba(15, 23, 42, 0.8)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
               color: '#fff',
               fontSize: '0.85rem'
             }}
-          />
+          >
+            {LEVEL_LIST.map(lvl => (
+              <option key={lvl} value={lvl}>{lvl === 'ALL' ? 'All Levels' : lvl}</option>
+            ))}
+          </select>
         </div>
+
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          Showing {filteredStudents.length} of {totalStudents} students
+        </span>
       </div>
 
-      {/* STUDENT MASTER SCHEDULE CARDS */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '48px', alignItems: 'center' }}>
-        {filteredStudents.map((student) => {
-          const isDownloading = downloadingId === student.student_id;
+      {/* 3. Students List Grid */}
+      {filteredStudents.length === 0 ? (
+        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-lg)' }}>
+          <p>No student schedules match your search query or filter.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {filteredStudents.map(student => {
+            const sid = student.student_id;
+            const sname = student.student_name;
+            const lvl = student.student_level || 'Beginner 1';
+            const btype = student.batch_type || 'G';
+            const schCount = student.scheduled_classes_count || (student.classes ? student.classes.length : 0);
+            const reqCount = student.required_classes || 8;
+            const completionPct = Math.min(100, Math.round((schCount / reqCount) * 100));
+            const isFullyScheduled = schCount >= reqCount;
+            const isExpanded = expandedStudentId === sid;
 
-          return (
-            <div
-              key={student.student_id}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                width: '100%',
-                maxWidth: '1200px'
-              }}
-            >
-              {/* Outer Control Top Bar */}
+            const classesList = student.classes || (detailedClasses || []).filter(c => (c.student_ids || []).includes(sid));
+
+            // .ics calendar link
+            const icsUrl = scheduleId
+              ? `/api/schedule/${scheduleId}/student/${encodeURIComponent(sid)}/export-ics`
+              : `/api/schedule/ACTIVE_LATEST/student/${encodeURIComponent(sid)}/export-ics`;
+
+            return (
               <div
+                key={sid}
                 style={{
-                  width: '100%',
-                  padding: '12px 20px',
-                  background: 'rgba(15, 23, 42, 0.95)',
-                  borderRadius: '14px 14px 0 0',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  borderBottom: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxSizing: 'border-box',
-                  flexWrap: 'wrap',
-                  gap: '10px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
-                  <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                    {student.student_name}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 700 }}>
-                    ({student.student_id})
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: '#34d399', background: 'rgba(6,78,59,0.5)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(52,211,153,0.3)' }}>
-                    {student.student_level}
-                  </span>
-                  <span style={{ fontSize: '0.8rem', color: '#fbbf24', background: 'rgba(120,53,15,0.5)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(251,191,36,0.3)' }}>
-                    MKCA Rating: {student.mkca_rating}
-                  </span>
-                  {student.classes_count !== undefined && (
-                    <span style={{ fontSize: '0.8rem', color: '#93c5fd', background: 'rgba(30,58,138,0.4)', padding: '2px 8px', borderRadius: '6px', border: '1px solid rgba(59,130,246,0.3)' }}>
-                      {student.classes_count} Classes
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <a
-                    href={getStudentIcsUrl(scheduleId, student.student_id)}
-                    download={`mighty_knight_${student.student_id}_calendar.ics`}
-                    className="btn btn-secondary"
-                    style={{
-                      padding: '6px 12px',
-                      color: '#60a5fa',
-                      fontSize: '0.8rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      textDecoration: 'none',
-                      background: 'rgba(30, 58, 138, 0.3)',
-                      borderColor: 'rgba(59, 130, 246, 0.4)'
-                    }}
-                    title="Export calendar sync (.ics)"
-                  >
-                    <Calendar size={14} /> .ics Calendar
-                  </a>
-
-                  <button
-                    onClick={() => handleDownloadSingleImage(student)}
-                    disabled={isDownloading}
-                    style={{
-                      padding: '6px 16px',
-                      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                      border: '1px solid #fbbf24',
-                      color: '#000',
-                      fontWeight: 800,
-                      fontSize: '0.825rem',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      cursor: isDownloading ? 'wait' : 'pointer',
-                      boxShadow: '0 0 10px rgba(245, 158, 11, 0.3)'
-                    }}
-                  >
-                    <Download size={15} />
-                    {isDownloading ? 'Downloading...' : `Download High-Res PNG`}
-                  </button>
-                </div>
-              </div>
-
-              {/* RENDERED NATIVE MASTER IMAGE CANVAS */}
-              <div
-                style={{
-                  width: '100%',
-                  borderRadius: '0 0 14px 14px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 'var(--radius-md)',
+                  border: isExpanded ? '1px solid var(--accent-gold)' : '1px solid var(--border-color)',
                   overflow: 'hidden',
-                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 30px rgba(220, 38, 38, 0.25)',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  borderTop: 'none',
-                  background: '#070b14',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  position: 'relative'
+                  transition: 'border-color 0.2s ease'
                 }}
               >
-                <img
-                  src={student.imageUrl}
-                  alt={`Schedule for ${student.student_name}`}
+                {/* Banner Summary Row */}
+                <div
                   style={{
-                    width: '100%',
-                    height: 'auto',
-                    display: 'block'
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '14px'
                   }}
-                  loading="lazy"
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                >
+                  {/* Left: Identity & Badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: '240px' }}>
+                    <div
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        background: isFullyScheduled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                        border: `1px solid ${isFullyScheduled ? '#10b981' : '#f59e0b'}`,
+                        color: isFullyScheduled ? '#34d399' : '#fbbf24',
+                        fontWeight: 800,
+                        fontSize: '1rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {sname.charAt(0).toUpperCase()}
+                    </div>
 
-      {/* VALIDATION AUDIT MODAL */}
-      {showAuditModal && (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                          {sname}
+                        </h4>
+                        <span className="badge badge-gold" style={{ fontSize: '0.675rem' }}>
+                          Batch {btype}
+                        </span>
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '0.675rem',
+                            background: isFullyScheduled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                            color: isFullyScheduled ? '#34d399' : '#f87171',
+                            border: `1px solid ${isFullyScheduled ? '#10b981' : 'rgba(239, 68, 68, 0.4)'}`
+                          }}
+                        >
+                          {schCount} / {reqCount} Classes
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
+                        <span
+                          onClick={() => handleCopyId(sid)}
+                          style={{ cursor: 'pointer', fontFamily: 'monospace', color: 'var(--accent-gold)' }}
+                          title="Click to copy Student ID"
+                        >
+                          ID: {sid} {copiedId === sid ? '✓' : ''}
+                        </span>
+                        <span>•</span>
+                        <span>Level: <strong style={{ color: '#fff' }}>{lvl}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Middle: Quota Progress Bar */}
+                  <div style={{ minWidth: '160px', flex: 1, maxWidth: '240px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.725rem', marginBottom: '4px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Monthly Quota</span>
+                      <strong style={{ color: isFullyScheduled ? '#34d399' : '#fbbf24' }}>{completionPct}%</strong>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${completionPct}%`,
+                          height: '100%',
+                          background: isFullyScheduled ? '#10b981' : '#f59e0b',
+                          transition: 'width 0.3s ease'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right: Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Individual .ics Sync Download (Enforce 100% Quota Section 3) */}
+                    {isFullyScheduled ? (
+                      <a
+                        href={icsUrl}
+                        download={`mighty_knight_${sid}_calendar.ics`}
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          textDecoration: 'none',
+                          color: '#34d399',
+                          borderColor: '#10b981',
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                        title="Download .ics Calendar for this student (100% Quota Completed)"
+                      >
+                        <Calendar size={13} style={{ color: '#10b981' }} /> .ics Sync
+                      </a>
+                    ) : (
+                      <button
+                        onClick={() => setIcsLockStudent({
+                          student_id: sid,
+                          student_name: sname,
+                          schCount,
+                          reqCount,
+                          completionPct
+                        })}
+                        className="btn btn-secondary"
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.75rem',
+                          color: '#94a3b8',
+                          background: 'rgba(255, 255, 255, 0.04)',
+                          borderColor: 'rgba(245, 158, 11, 0.35)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          cursor: 'pointer'
+                        }}
+                        title={`ICS Sync Locked: ${completionPct}% completed (100% quota required)`}
+                      >
+                        <Lock size={13} style={{ color: '#f59e0b' }} /> .ics Sync (Locked)
+                      </button>
+                    )}
+
+                    {/* Expand / View Timetable */}
+                    <button
+                      onClick={() => toggleExpand(sid)}
+                      className="btn btn-primary"
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                    >
+                      {isExpanded ? 'Hide Sessions' : `View Sessions (${classesList.length})`}
+                      {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded Detailed Timetable */}
+                {isExpanded && (
+                  <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-gold)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <BookOpen size={14} /> Scheduled Sessions for {sname} ({classesList.length} session{classesList.length !== 1 ? 's' : ''})
+                      </h5>
+                      <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
+                        Status: {isFullyScheduled ? '✅ Full Monthly Quota Met' : `⚠️ Shortfall of ${Math.max(0, reqCount - schCount)} classes`}
+                      </span>
+                    </div>
+
+                    {classesList.length === 0 ? (
+                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontStyle: 'italic', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                        No scheduled classes yet for this student. Use Attention Required or Admin Matrix to assign sessions.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
+                        {classesList.map((cls, cIdx) => (
+                          <div
+                            key={cIdx}
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              padding: '12px',
+                              borderRadius: '6px',
+                              border: cls.is_compensation ? '1px solid rgba(251, 191, 36, 0.4)' : '1px solid var(--border-color)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '0.825rem', color: '#fff' }}>
+                                📅 {cls.day} ({cls.date})
+                              </strong>
+                              {cls.is_compensation && (
+                                <span style={{ padding: '1px 5px', borderRadius: '3px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', fontSize: '0.65rem' }}>
+                                  ⓒ
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ fontSize: '0.775rem', color: 'var(--accent-blue)', fontWeight: 600 }}>
+                              ⏰ {cls.time_slot}
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              <span>Trainer: <strong style={{ color: 'var(--accent-gold)' }}>Coach {cls.coach_name}</strong></span>
+                              <span>{cls.batch_name || `Batch ${btype}`}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Student ICS Synchronization Ineligible / Locked Modal */}
+      {icsLockStudent && (
         <div
           style={{
             position: 'fixed',
             top: 0,
             left: 0,
-            width: '100vw',
-            height: '100vh',
-            background: 'rgba(0, 0, 0, 0.85)',
-            backdropFilter: 'blur(8px)',
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(5px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 9999,
-            padding: '24px',
-            boxSizing: 'border-box'
+            padding: '20px'
           }}
         >
           <div
             className="glass-panel"
             style={{
+              maxWidth: '500px',
               width: '100%',
-              maxWidth: '1000px',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              padding: '28px',
-              border: '1.5px solid rgba(245, 158, 11, 0.4)',
-              background: '#0b101d',
-              borderRadius: '16px'
+              padding: '24px',
+              background: 'linear-gradient(135deg, rgba(20, 27, 45, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%)',
+              border: '1.5px solid #f59e0b',
+              borderRadius: '16px',
+              boxShadow: '0 16px 40px rgba(0, 0, 0, 0.6)'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '16px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', color: '#f59e0b' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Lock size={22} style={{ color: '#f59e0b' }} />
+              </div>
               <div>
-                <h3 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <ShieldCheck size={24} color="#34d399" /> Master Design Validation & Quality Audit
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#fff' }}>
+                  Student Calendar Sync Locked
                 </h3>
-                <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                  Verification of branding accuracy, zero ghost rows, and 100% native vector typography rendering.
-                </p>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Academy Quota Rule Enforcement
+                </span>
               </div>
+            </div>
+
+            <p style={{ fontSize: '0.875rem', color: '#cbd5e1', lineHeight: '1.5', marginBottom: '14px' }}>
+              Student <strong>{icsLockStudent.student_name}</strong> (<code>{icsLockStudent.student_id}</code>) currently has{' '}
+              <strong style={{ color: '#f59e0b' }}>{icsLockStudent.schCount} of {icsLockStudent.reqCount}</strong> required monthly classes scheduled ({icsLockStudent.completionPct}% completed).
+            </p>
+
+            <div
+              style={{
+                background: 'rgba(245, 158, 11, 0.1)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                marginBottom: '18px',
+                fontSize: '0.8rem',
+                color: '#fde68a',
+                lineHeight: '1.4'
+              }}
+            >
+              ⚠️ <strong>Mandatory Requirement:</strong> Student .ics calendar synchronization is restricted until the student's monthly quota reaches <strong>100%</strong> and any pending Attention Required assignments or unassigned sessions are fully confirmed.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
-                onClick={() => setShowAuditModal(false)}
-                className="btn btn-secondary"
-                style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+                onClick={() => setIcsLockStudent(null)}
+                className="btn btn-primary"
+                style={{ padding: '8px 20px', fontSize: '0.85rem', fontWeight: 700 }}
               >
-                Close Audit
+                Understood
               </button>
-            </div>
-
-            {/* Test Results Summary */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '24px' }}>
-              <div style={{ background: 'rgba(6, 78, 59, 0.3)', border: '1px solid #10b981', padding: '12px 16px', borderRadius: '10px' }}>
-                <div style={{ fontSize: '0.75rem', color: '#6ee7b7', fontWeight: 800 }}>HEADER BRANDING</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#34d399' }}>BALANCED</div>
-                <div style={{ fontSize: '0.75rem', color: '#a7f3d0' }}>Center knight removed cleanly</div>
-              </div>
-
-              <div style={{ background: 'rgba(30, 58, 138, 0.3)', border: '1px solid #3b82f6', padding: '12px 16px', borderRadius: '10px' }}>
-                <div style={{ fontSize: '0.75rem', color: '#93c5fd', fontWeight: 800 }}>BRANDING ACRONYM</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#60a5fa' }}>MKCA RATING</div>
-                <div style={{ fontSize: '0.75rem', color: '#bfdbfe' }}>Corrected everywhere from MKCIA</div>
-              </div>
-
-              <div style={{ background: 'rgba(120, 53, 15, 0.3)', border: '1px solid #f59e0b', padding: '12px 16px', borderRadius: '10px' }}>
-                <div style={{ fontSize: '0.75rem', color: '#fde68a', fontWeight: 800 }}>GHOST ROWS</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#fbbf24' }}>0 (ZERO)</div>
-                <div style={{ fontSize: '0.75rem', color: '#fef08a' }}>Dynamic canvas fits 4-16 classes</div>
-              </div>
-
-              <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.1)', padding: '12px 16px', borderRadius: '10px' }}>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 800 }}>TOTAL STUDENTS</div>
-                <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#ffffff' }}>{nativeReport ? nativeReport.total_students : 118} Students</div>
-                <div style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>100% generated & verified</div>
-              </div>
-            </div>
-
-            {/* Generated Roster List */}
-            <div>
-              <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CheckCircle2 size={18} color="#10b981" /> Verified Generated Roster
-              </h4>
-              <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', background: 'rgba(15,23,42,0.6)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.05)', color: '#fbbf24', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                      <th style={{ padding: '8px 12px' }}>#</th>
-                      <th style={{ padding: '8px 12px' }}>Student Name</th>
-                      <th style={{ padding: '8px 12px' }}>ID</th>
-                      <th style={{ padding: '8px 12px' }}>Batch Level</th>
-                      <th style={{ padding: '8px 12px' }}>Rating</th>
-                      <th style={{ padding: '8px 12px' }}>Classes</th>
-                      <th style={{ padding: '8px 12px' }}>Dimensions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(nativeReport?.students || []).map((s, idx) => (
-                      <tr key={s.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#cbd5e1' }}>
-                        <td style={{ padding: '8px 12px', color: '#94a3b8' }}>{idx + 1}</td>
-                        <td style={{ padding: '8px 12px', fontWeight: 700, color: '#fff' }}>{s.name}</td>
-                        <td style={{ padding: '8px 12px', color: '#fbbf24' }}>{s.id}</td>
-                        <td style={{ padding: '8px 12px', color: '#34d399' }}>{s.level}</td>
-                        <td style={{ padding: '8px 12px' }}>★ {s.rating}</td>
-                        <td style={{ padding: '8px 12px', color: '#60a5fa' }}>{s.classes_count} classes</td>
-                        <td style={{ padding: '8px 12px', color: '#94a3b8' }}>{s.dimensions}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             </div>
           </div>
         </div>

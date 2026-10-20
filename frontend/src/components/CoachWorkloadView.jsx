@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import {
   Clock, Users, Award, AlertTriangle, CheckCircle2, Search, BarChart2,
   Download, MessageSquare, ChevronDown, ChevronUp, Copy, Check, Calendar,
-  BookOpen, Share2, Edit3, Trash2, Plus
+  BookOpen, Share2, Edit3, Trash2, Plus, Zap
 } from 'lucide-react';
 import { getCoachExcelUrl, getCoachIcsUrl, getCoachWhatsAppMsg, deleteClass, applyException } from '../services/api';
 import CoachDispatchModal from './CoachDispatchModal';
+import TrainerPriorityMatrix from './TrainerPriorityMatrix';
 
 const getTimeSlotSortMinutes = (timeSlotStr) => {
   if (!timeSlotStr) return 0;
@@ -136,16 +137,8 @@ export default function CoachWorkloadView({
           </p>
         </div>
 
-        {/* Global Metric Cards & Bulk Dispatch */}
+        {/* Global Metric Cards */}
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button
-            onClick={() => setDispatchCoachName(filteredSummaries[0]?.coach_name || 'BATHRI')}
-            className="btn btn-primary"
-            style={{ padding: '10px 16px', background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#000', fontWeight: 800, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            🚀 Dispatch Schedules (Excel + .ics + WhatsApp)
-          </button>
-
           <div style={{ background: 'var(--bg-secondary)', padding: '10px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
             <span style={{ fontSize: '0.7rem', color: '#d1d5db', display: 'block' }}>TOTAL COACHES</span>
             <strong style={{ fontSize: '1.2rem', color: '#fff' }}>{totalCoaches}</strong>
@@ -162,6 +155,9 @@ export default function CoachWorkloadView({
           </div>
         </div>
       </div>
+
+      {/* Centralized Trainer Qualification & Priority Matrix (Single Source of Truth) */}
+      <TrainerPriorityMatrix onPriorityChanged={onRefreshSchedule} />
 
       {/* Controls: Search and Status Filter */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '24px' }}>

@@ -148,8 +148,8 @@ export const saveMasterStudent = async (studentData) => {
   return res.data;
 };
 
-export const deleteMasterStudent = async (studentId) => {
-  const res = await api.delete(`/master/students/${studentId}`);
+export const deleteMasterStudent = async (studentId, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/students/${studentId}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -158,8 +158,8 @@ export const saveMasterCoach = async (coachData) => {
   return res.data;
 };
 
-export const deleteMasterCoach = async (coachName) => {
-  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}`);
+export const deleteMasterCoach = async (coachName, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/coaches/${encodeURIComponent(coachName)}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -183,8 +183,8 @@ export const saveMasterBatch = async (batchData) => {
   return res.data;
 };
 
-export const deleteMasterBatch = async (batchId) => {
-  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}`);
+export const deleteMasterBatch = async (batchId, scope = 'remove_from_schedule') => {
+  const res = await api.delete(`/master/batches/${encodeURIComponent(batchId)}?scope=${encodeURIComponent(scope)}`);
   return res.data;
 };
 
@@ -312,6 +312,20 @@ export const changeStudentLevel = async (studentId, newLevel, reason = '', month
   return res.data;
 };
 
+export const getCoachPriorityMatrix = async () => {
+  const res = await api.get('/master/coaches/priority-matrix');
+  return res.data;
+};
+
+export const moveCoachPriority = async (level, coachName, direction) => {
+  const res = await api.post('/master/coaches/priority/move', {
+    level,
+    coach_name: coachName,
+    direction
+  });
+  return res.data;
+};
+
 export const updateCoachPriority = async (level, coachName, newPriority) => {
   const res = await api.post('/master/coaches/priority', {
     level,
@@ -323,6 +337,15 @@ export const updateCoachPriority = async (level, coachName, newPriority) => {
 
 export const deleteCoachPriority = async (level, coachName) => {
   const res = await api.delete(`/master/coaches/priority?level=${encodeURIComponent(level)}&coach_name=${encodeURIComponent(coachName)}`);
+  return res.data;
+};
+
+export const addCoachToPriority = async (level, coachName, newPriority = null) => {
+  const res = await api.post('/master/coaches/priority/add', {
+    level,
+    coach_name: coachName,
+    new_priority: newPriority
+  });
   return res.data;
 };
 
@@ -353,6 +376,72 @@ export const getSmartBatches = async (month = '2026-10') => {
 
 export const getConsolidationAdvisor = async (month = '2026-10') => {
   const res = await api.get(`/engine/consolidation-advisor?month=${month}`);
+  return res.data;
+};
+
+// --- RULE 2: ACTUAL COMPLETED SCHEDULE ---
+export const getActualCompletedSchedule = async (month = '2026-10', currentDate = null) => {
+  const query = currentDate ? `?month=${month}&current_date=${encodeURIComponent(currentDate)}` : `?month=${month}`;
+  const res = await api.get(`/baseline/actual-completed${query}`);
+  return res.data;
+};
+
+// --- RULE 4: BATCH REASSIGNMENT ---
+export const reassignBatchCoach = async (data) => {
+  const res = await api.post('/schedule/reassign-batch-coach', data);
+  return res.data;
+};
+
+// --- RULE 6: ENGINE QUEUE & ASYNC EXECUTION ---
+export const enqueueEngineTask = async (taskType, payload = {}) => {
+  const res = await api.post('/engine/tasks/enqueue', { task_type: taskType, payload });
+  return res.data;
+};
+
+export const getEngineTaskStatus = async () => {
+  const res = await api.get('/engine/tasks/status');
+  return res.data;
+};
+
+// --- COACH AVAILABILITY & REMAINING SLOTS ---
+export const getCoachAvailability = async (params = {}) => {
+  const query = new URLSearchParams();
+  if (params.month) query.append('month', params.month);
+  if (params.date) query.append('date', params.date);
+  if (params.coach_name) query.append('coach_name', params.coach_name);
+  if (params.level) query.append('level', params.level);
+  if (params.day) query.append('day', params.day);
+  if (params.status) query.append('status', params.status);
+  if (params.start_date) query.append('start_date', params.start_date);
+  if (params.end_date) query.append('end_date', params.end_date);
+  const qStr = query.toString();
+  const res = await api.get(`/coach-availability${qStr ? '?' + qStr : ''}`);
+  return res.data;
+};
+
+// --- DELETED RECORDS & ACADEMY INSTRUCTIONS ---
+export const getDeletedRecords = async () => {
+  const res = await api.get('/deleted-records');
+  return res.data;
+};
+
+export const saveDeletedRecord = async (data) => {
+  const res = await api.post('/deleted-records', data);
+  return res.data;
+};
+
+export const updateDeletedRecordScope = async (recordId, newScope) => {
+  const res = await api.post(`/deleted-records/${recordId}/scope`, { new_scope: newScope });
+  return res.data;
+};
+
+export const restoreDeletedRecord = async (recordId) => {
+  const res = await api.post(`/deleted-records/${recordId}/restore`);
+  return res.data;
+};
+
+export const permanentlyDeleteRecord = async (recordId) => {
+  const res = await api.delete(`/deleted-records/${recordId}/permanent`);
   return res.data;
 };
 

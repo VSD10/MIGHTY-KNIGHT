@@ -1,31 +1,21 @@
-import sqlite3
-import json
+import openpyxl
+from collections import defaultdict
+import re
 
-conn = sqlite3.connect('backend/data/chess_scheduler.db')
-cursor = conn.cursor()
+wb = openpyxl.load_workbook('sample_data/Oct26_Schedule_Final.xlsx', data_only=True)
+ws = wb.active
+students = []
+for r in range(4, ws.max_row + 1):
+    name = ws.cell(r, 1).value
+    sid = ws.cell(r, 2).value
+    raw_b = ws.cell(r, 5).value
+    if name and sid:
+        students.append({'name': str(name).strip(), 'id': str(sid).strip(), 'raw_b': str(raw_b or '').strip()})
 
-# Get all students
-students = cursor.execute("SELECT student_id, student_name, student_level, batch_type, data_json FROM students").fetchall()
-print(f"Total students in DB: {len(students)}")
-
-# Build student_id -> batch mapping from batches table
-batch_mapping = {}
-for b in cursor.execute("SELECT batch_id, batch_name, level, student_ids_json FROM batches").fetchall():
-    b_id, b_name, b_level, sids_json = b
-    sids = json.loads(sids_json) if sids_json else []
-    for sid in sids:
-        batch_mapping[sid] = (b_id, b_name, b_level)
-
-print(f"Students mapped in batches table: {len(batch_mapping)}")
-
-unmapped = []
+by_raw = defaultdict(list)
 for s in students:
-    sid = s[0]
-    if sid not in batch_mapping:
-        unmapped.append((sid, s[1]))
+    by_raw[s['raw_b']].append(s)
 
-print(f"Unmapped students in batches table: {len(unmapped)}")
-if unmapped:
-    print("Sample unmapped:", unmapped[:5])
-
-conn.close()
+for b, slist in sorted(by_raw.items()):
+    names = [s['name'] for s in slist[:4]]
+    print(f'{b:28} -> {len(slist):2d} students: {names}')

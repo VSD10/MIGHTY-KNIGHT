@@ -5,7 +5,7 @@ import {
   Search, Check, AlertCircle, X, Save, UserCheck, Shield,
   ChevronDown, ChevronUp, UserPlus, Filter, LayoutGrid, List, Award
 } from 'lucide-react';
-import { OFFICIAL_LEVELS } from '../constants/levels';
+import { OFFICIAL_LEVELS, formatBatchSubdivisionName, BATCH_CAPACITIES } from '../constants/levels';
 
 const LEVEL_ORDER_MAP = {
   'basic 1': 1,
@@ -371,13 +371,14 @@ export default function BatchesTab({
           <button
             onClick={() => {
               const newId = `BAT_${Date.now().toString().slice(-4)}`;
+              const defaultName = formatBatchSubdivisionName('G', 'Beginner 1', 1);
               setEditingBatch({
                 batch_id: newId,
-                batch_name: '',
+                batch_name: defaultName,
                 batch_type: 'G',
                 level: 'Beginner 1',
-                capacity_min: 4,
-                capacity_max: 10,
+                capacity_min: 1,
+                capacity_max: 8,
                 fixed_trainer: 'Unassigned',
                 schedule_timings: '',
                 weekly_slots: [],
@@ -808,11 +809,7 @@ export default function BatchesTab({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm(`Are you sure you want to delete group "${batch.batch_name || batch.batch_id}"?`)) {
-                        onDeleteBatch(batch.batch_id);
-                      }
-                    }}
+                    onClick={() => onDeleteBatch(batch)}
                     className="btn btn-secondary"
                     style={{
                       padding: '7px 12px',
@@ -985,11 +982,7 @@ export default function BatchesTab({
                             <Edit2 size={14} />
                           </button>
                           <button
-                            onClick={() => {
-                              if (window.confirm(`Are you sure you want to delete batch "${batch.batch_name}"?`)) {
-                                onDeleteBatch(batch.batch_id);
-                              }
-                            }}
+                            onClick={() => onDeleteBatch(batch)}
                             style={{
                               padding: '6px 10px',
                               borderRadius: '6px',
@@ -1156,7 +1149,7 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
   };
 
   const handleTypeChange = (newType) => {
-    let minCap = 4;
+    let minCap = 1;
     let maxCap = 8;
     if (newType === 'I') {
       minCap = 1;
@@ -1165,11 +1158,22 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
       minCap = 1;
       maxCap = 3;
     }
+    const autoName = formatBatchSubdivisionName(newType, formData.level || 'Beginner 1', 1);
     setFormData({
       ...formData,
       batch_type: newType,
+      batch_name: autoName,
       capacity_min: minCap,
       capacity_max: maxCap
+    });
+  };
+
+  const handleLevelChange = (newLevel) => {
+    const autoName = formatBatchSubdivisionName(formData.batch_type || 'G', newLevel, 1);
+    setFormData({
+      ...formData,
+      level: newLevel,
+      batch_name: autoName
     });
   };
 
@@ -1314,7 +1318,7 @@ function BatchEditModal({ batch, allCoaches, allStudents, onSave, onClose }) {
               </label>
               <select
                 value={formData.level}
-                onChange={e => setFormData({ ...formData, level: e.target.value })}
+                onChange={e => handleLevelChange(e.target.value)}
                 style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: '#fff', fontSize: '0.85rem' }}
               >
                 {OFFICIAL_LEVELS.map(l => (

@@ -66,10 +66,15 @@ export default function DailySchedulePlanner({
   masterStudents = [],
   unscheduledStudents = []
 }) {
-  // Local state for instant optimistic class removals (0ms latency UI updates)
+  // Local state for instant class removals
   const [optimisticDeletedClassIds, setOptimisticDeletedClassIds] = useState(new Set());
 
-  // Active classes excluding optimistic local deletions
+  // Reset local deletions whenever fresh detailedClasses are received from server
+  useEffect(() => {
+    setOptimisticDeletedClassIds(new Set());
+  }, [detailedClasses]);
+
+  // Active classes excluding local deletions
   const activeDetailedClasses = useMemo(() => {
     return (detailedClasses || []).filter(cls => !optimisticDeletedClassIds.has(cls.class_id));
   }, [detailedClasses, optimisticDeletedClassIds]);
@@ -128,6 +133,14 @@ export default function DailySchedulePlanner({
   const [isAddClassModalOpen, setIsAddClassModalOpen] = useState(false);
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [targetClassForAddStudent, setTargetClassForAddStudent] = useState(null);
+
+  // Reschedule Class state (Phase 3)
+  const [rescheduleModalClass, setRescheduleModalClass] = useState(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleTimeSlot, setRescheduleTimeSlot] = useState(TIME_SLOT_PRESETS[4]);
+  const [rescheduleCoach, setRescheduleCoach] = useState('');
+  const [reschedulingLoading, setReschedulingLoading] = useState(false);
+  const [deletingClassId, setDeletingClassId] = useState(null);
 
   // New Class Form State
   const [newClassCoach, setNewClassCoach] = useState('');
@@ -236,26 +249,18 @@ export default function DailySchedulePlanner({
     setTimeout(() => setActionMessage(null), 4000);
   };
 
-  // Delete a class directly from this day
+  // Delete a class directly from this day (Phase 3: Honest backend confirmation)
   const handleDeleteClass = async (cls) => {
     if (!cls?.class_id) return;
-    const confirmMsg = `Cancel and delete class on ${cls.date} at ${cls.time_slot} (${cls.coach_name})?\nAll assigned students will safely return to the Unscheduled Pool in Attention Required.`;
+    const confirmMsg = `Cancel and delete class on ${cls.date} at ${cls.time_slot} (${cls.coach_name})?\nAll assigned students will safely return to Attention Required shortfall immediately.`;
     if (!window.confirm(confirmMsg)) return;
 
     const classId = cls.class_id;
     const month = cls.date ? cls.date.substring(0, 7) : '2026-10';
+    setDeletingClassId(classId);
 
-    // 1. Instantly track optimistically in component state for 0ms latency UI removal
-    setOptimisticDeletedClassIds(prev => new Set([...prev, classId]));
-    showToast(`Class at ${cls.time_slot} cancelled successfully.`);
-
-    // 2. Also notify parent if optimistic callback provided
-    if (onDeleteClassOptimistic) {
-      onDeleteClassOptimistic(classId);
-    }
-
-    // 3. Authoritative Layer 3 exception deletion
     try {
+      // 1. Authoritative Layer 3 exception deletion committed to SQLite database
       await applyException({
         month,
         date: cls.date,
@@ -272,21 +277,85 @@ export default function DailySchedulePlanner({
         reason: 'Class removed by Administrator from Daily Planner',
         created_by: 'Admin'
       });
-    } catch (excErr) {
-      console.warn("Exception deletion note:", excErr);
-    }
 
-    // 4. API request to backend
-    try {
+      // 2. Legacy backend deletion sync
       if (scheduleId) {
-        await deleteClass(scheduleId, classId);
+        try {
+          await deleteClass(scheduleId, classId);
+        } catch (legErr) {
+          console.warn("Legacy delete note:", legErr);
+        }
+      }
+
+      showToast(`Class at ${cls.time_slot} cancelled successfully and saved to database.`);
+      if (onRefreshSchedule) {
+        await onRefreshSchedule();
       }
     } catch (err) {
-      console.warn('Backend legacy delete note:', err);
+      console.error("Delete class failed:", err);
+      showToast(err.response?.data?.detail || 'Failed to cancel class in database.', 'danger');
+    } finally {
+      setDeletingClassId(null);
     }
+  };
 
-    if (onRefreshSchedule) {
-      await onRefreshSchedule();
+  // Reschedule Class Handlers (Phase 3)
+  const handleOpenRescheduleModal = (cls) => {
+    setRescheduleModalClass(cls);
+    setRescheduleDate(cls.date || selectedDate);
+    setRescheduleTimeSlot(cls.time_slot || TIME_SLOT_PRESETS[4]);
+    setRescheduleCoach(cls.coach_name || availableCoaches[0]?.coach_name || 'BATHRI');
+  };
+
+  const handleRescheduleSubmit = async (e) => {
+    e.preventDefault();
+    if (!rescheduleModalClass) return;
+    const cls = rescheduleModalClass;
+    const month = rescheduleDate ? rescheduleDate.substring(0, 7) : '2026-10';
+    setReschedulingLoading(true);
+
+    try {
+      await applyException({
+        month,
+        date: rescheduleDate,
+        time_slot: rescheduleTimeSlot,
+        coach_name: rescheduleCoach,
+        class_id: cls.class_id,
+        class_key: `${cls.date}||${cls.time_slot}||${cls.coach_name}`,
+        action_type: 'reschedule',
+        affected_student_ids: cls.student_ids || [],
+        before: {
+          coach_name: cls.coach_name,
+          student_level: cls.student_level,
+          batch_type: cls.batch_type,
+          time_slot: cls.time_slot,
+          date: cls.date,
+          student_ids: cls.student_ids
+        },
+        after: {
+          coach_name: rescheduleCoach,
+          student_level: cls.student_level,
+          batch_type: cls.batch_type,
+          time_slot: rescheduleTimeSlot,
+          date: rescheduleDate,
+          student_ids: cls.student_ids
+        },
+        subtype: 'manual',
+        violated_rules: [],
+        reason: `Rescheduled by Administrator from ${cls.date} ${cls.time_slot} (${cls.coach_name}) to ${rescheduleDate} ${rescheduleTimeSlot} (${rescheduleCoach})`,
+        created_by: 'Admin'
+      });
+
+      showToast(`Class successfully rescheduled to ${rescheduleDate} at ${rescheduleTimeSlot}!`);
+      setRescheduleModalClass(null);
+      if (onRefreshSchedule) {
+        await onRefreshSchedule();
+      }
+    } catch (err) {
+      console.error("Reschedule failed:", err);
+      showToast(err.response?.data?.detail || 'Failed to reschedule class.', 'danger');
+    } finally {
+      setReschedulingLoading(false);
     }
   };
 
@@ -820,12 +889,17 @@ export default function DailySchedulePlanner({
                         />
                       )}
 
-                      <span className={`badge ${cls.batch_type === 'I' ? 'badge-info' : (cls.batch_type === 'L' ? 'badge-gold' : 'badge-primary')}`} style={{ fontSize: '0.65rem' }}>
-                        Batch [{cls.batch_type}]
+                      <span className={`badge ${cls.batch_type === 'I' ? 'badge-info' : (cls.batch_type === 'L' ? 'badge-gold' : 'badge-primary')}`} style={{ fontSize: '0.72rem', fontWeight: 800 }}>
+                        {cls.batch_name || `Batch [${cls.batch_type}]`}
                       </span>
                       <span className="badge badge-secondary" style={{ fontSize: '0.65rem' }}>
                         {cls.student_level}
                       </span>
+                      {cls.warnings && cls.warnings.length > 0 && cls.warnings.some(w => w.includes('Conflict') || w.includes('Requires Assignment')) && (
+                        <span className="badge badge-danger" style={{ fontSize: '0.65rem', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          ⚠️ {cls.warnings.find(w => w.includes('Conflict') || w.includes('Requires Assignment'))}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -952,7 +1026,7 @@ export default function DailySchedulePlanner({
 
                 {/* Bottom Action Footer */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '10px', marginTop: '6px' }}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => onOpenManualEdit(cls)}
                       className="btn btn-secondary"
@@ -960,6 +1034,14 @@ export default function DailySchedulePlanner({
                       title="Edit Trainer, Time Slot, or Level"
                     >
                       <Edit3 size={13} /> Edit Class
+                    </button>
+                    <button
+                      onClick={() => handleOpenRescheduleModal(cls)}
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 10px', fontSize: '0.75rem', borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Reschedule this session to another date or time"
+                    >
+                      <CalendarIcon size={13} /> Reschedule
                     </button>
                     <button
                       onClick={() => handleOpenAddStudent(cls)}
@@ -974,11 +1056,12 @@ export default function DailySchedulePlanner({
 
                   <button
                     onClick={() => handleDeleteClass(cls)}
+                    disabled={deletingClassId === cls.class_id}
                     className="btn btn-secondary"
                     style={{ padding: '6px 10px', fontSize: '0.75rem', color: 'var(--status-danger)', borderColor: 'rgba(244, 63, 94, 0.3)', display: 'flex', alignItems: 'center', gap: '4px' }}
                     title="Cancel & Delete Class"
                   >
-                    <Trash2 size={13} /> Cancel
+                    <Trash2 size={13} /> {deletingClassId === cls.class_id ? 'Cancelling...' : 'Cancel'}
                   </button>
                 </div>
               </div>
@@ -1362,6 +1445,135 @@ export default function DailySchedulePlanner({
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Modal: Reschedule Class (Phase 3) */}
+      {rescheduleModalClass && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: '560px',
+              padding: '26px',
+              border: '1.5px solid var(--accent-blue)',
+              borderRadius: 'var(--radius-lg)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.6)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', borderBottom: '1px solid var(--border-color)', paddingBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 900, color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <CalendarIcon size={20} style={{ color: 'var(--accent-blue)' }} /> Reschedule Session (Phase 3)
+                </h3>
+                <span style={{ fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
+                  Current: {rescheduleModalClass.date} at {rescheduleModalClass.time_slot} ({rescheduleModalClass.coach_name})
+                </span>
+              </div>
+              <button
+                onClick={() => setRescheduleModalClass(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRescheduleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '6px', padding: '12px' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#93c5fd' }}>CLASS DETAILS TO RESCHEDULE:</div>
+                <div style={{ fontSize: '0.85rem', color: '#fff', fontWeight: 800, marginTop: '2px' }}>
+                  {rescheduleModalClass.batch_name || `Batch [${rescheduleModalClass.batch_type}]`} · {rescheduleModalClass.student_level}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '4px' }}>
+                  Enrolled Students: {(rescheduleModalClass.student_names || []).join(', ') || 'None'}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  TARGET RESCHEDULE DATE
+                </label>
+                <input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  className="input-field"
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  TARGET TIME SLOT
+                </label>
+                <select
+                  value={rescheduleTimeSlot}
+                  onChange={(e) => setRescheduleTimeSlot(e.target.value)}
+                  className="input-field"
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                  required
+                >
+                  {TIME_SLOT_PRESETS.map((slot) => (
+                    <option key={slot} value={slot}>
+                      {slot}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                  ASSIGNED COACH / TRAINER
+                </label>
+                <select
+                  value={rescheduleCoach}
+                  onChange={(e) => setRescheduleCoach(e.target.value)}
+                  className="input-field"
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                  required
+                >
+                  {availableCoaches.map((c) => (
+                    <option key={c.coach_name} value={c.coach_name}>
+                      Coach {c.coach_name} {c.coach_name === rescheduleModalClass.coach_name ? '(Current Coach)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setRescheduleModalClass(null)}
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 16px', fontSize: '0.825rem' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reschedulingLoading}
+                  className="btn btn-primary"
+                  style={{ padding: '8px 20px', fontSize: '0.825rem', fontWeight: 800, background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)' }}
+                >
+                  {reschedulingLoading ? 'Rescheduling...' : 'Confirm Reschedule'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

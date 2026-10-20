@@ -45,9 +45,9 @@ ENGINE_SETTINGS = {
         "Friday": ["05:30 PM"]   # Intermediate 2 only
     },
     "tournament_tiers": {
-        "tier1": ["HEMA", "ABINAYA", "BATHRI", "PRAKASH", "MANIKANDAN", "ARSHATH"],
-        "tier2": ["DHAANUSH", "SARAVANAN"],
-        "excluded": ["GURU"]
+        "tier1": ["HEMA", "ABINAYA", "Abinaya", "BATHRI", "PRAKASH", "MANIKANDAN", "ARSHATH"],
+        "tier2": ["DHAANUSH", "Dhaanush", "SARAVANAN", "Saravanan"],
+        "excluded": ["GURU", "Guruvanthana", "Guru"]
     },
     "flex_trainers": ["BATHRI", "PRAKASH", "DHAANUSH"],
     "new_slot_budget_soft_cap": 25,
@@ -137,10 +137,17 @@ def build_student_availability_mask(student: Dict[str, Any], day_name: str) -> i
 def build_coach_availability_mask(coach_name: str, coach_master: Dict[str, Any], day_name: str) -> int:
     """
     Builds 48-bit mask of coach availability intersected with academy hours.
+    Supports both baseline coaches and newly registered master coaches.
     """
     hours_mask = get_operating_hours_mask(day_name)
-    c_ref = COACH_REFERENCE.get(coach_name, {})
-    windows = coach_master.get("availability", {}).get(day_name) or c_ref.get("availability", {}).get(day_name, [])
+    from app.engine.coach_availability_service import get_unified_coaches_dict
+    unified = get_unified_coaches_dict()
+    c_ref = unified.get(coach_name.upper()) or COACH_REFERENCE.get(coach_name, {})
+    windows = (
+        coach_master.get(coach_name, {}).get("availability", {}).get(day_name)
+        or coach_master.get("availability", {}).get(day_name)
+        or c_ref.get("availability", {}).get(day_name, [])
+    )
     
     if not windows:
         return 0
@@ -234,6 +241,11 @@ def evaluate_hard_feasibility(
     coach_name = resolve_coach_canonical_name(candidate.get("coach_name", ""))
     is_tourn = candidate.get("is_tournament", False)
 
+    # Rule 1: Strict Batch Type Compatibility (Mandatory Hard Constraint — Zero Exceptions)
+    c_btype = candidate.get("batch_type", "G")
+    if not is_tourn and c_btype != s_btype:
+        return False, "batch_type_mismatch"
+
     # Operating hours check
     op_ok, _ = check_operating_hours(day_name, start_min)
     if not op_ok:
@@ -261,7 +273,7 @@ def evaluate_hard_feasibility(
     if not (s_mask & (1 << slot_bit)):
         return False, "student_unavailable"
 
-    # Level compatibility check
+    # Level compatibility check (Rule 1)
     if is_tourn:
         el_ok, _ = check_tournament_eligibility(s_lvl, s_btype, day_name)
         if not el_ok:
@@ -278,8 +290,8 @@ def evaluate_hard_feasibility(
         levels_to_test = [c_lvl, s_lvl]
         comp_ok, _, _ = check_regular_level_compatibility(levels_to_test)
         if not comp_ok:
-            if "Basic 1" in levels_to_test and "Basic 2" in levels_to_test:
-                return False, "basic1_basic2"
+            if "Basic 1" in levels_to_test:
+                return False, "basic1_isolation"
             return False, "level_mismatch"
 
     # Coach qualification and availability check
@@ -379,11 +391,28 @@ def calculate_tier_score(
     # 4. Coach Priority
     c_ref = COACH_REFERENCE.get(c_coach, {})
     priority_step = 1
-    # Check if coach has per-level priority
-    coach_obj = coaches_master_map.get(c_coach.lower(), {})
+    # Check if coach has per-level priority from authoritative matrix
+    coach_obj = (
+        coaches_master_map.get(c_coach) or
+        coaches_master_map.get(resolve_coach_canonical_name(c_coach)) or
+        coaches_master_map.get(c_coach.lower()) or
+        coaches_master_map.get(c_coach.upper()) or
+        {}
+    )
     prio_map = coach_obj.get("qualified_levels_priority", {})
     if s_lvl in prio_map:
         priority_step = prio_map[s_lvl]
+    else:
+        try:
+            from app.config import CURRENT_CONFIG
+            cfg_prios = CURRENT_CONFIG.coach_priority.get(s_lvl, [])
+            c_canon = resolve_coach_canonical_name(c_coach)
+            if c_canon in cfg_prios:
+                priority_step = cfg_prios.index(c_canon) + 1
+            else:
+                priority_step = 99
+        except Exception:
+            priority_step = 99
     breakdown["coach_priority"] = (priority_step - 1) * weights["coach_priority"]
     total_score += breakdown["coach_priority"]
 
@@ -457,19 +486,16 @@ def find_single_class_suggestions(
         is_exact_time = pref_times and (c_time in pref_times)
         is_same_level = (c_lvl == s_lvl)
 
-        # Check soft relaxations (T3)
-        has_level_relaxation = (c_lvl != s_lvl)
-        has_seat_relaxation = (s_btype == "G" and c_btype == "L")
+        # Rule 1: Controlled Adjacent-Level Fallback (Confirmation-Gated)
+        is_adjacent_level = (c_lvl != s_lvl)
 
         relaxations = []
-        if has_level_relaxation:
-            relaxations.append(f"Level variation: {c_lvl}")
-        if has_seat_relaxation:
-            relaxations.append("Group student in spare Limited seat (Rule 8)")
+        if is_adjacent_level:
+            relaxations.append(f"Controlled Adjacent Level (±1 step): {s_lvl} placed in {c_lvl}. Confirmation required.")
 
-        if is_same_level and not has_seat_relaxation and (is_exact_coach and is_exact_time):
+        if is_same_level and (is_exact_coach and is_exact_time):
             tier = "T1"
-        elif is_same_level and not has_seat_relaxation:
+        elif is_same_level:
             tier = "T2"
         else:
             tier = "T3"
@@ -488,6 +514,8 @@ def find_single_class_suggestions(
             "level_purity": 0 if is_same_level else 2,
             "pattern_match": 0 if (is_exact_coach and is_exact_time) else 5,
             "relaxations": relaxations,
+            "requires_confirmation": is_adjacent_level,
+            "confirmation_prompt": f"Adjacent Level Placement (±1 step): Student level is {s_lvl}, but batch level is {c_lvl}. Proceed?" if is_adjacent_level else "",
             "score": score,
             "score_breakdown": breakdown,
             "is_new_slot": False
@@ -530,19 +558,23 @@ def generate_new_slot_candidates(
     all_classes: List[Dict[str, Any]],
     coaches_master_map: Dict[str, Any],
     target_month: str = "2026-10",
-    settings: Dict[str, Any] = ENGINE_SETTINGS
+    settings: Dict[str, Any] = ENGINE_SETTINGS,
+    max_candidates: int = 150
 ) -> List[Dict[str, Any]]:
     """
-    Generates new slot options strictly according to Section 6:
-    T4: Coach already teaching that day, placed back-to-back (no idle gaps).
-    T5: Another qualified coach, or isolated time.
-    T6: Flex trainer over limit (Bathrinath, Prakash, Dhaanush), marked workload exception.
+    Generates new slot options strictly according to Section 6 and Rule 8 Enhancement:
+    - Scans the entire calendar month across all student's eligible days.
+    - Evaluates all qualified coaches to support >=95% coach coverage.
+    - T4: Coach already teaching that day, placed back-to-back (no idle gaps).
+    - T5: Another qualified coach, or isolated time.
+    - T6: Flex trainer over limit (Bathrinath, Prakash, Dhaanush), marked workload exception.
     """
-    candidates = []
+    candidates_by_coach = defaultdict(list)
     sid = student["student_id"]
     s_lvl = student.get("student_level", "Beginner 1")
     s_btype = student.get("batch_type", "G")
     flex_coaches = set(settings.get("flex_trainers", ["Bathrinath", "Prakash", "Dhaanush"]))
+    max_per_coach = max(15, max_candidates // 6)
 
     # Parse target month range
     try:
@@ -575,15 +607,23 @@ def generate_new_slot_candidates(
         if s_mask == 0:
             continue
 
-        # Evaluate coaches
-        for c_canon, c_ref in COACH_REFERENCE.items():
-            if c_canon == "Hema":
-                continue # Hema is tournament only
+        # Evaluate coaches (including newly registered coaches)
+        from app.engine.coach_availability_service import get_unified_coaches_dict
+        unified_coaches = get_unified_coaches_dict()
+
+        for c_upper, c_ref in unified_coaches.items():
+            c_canon = c_ref.get("coach_name") or c_upper
+            if c_canon == "Hema" or c_ref.get("tournaments_only"):
+                continue # Tournament only
             if c_canon == "Bathrinath" and "Early Intermediate" in s_lvl:
                 continue
 
             # Qualification
             if s_lvl not in c_ref.get("levels", []):
+                continue
+
+            # Per-coach limit to ensure broad representation across coaches
+            if len(candidates_by_coach[c_canon]) >= max_per_coach:
                 continue
 
             c_mask = build_coach_availability_mask(c_canon, coaches_master_map, day_name)
@@ -599,7 +639,7 @@ def generate_new_slot_candidates(
             # Daily limits check
             d_limit = c_ref.get("daily_limits", {}).get(day_name, 99)
             is_over_limit = len(existing_mins) >= d_limit
-            is_flex = c_canon in flex_coaches
+            is_flex = c_ref.get("is_flex", False) or (c_canon in flex_coaches)
 
             if is_over_limit and not is_flex:
                 continue # Non-flex cannot exceed daily limit
@@ -627,7 +667,7 @@ def generate_new_slot_candidates(
                 else:
                     tier = "T5"
 
-                candidates.append({
+                candidates_by_coach[c_canon].append({
                     "class_id": None, # New slot
                     "date": d_str,
                     "day": day_name,
@@ -644,15 +684,17 @@ def generate_new_slot_candidates(
                     "is_new_slot": True
                 })
 
-                if len(candidates) >= 15:
+                if len(candidates_by_coach[c_canon]) >= max_per_coach:
                     break
-        if len(candidates) >= 20:
-            break
+
+    candidates = []
+    for c_canon, c_list in candidates_by_coach.items():
+        candidates.extend(c_list)
 
     return candidates
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. MULTI-CLASS REQUIREMENTS SOLVER (SECTION 5)
+# 6. MULTI-CLASS REQUIREMENTS SOLVER (SECTION 5, PHASE 5 & RULE 8 ENHANCEMENT)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def solve_multi_class_options(
@@ -664,27 +706,27 @@ def solve_multi_class_options(
     settings: Dict[str, Any] = ENGINE_SETTINGS
 ) -> List[Dict[str, Any]]:
     """
-    Solves multi-class requirements (e.g. 'needs 16 classes') as one optimization problem.
-    Returns 3 to 5 diverse complete option sets (Section 5):
-    - Set A: Consistent pattern (same weekday/time/coach every week)
-    - Set B: Existing seats only (maximum use of vacancies, zero new slots)
-    - Set C: Fastest completion (earliest dates)
-    - Set D: Preferred times (best match to student preference)
+    Solves multi-class requirements according to Master Development Directive Prompt 3:
+    - Set A: Consistent Weekly Pattern — Maximize same-coach coverage (100% target, max 1 class exception).
+    - Set B: Best Existing + New Slot Hybrid — Up to 30 ranked combinations achieving >=95% coach coverage.
+    - Set C: Fastest Completion — Earliest feasible calendar completion date with continuity tie-breaking.
+    - Sunday Tournament Subsystem: Flags Sunday tournament eligibility and integrates tournament slots.
     """
     sid = student["student_id"]
     s_lvl = student.get("student_level", "Beginner 1")
     s_btype = student.get("batch_type", "G")
+    is_tourn_el, _ = check_tournament_eligibility(s_lvl, s_btype, "Sunday")
 
+    # 1. Gather all feasible existing vacancies with free seats
     vacancies = build_vacancy_index(all_classes, coaches_master_map, settings)
     month_vacs = [v for v in vacancies if v["date"].startswith(target_month)]
 
-    # Collect all feasible existing slots for this student
-    valid_slots = []
+    valid_existing_slots = []
     for vac in month_vacs:
         ok, _ = evaluate_hard_feasibility(vac, student, all_classes, coaches_master_map, settings)
         if ok:
             score, breakdown = calculate_tier_score(vac, student, "T1", all_classes, coaches_master_map, settings)
-            valid_slots.append({
+            valid_existing_slots.append({
                 "class_id": vac["class_id"],
                 "date": vac["date"],
                 "day": vac["day"],
@@ -695,43 +737,118 @@ def solve_multi_class_options(
                 "occupancy_after": vac["occupancy"] + 1,
                 "score": score,
                 "score_breakdown": breakdown,
-                "is_new_slot": False
+                "is_new_slot": False,
+                "is_tournament": vac.get("is_tournament", False)
             })
+
+    # 2. Gather feasible new slot candidates across all coaches
+    new_slot_candidates = generate_new_slot_candidates(
+        student, all_classes, coaches_master_map, target_month, settings, max_candidates=120
+    )
+
+    all_feasible_slots = valid_existing_slots + new_slot_candidates
+
+    # Find all eligible coaches for this student's level (including newly registered coaches)
+    from app.engine.coach_availability_service import get_unified_coaches_dict
+    unified_coaches_dict = get_unified_coaches_dict()
+
+    eligible_coaches = [
+        c_ref.get("coach_name") or c_upper for c_upper, c_ref in unified_coaches_dict.items()
+        if not c_ref.get("tournaments_only") and s_lvl in c_ref.get("levels", [])
+    ]
+    if not eligible_coaches:
+        eligible_coaches = [c_ref.get("coach_name") or c_upper for c_upper, c_ref in unified_coaches_dict.items()]
+
+    # Map candidate slots by coach
+    slots_by_coach = defaultdict(list)
+    for s in all_feasible_slots:
+        c_name = resolve_coach_canonical_name(s.get("coach_id", ""))
+        slots_by_coach[c_name].append(s)
 
     option_sets = []
 
-    # ----------------------------------------------------
-    # Set B: Existing Seats Only (Greedy Top Scores, 1 per day)
-    # ----------------------------------------------------
-    used_dates = set()
-    set_b_items = []
-    valid_slots.sort(key=lambda s: (s["score"], s["date"]))
+    # =========================================================================
+    # SET A: Consistent Weekly Pattern — Maximize Same-Coach Coverage (Phase 5.1)
+    # =========================================================================
+    best_set_a = None
+    best_set_a_score = -1
 
-    for s in valid_slots:
-        if s["date"] not in used_dates:
-            used_dates.add(s["date"])
-            set_b_items.append(s)
-            if len(set_b_items) == needed_count:
-                break
+    for c_canon in eligible_coaches:
+        c_slots = slots_by_coach.get(c_canon, [])
+        if not c_slots:
+            continue
 
-    if set_b_items:
-        option_sets.append({
-            "set_id": "SET_B_EXISTING_ONLY",
-            "title": "Set B: Existing Seats Priority",
-            "description": f"Maximum use of existing vacancies ({len(set_b_items)} seats used, 0 new slots).",
-            "items": set_b_items,
-            "existing_used": len(set_b_items),
-            "new_slots": 0,
-            "classes_covered": len(set_b_items),
-            "coaches": list({item["coach_id"] for item in set_b_items})
-        })
+        pattern_groups = defaultdict(list)
+        for s in c_slots:
+            pattern_groups[(s["day"], s["start_time"])].append(s)
 
-    # ----------------------------------------------------
-    # Set C: Fastest Completion (Earliest Calendar Dates)
-    # ----------------------------------------------------
+        sorted_patterns = sorted(pattern_groups.items(), key=lambda x: len(x[1]), reverse=True)
+        combined_c_slots = []
+        used_d = set()
+        for p_key, p_slots in sorted_patterns:
+            for slt in sorted(p_slots, key=lambda x: x["date"]):
+                if slt["date"] not in used_d:
+                    used_d.add(slt["date"])
+                    combined_c_slots.append(slt)
+
+        covered_count = min(needed_count, len(combined_c_slots))
+        if covered_count == 0:
+            continue
+
+        selected_items = list(combined_c_slots[:covered_count])
+        continuity_pct = 100.0 if covered_count == needed_count else round((covered_count / needed_count) * 100, 1)
+
+        # Rule 7.2 & Additional Rule 2: If 1 class short and covered_count == needed_count - 1:
+        # Strictly allow at most 1 exception class from another qualified coach
+        if len(selected_items) == needed_count - 1 and needed_count > 1:
+            used_dates_a = {it["date"] for it in selected_items}
+            other_candidate = None
+            for other_c in eligible_coaches:
+                if other_c == c_canon:
+                    continue
+                for other_s in slots_by_coach.get(other_c, []):
+                    if other_s["date"] not in used_dates_a:
+                        other_candidate = other_s
+                        break
+                if other_candidate:
+                    break
+            if other_candidate:
+                selected_items.append(other_candidate)
+                continuity_pct = round(((needed_count - 1) / needed_count) * 100, 1)
+
+        set_a_score = (covered_count * 50) + (100 if len(set(it["coach_id"] for it in selected_items)) == 1 else 40)
+        if sorted_patterns and len(sorted_patterns[0][1]) >= min(4, needed_count):
+            set_a_score += 30
+
+        if set_a_score > best_set_a_score and len(selected_items) > 0:
+            best_set_a_score = set_a_score
+            primary_c = c_canon
+            other_coaches = [it["coach_id"] for it in selected_items if it["coach_id"] != primary_c]
+            desc = f"100% same-coach continuity with Coach {primary_c}." if len(other_coaches) == 0 else f"{continuity_pct}% continuity with Coach {primary_c} (includes 1 exception class with {', '.join(set(other_coaches))})."
+            best_set_a = {
+                "set_id": "SET_A_CONSISTENT",
+                "set_name": "Set A: Consistent Pattern (Max Coach Coverage)",
+                "title": "Set A: Consistent Weekly Pattern",
+                "description": desc,
+                "items": selected_items,
+                "existing_used": sum(1 for it in selected_items if not it.get("is_new_slot")),
+                "new_slots": sum(1 for it in selected_items if it.get("is_new_slot")),
+                "classes_covered": len(selected_items),
+                "coaches": list({item["coach_id"] for item in selected_items}),
+                "primary_coach": primary_c,
+                "continuity_pct": continuity_pct,
+                "score": set_a_score
+            }
+
+    if best_set_a:
+        option_sets.append(best_set_a)
+
+    # =========================================================================
+    # SET C: Fastest Completion — Earliest Feasible Quota Completion (Phase 5.3)
+    # =========================================================================
     used_dates_c = set()
     set_c_items = []
-    earliest_slots = sorted(valid_slots, key=lambda s: s["date"])
+    earliest_slots = sorted(all_feasible_slots, key=lambda s: (s["date"], s.get("score", 100)))
 
     for s in earliest_slots:
         if s["date"] not in used_dates_c:
@@ -741,41 +858,299 @@ def solve_multi_class_options(
                 break
 
     if set_c_items:
+        concludes_on = set_c_items[-1]["date"]
+        uniq_c = list({item["coach_id"] for item in set_c_items})
         option_sets.append({
             "set_id": "SET_C_FASTEST",
+            "set_name": "Set C: Fastest Completion",
             "title": "Set C: Fastest Completion",
-            "description": f"Completes quota earliest in the month (concludes by {set_c_items[-1]['date']}).",
+            "description": f"Completes full monthly quota on the earliest feasible date (concludes on {concludes_on}).",
             "items": set_c_items,
-            "existing_used": len(set_c_items),
-            "new_slots": 0,
+            "existing_used": sum(1 for it in set_c_items if not it.get("is_new_slot")),
+            "new_slots": sum(1 for it in set_c_items if it.get("is_new_slot")),
             "classes_covered": len(set_c_items),
-            "coaches": list({item["coach_id"] for item in set_c_items})
+            "concludes_on": concludes_on,
+            "coaches": uniq_c,
+            "primary_coach": uniq_c[0] if uniq_c else "Coach",
+            "score": 150.0
         })
 
-    # ----------------------------------------------------
-    # Set A: Consistent Pattern (Same Weekday & Time)
-    # ----------------------------------------------------
-    weekday_grouped = defaultdict(list)
-    for s in valid_slots:
-        weekday_grouped[(s["day"], s["start_time"])].append(s)
+    # =========================================================================
+    # SET B & Rule 8 Enhancement: Best Existing + New Slot Hybrid (Phase 5.2)
+    # Up to 30 Distinct, Ranked Combinations & ≥95% Coach Coverage Target
+    # =========================================================================
+    set_b_candidates = []
+    seen_combos = set()
 
-    best_pattern = None
-    best_pattern_len = 0
-    for key, p_items in weekday_grouped.items():
-        if len(p_items) > best_pattern_len:
-            best_pattern_len = len(p_items)
-            best_pattern = p_items
+    # Extract student preferences
+    s_pref_days_raw = str(student.get("preferred_days", "") or "")
+    s_pref_days = set()
+    for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
+        if day.lower() in s_pref_days_raw.lower():
+            s_pref_days.add(day)
+        dp = str(student.get(f"{day[:3].lower()}_pref", "")).lower()
+        if dp and "not available" not in dp and "na" not in dp and "no" != dp and dp != "no preference":
+            s_pref_days.add(day)
 
-    if best_pattern:
+    s_pref_time_raw = str(student.get("preferred_time", "") or "").strip()
+    s_pref_times_list = list(student.get("preferred_times") or [])
+    if s_pref_time_raw and s_pref_time_raw.lower() not in ["flexible", "any", "no preference", ""]:
+        s_pref_times_list.append(s_pref_time_raw)
+
+    def make_combo_key(items_list):
+        return tuple(sorted((it["date"], it.get("start_time", it.get("time_slot", "")), it["coach_id"]) for it in items_list))
+
+    def score_combo(combo_items, primary_coach_id):
+        existing_cnt = sum(1 for it in combo_items if not it.get("is_new_slot"))
+        new_cnt = sum(1 for it in combo_items if it.get("is_new_slot"))
+        uniq_coaches = list({it["coach_id"] for it in combo_items})
+
+        # 1. Base score and Quota completion
+        score = 100.0
+        score += (len(combo_items) / max(1, needed_count)) * 50.0
+
+        # 2. Existing seats utilization (Hybrid optimization: favor filling existing batches)
+        score += existing_cnt * 25.0
+
+        # 3. Coach Continuity (Rule 7 target: 100% same coach or max 1 exception)
+        if len(uniq_coaches) == 1:
+            score += 40.0
+        elif len(uniq_coaches) == 2:
+            score += 20.0
+        else:
+            score -= (len(uniq_coaches) - 2) * 15.0
+
+        # 4. Student Preference Days Match
+        if s_pref_days:
+            match_days = sum(1 for it in combo_items if it.get("day") in s_pref_days)
+            score += (match_days / max(1, len(combo_items))) * 25.0
+
+        # 5. Student Preference Times Match
+        if s_pref_times_list:
+            match_times = 0
+            for it in combo_items:
+                st = str(it.get("start_time") or it.get("time_slot") or "")
+                if any(pt.lower() in st.lower() for pt in s_pref_times_list):
+                    match_times += 1
+            score += (match_times / max(1, len(combo_items))) * 20.0
+
+        # 6. Coach Preference Days/Times & Level Priority
+        for c_name in uniq_coaches:
+            c_master = (
+                coaches_master_map.get(c_name) or
+                coaches_master_map.get(resolve_coach_canonical_name(c_name)) or
+                coaches_master_map.get(c_name.lower()) or
+                coaches_master_map.get(c_name.upper()) or
+                {}
+            )
+            prio_map = c_master.get("qualified_levels_priority", {})
+            if s_lvl in prio_map:
+                priority = prio_map[s_lvl]
+            else:
+                try:
+                    from app.config import CURRENT_CONFIG
+                    cfg_prios = CURRENT_CONFIG.coach_priority.get(s_lvl, [])
+                    c_canon = resolve_coach_canonical_name(c_name)
+                    priority = (cfg_prios.index(c_canon) + 1) if c_canon in cfg_prios else 3
+                except Exception:
+                    priority = 3
+            score += max(0, 10.0 - (priority * 2.5))
+            c_max = c_master.get("monthly_capacity_max", 100)
+            c_assigned = sum(1 for c in all_classes if c.get("date", "").startswith(target_month) and resolve_coach_canonical_name(c.get("coach_name")) == c_name)
+            if c_max and c_assigned < c_max:
+                score += 5.0
+
+        # 7. Sunday Tournament Bonus if eligible
+        if is_tourn_el and any(it.get("day") == "Sunday" or it.get("is_tournament") for it in combo_items):
+            score += 15.0
+
+        return round(score, 1)
+
+    # Strategy 1: Anchor combinations across every eligible coach (>=95% coverage requirement)
+    for c_canon in eligible_coaches:
+        c_slots = slots_by_coach.get(c_canon, [])
+        if not c_slots:
+            continue
+
+        sorted_c_slots = sorted(c_slots, key=lambda s: (s.get("score", 50), s["date"]))
+        step = max(1, len(sorted_c_slots) // 6 or 1)
+
+        for offset in range(0, len(sorted_c_slots), step):
+            used_d = set()
+            combo_items = []
+            for slt in sorted_c_slots[offset:] + sorted_c_slots[:offset]:
+                if slt["date"] not in used_d:
+                    used_d.add(slt["date"])
+                    combo_items.append(slt)
+                    if len(combo_items) == needed_count:
+                        break
+
+            # If coach alone does not cover needed_count, complement with vacancies or other coaches
+            if len(combo_items) < needed_count:
+                for other_s in all_feasible_slots:
+                    if other_s["date"] not in used_d:
+                        used_d.add(other_s["date"])
+                        combo_items.append(other_s)
+                        if len(combo_items) == needed_count:
+                            break
+
+            if combo_items:
+                ckey = make_combo_key(combo_items)
+                if ckey not in seen_combos:
+                    seen_combos.add(ckey)
+                    existing_cnt = sum(1 for it in combo_items if not it.get("is_new_slot"))
+                    new_cnt = sum(1 for it in combo_items if it.get("is_new_slot"))
+                    uniq_coaches = list({it["coach_id"] for it in combo_items})
+                    combo_score = score_combo(combo_items, c_canon)
+
+                    set_b_candidates.append({
+                        "items": combo_items,
+                        "existing_used": existing_cnt,
+                        "new_slots": new_cnt,
+                        "coaches": uniq_coaches,
+                        "primary_coach": c_canon,
+                        "score": combo_score
+                    })
+
+    # Strategy 2: High-vacancy combinations (Maximum existing seats utilization)
+    if valid_existing_slots:
+        step = max(1, len(valid_existing_slots) // 8 or 1)
+        for offset in range(0, len(valid_existing_slots), step):
+            used_d = set()
+            combo_items = []
+            for slt in valid_existing_slots[offset:] + valid_existing_slots[:offset]:
+                if slt["date"] not in used_d:
+                    used_d.add(slt["date"])
+                    combo_items.append(slt)
+                    if len(combo_items) == needed_count:
+                        break
+
+            if len(combo_items) < needed_count:
+                for ns in new_slot_candidates:
+                    if ns["date"] not in used_d:
+                        used_d.add(ns["date"])
+                        combo_items.append(ns)
+                        if len(combo_items) == needed_count:
+                            break
+
+            if combo_items:
+                ckey = make_combo_key(combo_items)
+                if ckey not in seen_combos:
+                    seen_combos.add(ckey)
+                    existing_cnt = sum(1 for it in combo_items if not it.get("is_new_slot"))
+                    new_cnt = sum(1 for it in combo_items if it.get("is_new_slot"))
+                    uniq_coaches = list({it["coach_id"] for it in combo_items})
+                    primary_c = uniq_coaches[0] if uniq_coaches else "Hybrid"
+                    combo_score = score_combo(combo_items, primary_c)
+
+                    set_b_candidates.append({
+                        "items": combo_items,
+                        "existing_used": existing_cnt,
+                        "new_slots": new_cnt,
+                        "coaches": uniq_coaches,
+                        "primary_coach": primary_c,
+                        "score": combo_score
+                    })
+
+    # Strategy 3: Sunday Tournament Integrated Combinations
+    if is_tourn_el:
+        sunday_slots = [s for s in all_feasible_slots if s.get("day") == "Sunday" or s.get("is_tournament")]
+        non_sunday_slots = [s for s in all_feasible_slots if s.get("day") != "Sunday" and not s.get("is_tournament")]
+        for sun_s in sunday_slots[:5]:
+            used_d = {sun_s["date"]}
+            combo_items = [sun_s]
+            for ns in non_sunday_slots:
+                if ns["date"] not in used_d:
+                    used_d.add(ns["date"])
+                    combo_items.append(ns)
+                    if len(combo_items) == needed_count:
+                        break
+            if combo_items:
+                ckey = make_combo_key(combo_items)
+                if ckey not in seen_combos:
+                    seen_combos.add(ckey)
+                    existing_cnt = sum(1 for it in combo_items if not it.get("is_new_slot"))
+                    new_cnt = sum(1 for it in combo_items if it.get("is_new_slot"))
+                    uniq_coaches = list({it["coach_id"] for it in combo_items})
+                    primary_c = uniq_coaches[0] if uniq_coaches else "Tournament"
+                    set_b_candidates.append({
+                        "items": combo_items,
+                        "existing_used": existing_cnt,
+                        "new_slots": new_cnt,
+                        "coaches": uniq_coaches,
+                        "primary_coach": primary_c,
+                        "score": score_combo(combo_items, primary_c)
+                    })
+
+    # Identify which eligible coaches have at least one feasible candidate combo
+    coaches_with_candidates = {
+        c for cand in set_b_candidates for c in cand["coaches"] if c in eligible_coaches
+    }
+
+    selected_combos = []
+    selected_keys = set()
+
+    # Pass 1: Broad Coach Representation Anchor (>=95% coverage requirement)
+    # Include every coach who can feasibly teach the student in at least one recommendation
+    for c_canon in eligible_coaches:
+        if c_canon not in coaches_with_candidates:
+            continue
+        best_for_coach = None
+        for cand in set_b_candidates:
+            ck = make_combo_key(cand["items"])
+            if ck in selected_keys:
+                continue
+            if cand["primary_coach"] == c_canon or c_canon in cand["coaches"]:
+                if best_for_coach is None or cand["score"] > best_for_coach["score"]:
+                    best_for_coach = cand
+
+        if best_for_coach:
+            selected_combos.append(best_for_coach)
+            selected_keys.add(make_combo_key(best_for_coach["items"]))
+
+    # Pass 2: Fill remaining slots up to 30 with top-scoring candidate combinations
+    remaining_sorted = sorted(
+        [c for c in set_b_candidates if make_combo_key(c["items"]) not in selected_keys],
+        key=lambda x: (x["score"], x["existing_used"], -len(x["coaches"])),
+        reverse=True
+    )
+
+    for cand in remaining_sorted:
+        if len(selected_combos) >= 30:
+            break
+        ck = make_combo_key(cand["items"])
+        if ck not in selected_keys:
+            selected_combos.append(cand)
+            selected_keys.add(ck)
+
+    # Sort final selected combinations deterministically by score descending
+    selected_combos.sort(key=lambda x: (x["score"], x["existing_used"], -len(x["coaches"])), reverse=True)
+
+    # Compute actual coach coverage achieved across the selected up to 30 combinations
+    coaches_in_selection = {c for cand in selected_combos for c in cand["coaches"] if c in eligible_coaches}
+    denom = len(coaches_with_candidates) if coaches_with_candidates else len(eligible_coaches)
+    coverage_pct = round((len(coaches_in_selection) / max(1, denom)) * 100, 1)
+
+    # Format up to 30 Set B combinations
+    for idx, cand in enumerate(selected_combos[:30]):
+        opt_num = idx + 1
+        p_coach = cand["primary_coach"]
+        desc = f"Hybrid option ({cand['existing_used']} existing seats, {cand['new_slots']} new slots) featuring Coach {p_coach}."
+        if len(cand["coaches"]) > 1:
+            desc += f" Balanced across {len(cand['coaches'])} coaches: {', '.join(cand['coaches'])}."
         option_sets.append({
-            "set_id": "SET_A_CONSISTENT",
-            "title": "Set A: Consistent Pattern",
-            "description": f"Maintains recurring weekly rhythm ({best_pattern[0]['day']} at {best_pattern[0]['start_time']}).",
-            "items": best_pattern[:needed_count],
-            "existing_used": len(best_pattern[:needed_count]),
-            "new_slots": 0,
-            "classes_covered": len(best_pattern[:needed_count]),
-            "coaches": list({item["coach_id"] for item in best_pattern[:needed_count]})
+            "set_id": f"SET_B_HYBRID_{opt_num}",
+            "set_name": f"Set B: Option {opt_num} ({p_coach} Hybrid)",
+            "title": f"Option {opt_num}: {p_coach} Hybrid",
+            "description": desc,
+            "items": cand["items"],
+            "existing_used": cand["existing_used"],
+            "new_slots": cand["new_slots"],
+            "classes_covered": len(cand["items"]),
+            "coaches": cand["coaches"],
+            "primary_coach": p_coach,
+            "score": cand["score"],
+            "coach_coverage_pct": coverage_pct
         })
 
     return option_sets
@@ -811,9 +1186,12 @@ def generate_smart_batch_opportunities(
         if len(waiting_students) < 2:
             continue
 
-        # Look for qualified coach
+        # Look for qualified coach (including newly registered coaches)
+        from app.engine.coach_availability_service import get_unified_coaches_dict
+        unified_coaches_pool = get_unified_coaches_dict()
+
         qual_coaches = [
-            c_name for c_name, c_ref in COACH_REFERENCE.items()
+            c_ref.get("coach_name") or c_upper for c_upper, c_ref in unified_coaches_pool.items()
             if lvl in c_ref.get("levels", []) and not c_ref.get("tournaments_only")
         ]
         if not qual_coaches:

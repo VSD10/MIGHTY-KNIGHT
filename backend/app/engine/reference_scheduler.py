@@ -77,8 +77,13 @@ class ReferenceScheduleEngine:
             self.excel_path = custom_path
 
         # 1. First priority: Check pre-compiled JSON reference (instant & 100% reliable in serverless)
+        cur_file = os.path.abspath(__file__)
         candidate_json_paths = [
-            os.path.join(os.path.dirname(__file__), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "..", "backend", "data", "reference_oct_schedule.json"),
+            os.path.join(os.path.dirname(cur_file), "..", "..", "..", "data", "reference_oct_schedule.json"),
+            os.path.abspath("backend/data/reference_oct_schedule.json"),
+            os.path.abspath("data/reference_oct_schedule.json"),
             os.path.join(BASE_DIR, "backend", "data", "reference_oct_schedule.json"),
             os.path.join(BASE_DIR, "data", "reference_oct_schedule.json")
         ]
@@ -464,18 +469,28 @@ def generate_reference_schedule(
                     primary_btype = "I"
 
                 cls_id = f"CLS_{date_str.replace('-', '')}_{t_str.replace(' ', '').replace(':', '')}_{tr_str}"
+                cls_warnings = []
+                c_name_final = tr_str
+                if not tr_str or tr_str in ["Unassigned", "Requires Assignment", "None", ""]:
+                    cls_warnings.append("Conflict Warning: Requires Assignment (Coach missing)")
+                    c_name_final = "Requires Assignment"
+
+                max_allowed = 8 if primary_btype == "G" else (3 if primary_btype == "L" else 1)
+                if len(c_info["student_ids"]) > max_allowed:
+                    cls_warnings.append(f"Conflict Warning: Subdivision exceeds capacity ({len(c_info['student_ids'])}/{max_allowed})")
+
                 scheduled_classes.append(ScheduledClass(
                     class_id=cls_id,
                     date=date_str,
                     day=day_name,
                     time_slot=t_str,
-                    coach_name=tr_str,
+                    coach_name=c_name_final,
                     batch_name=primary_batch,
                     student_level=primary_level,
                     batch_type=primary_btype,
                     student_ids=c_info["student_ids"],
                     student_names=c_info["student_names"],
-                    warnings=[],
+                    warnings=cls_warnings,
                     is_manual_override=False
                 ))
 

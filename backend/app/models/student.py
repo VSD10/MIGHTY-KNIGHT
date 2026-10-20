@@ -23,7 +23,10 @@ class StudentModel(BaseModel):
     sun_pref: Optional[str] = Field("No Preference", description="Sunday Preference")
     
     tournament_pref: Optional[str] = Field("No", description="Tournament Preference (Yes/No)")
+    source_tag: Optional[str] = Field(None, description="Historical source tag e.g. [A], [B], [C], [D], [S]")
     additional_comments: Optional[str] = Field("", description="Additional Comments")
+    preferred_days: Optional[str] = Field("Flexible", description="Preferred days summary e.g. Tuesday, Thursday")
+    preferred_time: Optional[str] = Field("Flexible", description="Preferred time summary e.g. 05:00 PM - 06:00 PM")
     
     # F1 Master Data Hub fields
     level_history: list = Field(default_factory=list, description="Level history with timestamps")
@@ -60,6 +63,12 @@ class StudentModel(BaseModel):
             raw_batch_str = str(raw_batch).strip()
             if not values.get("batch") and raw_batch_str:
                 values["batch"] = raw_batch_str
+
+            if not values.get("source_tag") and raw_batch_str:
+                from app.constants.batch_naming import extract_source_suffix_tag
+                tag, _ = extract_source_suffix_tag(raw_batch_str)
+                if tag:
+                    values["source_tag"] = tag
             
             # Extract prefix G/L/I
             prefix = raw_batch_str[:1].upper() if raw_batch_str else "G"

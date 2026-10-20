@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Users, Award, Layers, Search, Plus, Edit2, Trash2,
-  Save, X, RefreshCw, Check, AlertCircle, Shield, UserCheck, Calendar
+  Save, X, RefreshCw, Check, AlertCircle, Shield, UserCheck, Calendar,
+  AlertTriangle, Archive, CheckCircle2
 } from 'lucide-react';
 import {
   getMasterData, getMasterStats, saveMasterStudent, deleteMasterStudent,
@@ -112,24 +113,65 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
     }
   };
 
-  const handleDeleteStudent = async (studentId) => {
-    if (!window.confirm(`Delete student ${studentId}? This will also unlink them from any enrolled batches.`)) return;
+  // ----------------------------------------------------
+  // UNIFIED 3-SCOPE DELETION STATE & HANDLERS
+  // Scopes: 'remove_from_schedule' (default) | 'archive' | 'permanent'
+  // ----------------------------------------------------
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    type: null, // 'student' | 'batch' | 'coach'
+    item: null,
+    scope: 'remove_from_schedule',
+    confirmPermanent: false,
+    loading: false
+  });
+
+  const handleOpenDelete = (type, item) => {
+    setDeleteModal({
+      isOpen: true,
+      type,
+      item,
+      scope: 'remove_from_schedule',
+      confirmPermanent: false,
+      loading: false
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModal.item) return;
+    const { type, item, scope } = deleteModal;
+    setDeleteModal(prev => ({ ...prev, loading: true }));
     try {
-      trackDeletedStudentLocal(studentId);
-      deleteCustomStudentLocal(studentId);
-      // Optimistically remove from local state immediately so UI feels instant
-      setStudents(prev => prev.filter(s => s.student_id !== studentId));
-      showNotification(`Deleted student ${studentId}`);
-      // Send delete to server
-      await deleteMasterStudent(studentId);
-      // Re-sync full data from server
+      if (type === 'student') {
+        const studentId = item.student_id;
+        trackDeletedStudentLocal(studentId);
+        deleteCustomStudentLocal(studentId);
+        setStudents(prev => prev.filter(s => s.student_id !== studentId));
+        await deleteMasterStudent(studentId, scope);
+        showNotification(`Student ${item.student_name || studentId} processed (${scope.replace(/_/g, ' ')})`);
+      } else if (type === 'coach') {
+        const coachName = item.coach_name;
+        await deleteMasterCoach(coachName, scope);
+        showNotification(`Trainer ${coachName} processed (${scope.replace(/_/g, ' ')})`);
+      } else if (type === 'batch') {
+        const batchId = item.batch_id;
+        await deleteMasterBatch(batchId, scope);
+        showNotification(`Batch ${item.batch_name || batchId} processed (${scope.replace(/_/g, ' ')})`);
+      }
+      setDeleteModal({ isOpen: false, type: null, item: null, scope: 'remove_from_schedule', confirmPermanent: false, loading: false });
       await fetchMasterData();
       if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       console.error('Delete failed:', err);
-      // Keep student removed locally even if server returns an error
+      alert('Deletion error: ' + (err.message || 'Operation failed'));
+      setDeleteModal(prev => ({ ...prev, loading: false }));
       await fetchMasterData();
     }
+  };
+
+  const handleDeleteStudent = (studentId) => {
+    const student = students.find(s => s.student_id === studentId) || { student_id: studentId, student_name: studentId };
+    handleOpenDelete('student', student);
   };
 
   // ----------------------------------------------------
@@ -141,20 +183,15 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
       showNotification(`Saved trainer ${coachData.coach_name}`);
       setEditingCoach(null);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to save coach: ' + err.message);
     }
   };
 
-  const handleDeleteCoach = async (coachName) => {
-    if (!window.confirm(`Are you sure you want to delete trainer ${coachName}? Batches assigned to this trainer will be set to Unassigned.`)) return;
-    try {
-      await deleteMasterCoach(coachName);
-      showNotification(`Deleted trainer ${coachName}`);
-      await fetchMasterData();
-    } catch (err) {
-      alert('Failed to delete coach: ' + err.message);
-    }
+  const handleDeleteCoach = (coachName) => {
+    const coach = coaches.find(c => c.coach_name === coachName) || { coach_name: coachName };
+    handleOpenDelete('coach', coach);
   };
 
   // ----------------------------------------------------
@@ -165,19 +202,17 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
       await saveMasterBatch(batchData);
       showNotification(`Saved batch ${batchData.batch_name}`);
       await fetchMasterData();
+      if (onRefreshSchedule) await onRefreshSchedule();
     } catch (err) {
       alert('Failed to save batch: ' + err.message);
     }
   };
 
-  const handleDeleteBatch = async (batchId) => {
-    try {
-      await deleteMasterBatch(batchId);
-      showNotification(`Deleted batch ${batchId}`);
-      await fetchMasterData();
-    } catch (err) {
-      alert('Failed to delete batch: ' + err.message);
-    }
+  const handleDeleteBatch = (batchOrId) => {
+    const batch = typeof batchOrId === 'object' && batchOrId !== null
+      ? batchOrId
+      : batches.find(b => b.batch_id === batchOrId) || { batch_id: batchOrId, batch_name: batchOrId };
+    handleOpenDelete('batch', batch);
   };
 
   // Clear All Master Data
@@ -829,7 +864,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                               <Edit2 size={13} />
                             </button>
                             <button
-                              onClick={() => handleDeleteStudent(student.student_id)}
+                              onClick={() => handleOpenDelete('student', student)}
                               style={{
                                 padding: '6px 8px',
                                 borderRadius: '6px',
@@ -1107,7 +1142,7 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
                               <Edit2 size={14} />
                             </button>
                             <button
-                              onClick={() => handleDeleteCoach(coach.coach_name)}
+                              onClick={() => handleOpenDelete('coach', coach)}
                               style={{
                                 padding: '6px 10px',
                                 borderRadius: '6px',
@@ -1152,6 +1187,17 @@ export default function MasterDataView({ onReRunScheduler, onClearSchedule, onRe
           coach={editingCoach}
           onSave={handleSaveCoach}
           onClose={() => setEditingCoach(null)}
+        />
+      )}
+
+      {/* 9. CONSISTENT THREE-OPTION DELETION DIALOG */}
+      {deleteModal.isOpen && (
+        <ConsistentDeleteModal
+          modalState={deleteModal}
+          onClose={() => setDeleteModal({ isOpen: false, type: null, item: null, scope: 'remove_from_schedule', confirmPermanent: false, loading: false })}
+          onConfirm={handleConfirmDelete}
+          onChangeScope={(scope) => setDeleteModal(prev => ({ ...prev, scope }))}
+          onChangeConfirmPermanent={(val) => setDeleteModal(prev => ({ ...prev, confirmPermanent: val }))}
         />
       )}
     </div>
@@ -2421,6 +2467,381 @@ function CoachEditModal({ coach, onSave, onClose }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+
+  return createPortal(modalContent, document.body);
+}
+
+// ----------------------------------------------------
+// CONSISTENT 3-SCOPE DELETION MODAL COMPONENT
+// ----------------------------------------------------
+function ConsistentDeleteModal({ modalState, onClose, onConfirm, onChangeScope, onChangeConfirmPermanent }) {
+  const { type, item, scope, confirmPermanent, loading } = modalState;
+  if (!item) return null;
+
+  const isStudent = type === 'student';
+  const isCoach = type === 'coach';
+  const isBatch = type === 'batch';
+
+  const titleName = isStudent
+    ? (item.student_name || item.student_id)
+    : isCoach
+    ? item.coach_name
+    : (item.batch_name || item.batch_id);
+
+  const identifier = isStudent
+    ? item.student_id
+    : isCoach
+    ? item.coach_name
+    : item.batch_id;
+
+  const typeLabel = isStudent ? 'Student' : isCoach ? 'Trainer' : 'Batch / Group';
+
+  const modalContent = (
+    <div style={{
+      position: 'fixed',
+      top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(5, 7, 15, 0.82)',
+      backdropFilter: 'blur(8px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 10050,
+      padding: '20px'
+    }}>
+      <div style={{
+        background: '#0f172a',
+        border: '1px solid rgba(239, 68, 68, 0.4)',
+        borderRadius: '16px',
+        width: '100%',
+        maxWidth: '640px',
+        boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 25px rgba(239, 68, 68, 0.15)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '20px 24px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          background: 'linear-gradient(180deg, rgba(239, 68, 68, 0.12) 0%, rgba(15, 23, 42, 0) 100%)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start'
+        }}>
+          <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+            <div style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              background: 'rgba(239, 68, 68, 0.18)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ef4444'
+            }}>
+              <AlertTriangle size={22} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#fff' }}>
+                Remove {typeLabel}
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Target: <strong style={{ color: '#fff' }}>{titleName}</strong> <span style={{ opacity: 0.7 }}>({identifier})</span>
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              padding: '6px',
+              borderRadius: '6px'
+            }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Target Details Badge Bar */}
+        <div style={{
+          padding: '12px 24px',
+          background: 'rgba(255, 255, 255, 0.02)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          display: 'flex',
+          gap: '16px',
+          flexWrap: 'wrap',
+          fontSize: '0.8rem'
+        }}>
+          {isStudent && (
+            <>
+              <div><span style={{ color: 'var(--text-muted)' }}>Level:</span> <strong style={{ color: '#93c5fd' }}>{item.student_level || 'N/A'}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Type:</span> <strong style={{ color: '#cbd5e1' }}>{item.batch_type || 'G'}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Required:</span> <strong style={{ color: '#f59e0b' }}>{item.required_classes ?? 8} classes</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Batch:</span> <strong style={{ color: '#fff' }}>{item.enrolled_batch || 'None'}</strong></div>
+            </>
+          )}
+          {isCoach && (
+            <>
+              <div><span style={{ color: 'var(--text-muted)' }}>Capacity:</span> <strong style={{ color: '#93c5fd' }}>{item.capacity_classes_per_week || 'N/A'} classes/wk</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Teaching:</span> <strong style={{ color: '#34d399' }}>{Array.isArray(item.qualifications) ? item.qualifications.length : (item.qualifications ? item.qualifications.split(',').length : 'All')} levels</strong></div>
+            </>
+          )}
+          {isBatch && (
+            <>
+              <div><span style={{ color: 'var(--text-muted)' }}>Level:</span> <strong style={{ color: '#93c5fd' }}>{item.level || 'N/A'}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Type:</span> <strong style={{ color: '#cbd5e1' }}>{item.batch_type === 'G' ? 'Group (1:6)' : item.batch_type === 'L' ? 'Limited (1:3)' : 'Individual'}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Trainer:</span> <strong style={{ color: '#34d399' }}>{item.fixed_trainer || 'Unassigned'}</strong></div>
+            </>
+          )}
+        </div>
+
+        {/* 3 Scope Options */}
+        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Choose Deletion Scope:
+          </div>
+
+          {/* Option 1: Remove from Active Schedule */}
+          <div
+            onClick={() => !loading && onChangeScope('remove_from_schedule')}
+            style={{
+              padding: '14px 16px',
+              borderRadius: '10px',
+              border: scope === 'remove_from_schedule'
+                ? '2px solid #3b82f6'
+                : '1px solid rgba(255, 255, 255, 0.1)',
+              background: scope === 'remove_from_schedule'
+                ? 'rgba(59, 130, 246, 0.12)'
+                : 'rgba(255, 255, 255, 0.02)',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <div style={{ marginTop: '2px' }}>
+              <input
+                type="radio"
+                name="deletion_scope"
+                checked={scope === 'remove_from_schedule'}
+                onChange={() => onChangeScope('remove_from_schedule')}
+                disabled={loading}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: '0.92rem', color: scope === 'remove_from_schedule' ? '#60a5fa' : '#fff' }}>
+                  1. Remove from active schedule
+                </strong>
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: 'rgba(34, 197, 94, 0.18)',
+                  color: '#4ade80',
+                  border: '1px solid rgba(34, 197, 94, 0.3)'
+                }}>
+                  Recommended
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                Unlinks upcoming schedule sessions and routes unassigned classes to <strong>Attention Required</strong> for coach reassignment.
+                <br />
+                <span style={{ color: '#34d399', fontSize: '0.78rem' }}>
+                  ✓ Safeguards completed past classes and historical attendance records.
+                </span>
+              </p>
+            </div>
+          </div>
+
+          {/* Option 2: Archive / Soft-delete */}
+          <div
+            onClick={() => !loading && onChangeScope('archive')}
+            style={{
+              padding: '14px 16px',
+              borderRadius: '10px',
+              border: scope === 'archive'
+                ? '2px solid #8b5cf6'
+                : '1px solid rgba(255, 255, 255, 0.1)',
+              background: scope === 'archive'
+                ? 'rgba(139, 92, 246, 0.12)'
+                : 'rgba(255, 255, 255, 0.02)',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <div style={{ marginTop: '2px' }}>
+              <input
+                type="radio"
+                name="deletion_scope"
+                checked={scope === 'archive'}
+                onChange={() => onChangeScope('archive')}
+                disabled={loading}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: '0.92rem', color: scope === 'archive' ? '#a78bfa' : '#fff' }}>
+                  2. Archive / soft-delete
+                </strong>
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: 'rgba(139, 92, 246, 0.18)',
+                  color: '#c4b5fd',
+                  border: '1px solid rgba(139, 92, 246, 0.3)'
+                }}>
+                  Audit-Preserved
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                Removes the item from active operations while permanently preserving all past classes, reports, and attendance in <strong>Deleted Records & Academy Instructions</strong>.
+              </p>
+            </div>
+          </div>
+
+          {/* Option 3: Permanently delete */}
+          <div
+            onClick={() => !loading && onChangeScope('permanent')}
+            style={{
+              padding: '14px 16px',
+              borderRadius: '10px',
+              border: scope === 'permanent'
+                ? '2px solid #ef4444'
+                : '1px solid rgba(255, 255, 255, 0.1)',
+              background: scope === 'permanent'
+                ? 'rgba(239, 68, 68, 0.12)'
+                : 'rgba(255, 255, 255, 0.02)',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              gap: '12px',
+              alignItems: 'flex-start',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <div style={{ marginTop: '2px' }}>
+              <input
+                type="radio"
+                name="deletion_scope"
+                checked={scope === 'permanent'}
+                onChange={() => onChangeScope('permanent')}
+                disabled={loading}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <strong style={{ fontSize: '0.92rem', color: scope === 'permanent' ? '#f87171' : '#fff' }}>
+                  3. Permanently delete
+                </strong>
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  color: '#f87171',
+                  border: '1px solid rgba(239, 68, 68, 0.35)'
+                }}>
+                  Destructive
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                Permanently deletes the selected record from the database. Warning: all relational links will be deleted. This cannot be undone.
+              </p>
+
+              {scope === 'permanent' && (
+                <div style={{
+                  marginTop: '10px',
+                  padding: '8px 12px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <input
+                    type="checkbox"
+                    id="confirmPermanentCheck"
+                    checked={confirmPermanent}
+                    onChange={e => onChangeConfirmPermanent(e.target.checked)}
+                    disabled={loading}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <label htmlFor="confirmPermanentCheck" style={{ fontSize: '0.8rem', color: '#fca5a5', cursor: 'pointer', fontWeight: 600 }}>
+                    I understand this permanently removes this data from the database.
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div style={{
+          padding: '16px 24px',
+          background: 'rgba(0, 0, 0, 0.25)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="btn btn-secondary"
+            style={{ padding: '8px 18px', fontSize: '0.85rem' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading || (scope === 'permanent' && !confirmPermanent)}
+            className="btn btn-primary"
+            style={{
+              padding: '8px 22px',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              background: scope === 'permanent' ? '#dc2626' : (scope === 'archive' ? '#7c3aed' : '#2563eb'),
+              borderColor: scope === 'permanent' ? '#b91c1c' : (scope === 'archive' ? '#6d28d9' : '#1d4ed8'),
+              opacity: (scope === 'permanent' && !confirmPermanent) ? 0.5 : 1,
+              cursor: (scope === 'permanent' && !confirmPermanent) ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            {loading ? (
+              <>Processing...</>
+            ) : (
+              <>
+                <Trash2 size={15} />
+                {scope === 'remove_from_schedule' && 'Remove from Active Schedule'}
+                {scope === 'archive' && 'Archive Record'}
+                {scope === 'permanent' && 'Permanently Delete'}
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

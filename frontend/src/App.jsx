@@ -351,6 +351,8 @@ export default function App() {
               coachScheduleData={output1Data}
               onRunScheduler={handleRunScheduler}
               loading={loading}
+              onRefreshSchedule={handleRefreshCurrentSchedule}
+              onOpenManualEdit={handleOpenManualEdit}
             />
           )}
 
