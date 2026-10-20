@@ -72,6 +72,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def normalize_serverless_routing(request, call_next):
+    """
+    Normalizes incoming request paths across local, Docker, Render, and Vercel serverless environments.
+    Handles rewrites where /api/(.*) -> /api/index.py or proxy headers strip/add prefixes.
+    """
+    path = request.scope.get("path", "")
+    matched_path = request.headers.get("x-matched-path") or request.headers.get("x-vercel-matched-path")
+    if matched_path and matched_path.startswith("/api/") and not path.startswith("/api/"):
+        request.scope["path"] = matched_path
+    elif path.startswith("/api/index.py"):
+        sub = path[len("/api/index.py"):]
+        request.scope["path"] = ("/api" + sub) if sub else "/api/health"
+    elif path.startswith("/index.py"):
+        sub = path[len("/index.py"):]
+        request.scope["path"] = ("/api" + sub) if sub else "/api/health"
+    return await call_next(request)
+
 # In-memory session state for active uploaded data
 ACTIVE_DATA: Dict[str, Any] = {
     "students": [],
@@ -1470,10 +1488,15 @@ def export_monthly_matrix_excel_api(schedule_id: str):
     Dynamically adjusts columns to the exact days of the target month (28, 29, 30, or 31).
     Validates schedule before export; attaches DRAFT / VALIDATION FAILED banner if any violations occur.
     """
-    ensure_active_data()
-    res_dict = get_schedule_db(schedule_id)
+    res_dict = get_schedule_db(schedule_id) if schedule_id not in ("latest", "active") else None
     if not res_dict:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        res_dict = get_latest_schedule_db()
+    if not res_dict:
+        eff = get_effective_schedule("2026-10")
+        if eff and eff.get("scheduled_classes"):
+            res_dict = eff
+        else:
+            raise HTTPException(status_code=404, detail="Schedule not found")
 
     result = ScheduleResult(**res_dict)
     students = [StudentModel(**s) for s in ACTIVE_DATA["students"]]
@@ -1500,10 +1523,15 @@ def validate_schedule_endpoint(schedule_id: str):
     Checks all hard constraints: coach conflicts, student daily uniqueness,
     batch capacities, coach daily/monthly limits, Sunday 3 PM rule, student quotas.
     """
-    ensure_active_data()
-    res_dict = get_schedule_db(schedule_id)
+    res_dict = get_schedule_db(schedule_id) if schedule_id not in ("latest", "active") else None
     if not res_dict:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        res_dict = get_latest_schedule_db()
+    if not res_dict:
+        eff = get_effective_schedule("2026-10")
+        if eff and eff.get("scheduled_classes"):
+            res_dict = eff
+        else:
+            raise HTTPException(status_code=404, detail="Schedule not found")
 
     is_valid, violations = validate_schedule_state(
         res_dict,

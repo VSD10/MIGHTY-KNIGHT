@@ -51,6 +51,31 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
   const studentSeats = coachScheduleData.student_seats ?? 0;
   const needAttention = coachScheduleData.need_attention ?? 0;
 
+const fallbackCopy = (text) => {
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', '');
+    el.style.position = 'absolute';
+    el.style.left = '-9999px';
+    document.body.appendChild(el);
+    el.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(el);
+    return successful;
+  } catch (e) {
+    return false;
+  }
+};
+
+const copyToClipboardSafe = (text) => {
+  if (!text) return Promise.resolve(false);
+  if (navigator?.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true).catch(() => fallbackCopy(text));
+  }
+  return Promise.resolve(fallbackCopy(text));
+};
+
   const handleCopyWhatsApp = () => {
     let text = coachScheduleData.whatsapp_plain_text || '';
     if (hideCompensationMarkers) {
@@ -58,9 +83,10 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
       text = text.replace(/ⓒ/g, '').replace(/\[ⓒ\]/g, '').replace(/  +/g, ' ');
     }
     if (text) {
-      navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
+      copyToClipboardSafe(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      });
     }
   };
 
@@ -91,11 +117,12 @@ export default function CoachScheduleView({ coachScheduleData, onRunScheduler, l
     });
     const text = lines.join("\n");
     if (text) {
-      navigator.clipboard.writeText(text);
-      setCopiedDate(dateStr);
-      setDayCopyToast(`${group.day} Schedule Copied!`);
-      setTimeout(() => setCopiedDate(null), 3000);
-      setTimeout(() => setDayCopyToast(null), 3500);
+      copyToClipboardSafe(text).then(() => {
+        setCopiedDate(dateStr);
+        setDayCopyToast(`${group.day} Schedule Copied!`);
+        setTimeout(() => setCopiedDate(null), 3000);
+        setTimeout(() => setDayCopyToast(null), 3500);
+      });
     }
   };
 

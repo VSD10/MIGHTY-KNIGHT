@@ -15,24 +15,32 @@ def get_db_path() -> str:
     env_path = os.environ.get("CHESS_DB_PATH")
     if env_path:
         return os.path.abspath(env_path)
+
+    curr_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        DEFAULT_DB_PATH,
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "data", "chess_scheduler.db")),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "..", "data", "chess_scheduler.db")),
+        os.path.abspath(os.path.join(BASE_DIR, "data", "chess_scheduler.db")),
+        os.path.abspath(os.path.join(BASE_DIR, "..", "data", "chess_scheduler.db"))
+    ]
+
     # Vercel serverless environment: root filesystem is read-only, copy to /tmp for write access
     if os.environ.get("VERCEL"):
         tmp_db = "/tmp/chess_scheduler.db"
-        if not os.path.exists(tmp_db) and os.path.exists(DEFAULT_DB_PATH):
+        if not os.path.exists(tmp_db) or os.path.getsize(tmp_db) < 1000:
             import shutil
-            try:
-                shutil.copy2(DEFAULT_DB_PATH, tmp_db)
-            except Exception as e:
-                print("Notice: Could not copy DB to /tmp:", e)
+            for cand in candidates:
+                if os.path.exists(cand) and os.path.getsize(cand) > 1000:
+                    try:
+                        shutil.copy2(cand, tmp_db)
+                        print(f"[VERCEL] Successfully copied seed database from {cand} to {tmp_db} ({os.path.getsize(tmp_db)} bytes)", flush=True)
+                        break
+                    except Exception as e:
+                        print(f"[VERCEL] Notice: Could not copy DB from {cand} to /tmp: {e}", flush=True)
         return tmp_db
 
     # Canonical resolution: prioritize populated database
-    curr_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.abspath(os.path.join(curr_dir, "..", "..", "data", "chess_scheduler.db")),
-        os.path.abspath(os.path.join(curr_dir, "..", "..", "..", "data", "chess_scheduler.db")),
-        DEFAULT_DB_PATH
-    ]
     for cand in candidates:
         if os.path.exists(cand) and os.path.getsize(cand) > 1000:
             return cand
@@ -1178,8 +1186,12 @@ def seed_october_baseline_if_missing(db_path: Optional[str] = None):
         seed_november_and_december_baselines_if_missing(target_path)
         return
 
-    # Check for pre-compiled JSON reference
+    curr_dir = os.path.dirname(os.path.abspath(__file__))
     ref_json_paths = [
+        os.path.join(BASE_DIR, "data", "reference_oct_schedule.json"),
+        os.path.join(BASE_DIR, "..", "data", "reference_oct_schedule.json"),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "data", "reference_oct_schedule.json")),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "..", "data", "reference_oct_schedule.json")),
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "reference_oct_schedule.json"),
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backend", "data", "reference_oct_schedule.json")
     ]
@@ -1264,7 +1276,12 @@ def seed_september_baseline_if_missing(db_path: Optional[str] = None):
     if cnt > 0:
         return
 
+    curr_dir = os.path.dirname(os.path.abspath(__file__))
     cand_paths = [
+        os.path.join(BASE_DIR, "data", "september_raw.txt"),
+        os.path.join(BASE_DIR, "..", "data", "september_raw.txt"),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "data", "september_raw.txt")),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "..", "data", "september_raw.txt")),
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "september_raw.txt"),
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backend", "data", "september_raw.txt")
     ]
@@ -1276,6 +1293,10 @@ def seed_september_baseline_if_missing(db_path: Optional[str] = None):
     from collections import defaultdict, Counter
 
     ref_json_paths = [
+        os.path.join(BASE_DIR, "data", "reference_oct_schedule.json"),
+        os.path.join(BASE_DIR, "..", "data", "reference_oct_schedule.json"),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "data", "reference_oct_schedule.json")),
+        os.path.abspath(os.path.join(curr_dir, "..", "..", "..", "data", "reference_oct_schedule.json")),
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "reference_oct_schedule.json"),
         os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backend", "data", "reference_oct_schedule.json")
     ]
