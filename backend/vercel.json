@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "functions": {
+    "app/main.py": {
+      "includeFiles": "data/**",
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "app/main.py"
+    }
+  ]
+}
